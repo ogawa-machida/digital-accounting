@@ -574,6 +574,37 @@ function writeLog(action, e, detail){
   }).catch(()=>{});
 }
 
+/* ---------- メール通知（Google Apps Script 経由） ----------
+   GASは送信者のログイン情報（IDトークン）でデータベースを読み直してから
+   会計のGoogleアドレスへメールを送る。画面側から本文を渡さないので、なりすましや
+   でたらめな内容の送信はできない。 */
+async function notify(action, extra, url){
+  const target = url || settings.notifyUrl;
+  if (!target || !auth || !auth.currentUser) return { ok:false, error:'通知先URLが未設定です' };
+  try {
+    const idToken = await auth.currentUser.getIdToken();
+    const res = await fetch(target, {
+      method:'POST',
+      headers:{ 'Content-Type':'text/plain;charset=utf-8' },   // プリフライトを避けるため text/plain
+      body: JSON.stringify({ action, idToken, appUrl: location.origin + location.pathname, ...(extra||{}) })
+    });
+    return await res.json().catch(()=>({ ok:true }));
+  } catch(e) { console.warn('メール通知に失敗', e); return { ok:false, error:String(e.message||e) }; }
+}
+function notifyEntries(ids){
+  if (!ids.length || settings.notifyOnEntry===false) return;
+  notify('entry', { entryIds: ids });
+}
+/* 会計担当の一覧が変わったら、GAS側の送信先を更新する（会計のみ実行可能） */
+let lastRecipientKey = '';
+function syncRecipients(force){
+  if (!isT() || !settings.notifyUrl || !members.length) return;
+  const key = members.filter(m=>m.role==='treasurer').map(m=>m.email).sort().join(',') + '|' + settings.notifyUrl;
+  if (!force && key===lastRecipientKey) return;
+  lastRecipientKey = key;
+  notify('register').then(r => { if (force) showToast(r && r.ok ? `送信先を登録しました（${(r.recipients||[]).join('、')}）` : `登録に失敗：${r && r.error || ''}`); });
+}
+
 /* ---------- 起動 ---------- */
 const params = new URLSearchParams(location.search);
 if (!CONFIGURED) { hideAllRoots(); $('setupScreen').style.display='block'; }
@@ -664,6 +695,10 @@ async function enterAs(user){
       await seedDefaults();
     } else {
       await mref.set({ name:user.displayName||'', email:user.email||'', role:'pending', requestedAt:TS() });
+      try {
+        const st = (await R('settings').get()).val() || {};
+        if (st.notifyUrl && st.notifyOnMember!==false) notify('member', null, st.notifyUrl);
+      } catch(e){}
     }
   }
   // 自分の権限の変化をリアルタイムで反映
@@ -684,6 +719,12 @@ async function enterAs(user){
     $('roleBadge').textContent = ROLES[v.role]?.name || '';
     $('userName').textContent = v.name || '';
     renderAll();
+    const openId = params.get('open');
+    if (openId && !window.__opened) {
+      window.__opened = true;
+      history.replaceState(null, '', location.pathname);
+      setTimeout(() => openDetail(openId), 1200);   // データの読み込みを待ってから開く
+    }
   });
   listeners.push(()=>mref.off('value', h));
 }
@@ -763,7 +804,7 @@ function attachData(){
     onData(R('entries').orderByChild('settleState').equalTo('pending'), s => { pendingMap = objWithIds(s.val()); renderAll(); });
     onData(R('advances'), s => { advances = toArr(s.val()); renderAll(); });
     onData(R('settlements'), s => { settlements = toArr(s.val()).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)); renderAll(); });
-    onData(R('members'), s => { members = toArr(s.val()); renderAll(); });
+    onData(R('members'), s => { members = toArr(s.val()); syncRecipients(); renderAll(); });
     onData(R('log').limitToLast(300), s => { logs = toArr(s.val()).sort((a,b)=>(b.at||0)-(a.at||0)); if (currentScreen==='auditScreen') renderAudit(); });
   } else if (isP() && me.payerId) {
     onData(R('entries').orderByChild('payerId').equalTo(me.payerId), s => { mineMap = objWithIds(s.val()); renderAll(); });
@@ -1410,6 +1451,7 @@ $('formSaveBtn').onclick = async () => {
       noReceipt, noReceiptReason: noReceipt ? $('fNoReceiptReason').value.trim() : '',
       excludePublic: $('fExclude').checked, addressee: formAddressee
     }, formPhotos, photosChanged);
+    if (saved.status==='submitted' && (!editing || editing.status!=='submitted')) notifyEntries([saved.id]);
     showToast(isP() ? '申請しました。会計の確認をお待ちください' : '保存しました');
     openDetail(saved.id, saved);
   } catch(e) {
@@ -1995,6 +2037,14 @@ function renderSettings(){
       </div>`).join('') +
       `<p class="hint">会計＝全操作／監査＝全件閲覧と監査チェック／役員＝全件閲覧のみ／支払者＝自分の申請と精算確認。本部役員も会計へ申請する場合は「支払者」にします。</p>`;
 
+    const trs = members.filter(m=>m.role==='treasurer');
+    html += `<h2 class="section-title" style="margin-top:20px">承認依頼のメール通知</h2><div class="form-card">
+      <p class="hint" style="margin-top:0">支出の申請や利用申請が来たとき、会計担当（${trs.map(m=>esc(m.email)).join('、')||'未登録'}）のGoogleアドレスへ自動でメールを送ります。送信にはGoogle Apps Script（無料）を使います。</p>
+      <div class="field"><label>通知用 Apps Script のURL</label><input type="text" id="nUrl" value="${esc(settings.notifyUrl||'')}" placeholder="https://script.google.com/macros/s/…/exec"></div>
+      <label class="check-line" style="margin-bottom:6px"><input type="checkbox" id="nEntry" ${settings.notifyOnEntry!==false?'checked':''}> 支出の申請（承認依頼）が届いたとき</label>
+      <label class="check-line" style="margin-bottom:12px"><input type="checkbox" id="nMember" ${settings.notifyOnMember!==false?'checked':''}> 新しい人から利用申請が届いたとき</label>
+      <div class="btn-row"><button class="btn btn-ghost" id="nTest">テスト送信</button><button class="btn btn-primary" id="nSave">保存して送信先を登録</button></div>
+      <p class="hint">会計担当を追加・変更すると、送信先も自動で更新されます。</p></div>`;
     const pub = settings.publicDetail || 'items';
     html += `<h2 class="section-title" style="margin-top:20px">会員向けの会計報告</h2><div class="form-card">
       <p class="hint" style="margin-top:0">会員がログインなしで見られるページです。科目別の予算と実績、月別の支出、用途ごとの明細を公開します。支払先・支払者名・写真・メモは公開されません。</p>
@@ -2094,6 +2144,7 @@ function bindSettings(){
     await R(`members/${m.id}/role`).set(s.value);
     writeLog('権限変更', null, `${m.name}：${ROLES[m.role]?.name}→${ROLES[s.value]?.name}`);
     showToast(`${m.name}さんを「${ROLES[s.value].name}」にしました`);
+    if (s.value==='treasurer' || m.role==='treasurer') setTimeout(()=>syncRecipients(), 800);
   });
   q('[data-link]').forEach(s => s.onchange = async () => {
     const m = members.find(x=>x.id===s.dataset.link);
@@ -2102,6 +2153,22 @@ function bindSettings(){
     showToast('紐付けを保存しました');
   });
   $('pubDetail').onchange = () => R('settings/publicDetail').set($('pubDetail').value);
+  $('nEntry').onchange = e => R('settings/notifyOnEntry').set(e.target.checked);
+  $('nMember').onchange = e => R('settings/notifyOnMember').set(e.target.checked);
+  $('nSave').onclick = async () => {
+    const url = $('nUrl').value.trim();
+    if (url && !/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(url)) return showToast('URLは https://script.google.com/macros/s/…/exec の形です');
+    await R('settings/notifyUrl').set(url || null);
+    writeLog('通知設定', null, url ? 'メール通知URLを設定' : 'メール通知を解除');
+    if (url) { settings.notifyUrl = url; syncRecipients(true); } else showToast('メール通知を解除しました');
+  };
+  $('nTest').onclick = async () => {
+    const url = $('nUrl').value.trim(); if (!url) return showToast('URLを入力してください');
+    $('nTest').disabled = true;
+    const r = await notify('test', null, url);
+    $('nTest').disabled = false;
+    showToast(r && r.ok ? `テストメールを送りました（${(r.recipients||[]).join('、')}）` : `送信できませんでした：${r && r.error || '不明なエラー'}`);
+  };
   $('pubDo').onclick = publishReport;
   $('pubStop').onclick = async () => {
     if (!confirm(`${curFY}年度の会計報告を非公開にしますか？`)) return;
@@ -2356,20 +2423,22 @@ async function saveBatch(){
   if (bad) { renderBatchList(); return showToast(`${bad}件に未入力があります（赤枠）。日付・金額・科目・支払方法・支払った人を確認してください`); }
   if (!confirm(`${targets.length}件、合計${yen(targets.reduce((s,i)=>s+i.f.amount,0))}を${isP()?'申請':'登録'}します。よろしいですか？`)) return;
   const btn = $('bSave'); btn.disabled = true;
-  let ok = 0;
+  let ok = 0; const submittedIds = [];
   for (const it of targets) {
     btn.textContent = `登録中… ${ok+1}／${targets.length}`;
     try {
       const f = it.f;
-      await persistEntry(null, {
+      const saved = await persistEntry(null, {
         type:'expense', date:f.date, amount:f.amount, payee:f.payee.trim(), purpose:f.purpose.trim(), memo:f.memo||'',
         accountId:f.accountId, methodId:f.methodId, payerId: isP() ? me.payerId : (f.payerId||null),
         storageLocation:(f.storageLocation||'').trim(), noReceipt:false, noReceiptReason:'', excludePublic:false,
         addressee:f.addressee||'', _via:'まとめて読み込み'
       }, [it.photo], true);
       it.state = 'saved'; ok++;
+      if (saved.status==='submitted') submittedIds.push(saved.id);
     } catch(e){ console.error(e); it.state='error'; it.msg='保存に失敗しました'; }
   }
+  notifyEntries(submittedIds);
   showToast(`${ok}件を${isP()?'申請':'登録'}しました`);
   if (batchItems.every(i=>i.state==='saved')) { batchItems = []; showScreen(isP()?'homeScreen':'bookScreen'); }
   else renderBatchList();
