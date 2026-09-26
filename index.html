@@ -264,6 +264,33 @@ table.pub td, table.pub th{padding:7px 6px; border-bottom:1px solid var(--line);
 table.pub td.r, table.pub th.r{text-align:right; font-family:'DotGothic16',monospace; white-space:nowrap;}
 table.pub th{font-family:'Shippori Mincho',serif; background:var(--tint);}
 .tbl-wrap{overflow-x:auto;}
+
+/* まとめて読み込み・予算取り込み */
+.batch-card{background:var(--card); border:1px solid var(--line); border-radius:8px; padding:10px; margin-bottom:10px; display:flex; gap:10px; box-shadow:var(--shadow);}
+.batch-card.invalid{border-color:var(--stamp-red); box-shadow:0 0 0 2px rgba(180,67,44,.15);}
+.batch-card.off{opacity:.45;}
+.batch-card .b-img{width:74px; flex-shrink:0; display:flex; flex-direction:column; gap:6px; align-items:center;}
+.batch-card .b-img img{width:74px; height:96px; object-fit:cover; border-radius:4px; border:1px solid var(--line); cursor:zoom-in;}
+.batch-card .b-body{flex:1; min-width:0; display:grid; grid-template-columns:1fr 1fr; gap:6px;}
+.batch-card .b-body .wide{grid-column:1 / -1;}
+.batch-card input, .batch-card select{width:100%; min-width:0; border:1px solid var(--line); border-radius:6px; padding:7px 8px; font-size:13.5px; font-family:inherit; background:#fff; color:var(--ink);}
+.batch-card input.num{font-family:'DotGothic16',monospace; font-size:15px;}
+.b-state{font-size:11px; color:var(--ink-soft);}
+.b-state.err{color:var(--stamp-red);}
+.b-warn{font-size:11px; color:var(--amber); grid-column:1 / -1;}
+.spinner{display:inline-block; width:12px; height:12px; border:2px solid var(--line); border-top-color:var(--stamp-red); border-radius:50%; animation:spin .8s linear infinite; vertical-align:-2px;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.imp-row{display:grid; grid-template-columns:22px 1fr 110px; gap:6px 8px; align-items:center; padding:8px 0; border-bottom:1px dashed var(--line);}
+.imp-row input[type=checkbox]{width:18px; height:18px; accent-color:var(--stamp-red);}
+.imp-row input[type=text], .imp-row input[type=number], .imp-row select{width:100%; min-width:0; border:1px solid var(--line); border-radius:6px; padding:7px 8px; font-size:13.5px; font-family:inherit; background:#fff;}
+.imp-row input[type=number]{font-family:'DotGothic16',monospace; text-align:right;}
+.imp-row .imp-sub{grid-column:2 / -1; display:flex; gap:8px; align-items:center; font-size:11px; color:var(--ink-soft);}
+.imp-row .imp-sub select{flex:1;}
+.imp-row.off{opacity:.45;}
+.total-check{display:flex; justify-content:space-between; font-size:12.5px; padding:8px 10px; border-radius:6px; margin-top:8px; background:var(--tint);}
+.total-check.ng{background:#F7E3DD; color:var(--stamp-red);}
+.big-photo{position:fixed; inset:0; background:rgba(0,0,0,.85); z-index:80; display:flex; align-items:center; justify-content:center; padding:16px;}
+.big-photo img{max-width:100%; max-height:100%; border-radius:6px;}
 </style>
 </head>
 <body>
@@ -288,6 +315,7 @@ table.pub th{font-family:'Shippori Mincho',serif; background:var(--tint);}
       Googleでログイン
     </button>
     <button class="text-link" onclick="openPublic()">会員向けの会計報告を見る（ログイン不要）</button>
+    <p id="loginError" style="color:var(--stamp-red);font-size:12px;"></p>
   </div>
 </div>
 
@@ -422,6 +450,11 @@ table.pub th{font-family:'Shippori Mincho',serif; background:var(--tint);}
     <section id="settleScreen" class="screen"></section>
     <section id="auditScreen" class="screen"></section>
     <section id="settingsScreen" class="screen"></section>
+    <section id="batchScreen" class="screen"></section>
+    <section id="budgetImportScreen" class="screen"></section>
+    <input type="file" id="batchInput" accept="image/*" multiple style="display:none;">
+    <input type="file" id="batchCamera" accept="image/*" capture="environment" style="display:none;">
+    <input type="file" id="budgetInput" accept="image/*" multiple style="display:none;">
   </main>
 
   <button class="fab" id="fabAdd" aria-label="新しく登録">＋</button>
@@ -484,6 +517,7 @@ let bookFilter = { status:'all', q:'', account:'', method:'', payer:'' };
 let auditFilter = 'todo';
 let settleView = null;         // 精算画面で開いている支払者ID
 let detailId = null;
+let sharedKey = null;          // 町内会共通のClaude APIキー（会計が設定した場合）
 
 /* ---------- ユーティリティ ---------- */
 function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -541,7 +575,31 @@ else if (params.get('view')==='public') { openPublic(); }
 else { startAuth(); }
 
 function startAuth(){
-  $('googleLoginBtn').onclick = () => auth.signInWithPopup(new firebase.auth.GoogleAuthProvider()).catch(()=>showToast('ログインに失敗しました'));
+  const LOGIN_ERRORS = {
+    'auth/unauthorized-domain':'このURLがFirebaseの「承認済みドメイン」に登録されていません',
+    'auth/operation-not-allowed':'FirebaseでGoogleログインが有効になっていません',
+    'auth/configuration-not-found':'FirebaseでAuthenticationが開始されていません',
+    'auth/invalid-api-key':'firebaseConfigのapiKeyが正しくありません',
+    'auth/network-request-failed':'通信に失敗しました。電波の良い場所で再度お試しください'
+  };
+  const showLoginError = e => {
+    console.error(e);
+    const msg = LOGIN_ERRORS[e.code] || 'ログインに失敗しました';
+    showToast(`${msg}（${e.code||'unknown'}）`);
+    $('loginError').textContent = `エラーコード：${e.code||'unknown'}　${msg}`;
+  };
+  auth.getRedirectResult().catch(showLoginError);
+  $('googleLoginBtn').onclick = () => {
+    const provider = new firebase.auth.GoogleAuthProvider();
+    auth.signInWithPopup(provider).catch(e => {
+      // ポップアップがブロックされる環境（ホーム画面から起動したアプリ等）ではページ遷移方式に切り替える
+      if (['auth/popup-blocked','auth/operation-not-supported-in-this-environment','auth/cancelled-popup-request'].includes(e.code)) {
+        auth.signInWithRedirect(provider).catch(showLoginError);
+      } else if (e.code !== 'auth/popup-closed-by-user') {
+        showLoginError(e);
+      }
+    });
+  };
   $('logoutBtn').onclick = () => { if (confirm('ログアウトしますか？')) auth.signOut(); };
   auth.onAuthStateChanged(async user => {
     detachAll();
@@ -629,6 +687,7 @@ function attachData(){
   onData(R('payers'),   s => { payers   = toArr(s.val()).sort((a,b)=>(a.order||0)-(b.order||0) || (a.name||'').localeCompare(b.name||'','ja')); renderAll(); });
   onData(R('storageTags'), s => { storageTags = toArr(s.val()).map(t=>t.name).sort((a,b)=>a.localeCompare(b,'ja')); });
   onData(R('auditReports'), s => { auditReports = s.val()||{}; renderAll(); });
+  onData(R('secrets/claudeKey'), s => { sharedKey = s.val() || null; });
 
   if (isStaff()) {
     onData(R('entries').orderByChild('settleState').equalTo('pending'), s => { pendingMap = objWithIds(s.val()); renderAll(); });
@@ -683,7 +742,7 @@ function buildNav(){
   if (!navItems().some(n=>n[0]===currentScreen)) currentScreen='homeScreen';
   showScreen(currentScreen);
 }
-const TITLES = { homeScreen:'ホーム', bookScreen:'出納帳', settleScreen:'精算', auditScreen:'監査', settingsScreen:'設定', formScreen:'登録', detailScreen:'伝票' };
+const TITLES = { homeScreen:'ホーム', bookScreen:'出納帳', settleScreen:'精算', auditScreen:'監査', settingsScreen:'設定', formScreen:'登録', detailScreen:'伝票', batchScreen:'まとめて読み込み', budgetImportScreen:'予算の取り込み' };
 function showScreen(id){
   currentScreen = id;
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
@@ -833,6 +892,7 @@ function renderHome(){
   if (people.length) html += `<button class="notice navy" data-go="settle"><span class="n-body">精算待ち ${people.length}人<span class="n-sub">支払い ${yen(toPay)}／返金受取 ${yen(toBack)}</span></span><span class="n-val">›</span></button>`;
   html += `<button class="notice moss" data-go="audit"><span class="n-body">監査の進み具合<span class="n-sub">${report ? `監査完了（${fmtTs(report.at)} ${esc(report.byName)}）` : `${ap.length}件中 ${audited}件 確認済み`}</span></span><span class="n-val">${ap.length?Math.round(audited/ap.length*100):0}%</span></button>`;
 
+  if (isT()) html += `<button class="btn btn-navy full" id="homeBatchBtn" style="margin:4px 0 12px">📚 レシート・領収証をまとめて読み込む</button>`;
   html += budgetPanel(ap);
 
   const recent = fyEntries().sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0)).slice(0,5);
@@ -840,6 +900,7 @@ function renderHome(){
   html += recent.length ? recent.map(slipHTML).join('') : `<div class="empty"><div class="mark-big">記録<br>なし</div>${isT()?'右下の＋から収入・支出を登録しましょう':'まだ記録がありません'}</div>`;
   el.innerHTML = html;
   bindSlips(el);
+  if ($('homeBatchBtn')) $('homeBatchBtn').onclick = () => openBatch();
   el.querySelectorAll('[data-go]').forEach(b => b.onclick = () => {
     const g = b.dataset.go;
     if (g==='settle') showScreen('settleScreen');
@@ -883,12 +944,13 @@ function renderPayerHome(el){
   if (submitted.length) html += `<button class="notice amber" data-go="submitted"><span class="n-body">承認待ち<span class="n-sub">会計が確認中です</span></span><span class="n-val">${submitted.length}件</span></button>`;
   if (unconfirmed.length) html += `<button class="notice navy" data-go="settle"><span class="n-body">精算の受取確認をお願いします<span class="n-sub">会計が精算を記録しました</span></span><span class="n-val">${unconfirmed.length}件</span></button>`;
   if (b.advs.length) html += `<div class="notice moss"><span class="n-body">預かっている仮払金<span class="n-sub">使ったら「仮払金から支払」で申請してください</span></span><span class="n-val">${yen(b.adv)}</span></div>`;
-  html += `<button class="btn btn-primary full" id="payerNewBtn" style="margin:6px 0 16px;">＋ 支出を申請する（領収証を撮影）</button>`;
+  html += `<div class="btn-row" style="margin:6px 0 16px;"><button class="btn btn-primary" id="payerNewBtn">＋ 1件ずつ申請</button><button class="btn btn-navy" id="payerBatchBtn">📚 まとめて読み込み</button></div>`;
   const recent = mine.sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0)).slice(0,5);
   html += `<h2 class="section-title">最近の申請</h2>` + (recent.length ? recent.map(slipHTML).join('') : `<div class="empty">まだ申請はありません</div>`);
   el.innerHTML = html;
   bindSlips(el);
   $('payerNewBtn').onclick = () => openForm(null);
+  $('payerBatchBtn').onclick = () => openBatch();
   el.querySelectorAll('[data-go]').forEach(x => x.onclick = () => {
     if (x.dataset.go==='settle') showScreen('settleScreen'); else { bookFilter.status = x.dataset.go; showScreen('bookScreen'); }
   });
@@ -970,7 +1032,7 @@ let editing = null;       // 編集中の伝票（新規はnull）
 let formType = 'expense';
 let formPhotos = [];      // dataURLの配列
 let photosChanged = false;
-let formAccount = '', formMethod = '';
+let formAccount = '', formMethod = '', formAddressee = '';
 
 async function openForm(e){
   if (isP() && !me.payerId) { showToast('支払者名簿との紐付けが済んでいません'); return; }
@@ -978,6 +1040,7 @@ async function openForm(e){
   formType = e ? e.type : 'expense';
   formAccount = e ? e.accountId : '';
   formMethod = e ? e.methodId : '';
+  formAddressee = e ? (e.addressee||'') : '';
   formPhotos = []; photosChanged = false;
   $('formTitle').textContent = e ? `${e.voucherNo||''} を修正` : (isP() ? '支出を申請' : '収入・支出を登録');
   $('fTypeField').style.display = (isT() && !e) ? 'block' : 'none';
@@ -1110,50 +1173,148 @@ function compressImage(src, maxSize, quality){
   });
 }
 
-/* ---------- AI読み取り（APIキーはこの端末のみに保存） ---------- */
+/* ---------- AI読み取り ----------
+   APIキーは「この端末だけのキー」→「町内会共通キー」の順に使う */
 const API_KEY_STORAGE = 'chokaiKaikei_claudeApiKey';
-function getApiKey(){ try { return localStorage.getItem(API_KEY_STORAGE); } catch(e){ return null; } }
+function getLocalKey(){ try { return localStorage.getItem(API_KEY_STORAGE); } catch(e){ return null; } }
+function getApiKey(){ return getLocalKey() || sharedKey || null; }
+
+async function callClaude(images, system, prompt, maxTokens){
+  const key = getApiKey();
+  if (!key) throw new Error('NOKEY');
+  const content = images.map(d => {
+    const c = d.indexOf(',');
+    return { type:'image', source:{ type:'base64', media_type:(d.slice(5,c).split(';')[0]||'image/jpeg'), data:d.slice(c+1) } };
+  });
+  content.push({ type:'text', text:prompt });
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method:'POST',
+    headers:{ 'Content-Type':'application/json', 'x-api-key':key, 'anthropic-version':'2023-06-01', 'anthropic-dangerous-direct-browser-access':'true' },
+    body: JSON.stringify({ model:'claude-sonnet-4-6', max_tokens:maxTokens||1000, system, messages:[{ role:'user', content }] })
+  });
+  if (!res.ok) throw new Error('API ' + res.status);
+  const data = await res.json();
+  const text = (data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('').replace(/```json|```/g,'').trim();
+  const s = text.indexOf('{'), e = text.lastIndexOf('}');
+  return JSON.parse(text.slice(s, e+1));
+}
+function aiErrorText(e){
+  const m = String(e && e.message || '');
+  if (m==='NOKEY') return 'AIのAPIキーが未設定です（設定画面で登録）';
+  if (m.includes('401')) return 'APIキーが無効です';
+  if (m.includes('429')) return 'AIの利用が混み合っています。少し待って再試行してください';
+  if (m.includes('529') || m.includes('500')) return 'AIが一時的に応答していません';
+  return '読み取れませんでした';
+}
+const nullish = v => (v===null || v===undefined || v==='null' || v==='') ? null : v;
+
+/* レシート・領収証・振込控え 1枚を読み取る */
+async function recognizeReceipt(dataUrl, type){
+  const accNames = accounts.filter(a=>a.type===(type||'expense') && a.active).map(a=>a.name);
+  const r = await callClaude([dataUrl],
+    'あなたは町内会・自治会の会計担当を手伝うアシスタントです。レシート・領収証・振込控え・請求書の画像から情報を抽出し、JSONオブジェクトのみを出力します。前後の説明文やコードブロック記号は付けません。',
+    `次の形式のJSONのみで出力してください。
+{"date":"支払日 YYYY-MM-DD（不明ならnull）","payee":"店名・支払先（不明ならnull）","amount":税込合計の数値（不明なら0）,"items":"品目の簡潔なメモ（30文字程度）","purpose":"町内会の用途として自然な短い説明（例：役員会の茶菓子、防災倉庫の備品）","account":"次の科目から最も近いもの：${accNames.join('、')}","payMethod":"支払手段。cash / credit / qr / emoney / transfer / unknown のいずれか","addressee":"領収証の宛名（上様・空欄ならその文字、なければnull）","docType":"receipt / invoice / transfer / other のいずれか"}
+和暦は西暦に変換してください。金額は値引き後・税込の支払総額です。お預り・お釣りの金額と取り違えないでください。`);
+  return {
+    date: nullish(r.date), payee: nullish(r.payee), amount: Math.round(Number(r.amount)||0),
+    items: nullish(r.items), purpose: nullish(r.purpose), payMethod: nullish(r.payMethod)||'unknown',
+    addressee: nullish(r.addressee), docType: nullish(r.docType),
+    accountId: (accounts.find(a=>a.type===(type||'expense') && a.active && a.name===r.account)||{}).id || ''
+  };
+}
+
+/* 読み取った支払手段から、登録済みの支払方法を推定する */
+function suggestMethod(payMethod, withPayer){
+  const act = methods.filter(m=>m.active && m.use!=='income');
+  const find = (settle, ...kws) => act.find(m => !!m.settle===settle && kws.some(k=>m.name.includes(k)));
+  let m = null;
+  if (withPayer) {
+    if (payMethod==='credit') m = find(true,'クレジット','カード');
+    else if (payMethod==='qr' || payMethod==='emoney') m = find(true,'QR','電子');
+    else if (payMethod==='transfer') m = find(true,'振込');
+    m = m || find(true,'現金') || act.find(x=>x.settle);
+  } else {
+    if (payMethod==='transfer') m = find(false,'振込','口座');
+    else if (payMethod==='credit' || payMethod==='qr' || payMethod==='emoney') m = find(false,'カード','QR','名義');
+    else if (payMethod==='cash') m = find(false,'現金');
+  }
+  return m ? m.id : '';
+}
+
 $('aiReadBtn').onclick = () => { if (formPhotos[0]) runAi(formPhotos[0]); };
 async function runAi(dataUrl){
-  const key = getApiKey();
-  if (!key) { showToast('設定画面でClaude APIキーを登録するとAI読み取りが使えます'); return; }
+  if (!getApiKey()) { showToast('設定画面でClaude APIキーを登録するとAI読み取りが使えます'); return; }
   const btn = $('aiReadBtn'); const orig = btn.textContent;
-  btn.disabled = true; btn.textContent = 'AIが読み取り中…';
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> AIが読み取り中…';
   try {
-    const comma = dataUrl.indexOf(',');
-    const mediaType = dataUrl.slice(5, comma).split(';')[0] || 'image/jpeg';
-    const accNames = accounts.filter(a=>a.type===formType && a.active).map(a=>a.name);
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method:'POST',
-      headers:{ 'Content-Type':'application/json', 'x-api-key':key, 'anthropic-version':'2023-06-01', 'anthropic-dangerous-direct-browser-access':'true' },
-      body: JSON.stringify({
-        model:'claude-sonnet-4-6', max_tokens:1000,
-        system:'あなたは町内会の会計担当を手伝うアシスタントです。レシート・領収書・振込控えの画像から情報を抽出し、JSONオブジェクトのみを出力します。前後の説明文やコードブロック記号は付けません。',
-        messages:[{ role:'user', content:[
-          { type:'image', source:{ type:'base64', media_type:mediaType, data:dataUrl.slice(comma+1) } },
-          { type:'text', text:`次の形式のJSONのみで出力してください。\n{"date":"YYYY-MM-DD（不明ならnull）","payee":"店名・支払先（不明ならnull）","amount":税込合計の数値（不明なら0）,"items":"品目の簡潔なメモ（30文字程度）","account":"次の科目から最も近いもの：${accNames.join('、')}"}\n和暦は西暦に変換してください。` }
-        ]}]
-      })
-    });
-    if (!res.ok) throw new Error('API ' + res.status);
-    const data = await res.json();
-    const text = (data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('').replace(/```json|```/g,'').trim();
-    const r = JSON.parse(text);
-    if (r.date && r.date!=='null') $('fDate').value = r.date;
-    if (r.payee && r.payee!=='null') $('fPayee').value = r.payee;
-    if (Number(r.amount)) $('fAmount').value = Number(r.amount);
+    const r = await recognizeReceipt(dataUrl, formType);
+    if (r.date) $('fDate').value = r.date;
+    if (r.payee) $('fPayee').value = r.payee;
+    if (r.amount) $('fAmount').value = r.amount;
     if (r.items && !$('fMemo').value) $('fMemo').value = r.items;
-    const acc = accounts.find(a=>a.type===formType && a.active && a.name===r.account);
-    if (acc && !formAccount) { formAccount = acc.id; renderAccountPicker(); }
-    showToast('読み取りました。内容を確認してから保存してください');
+    if (r.purpose && !$('fPurpose').value) $('fPurpose').value = r.purpose;
+    formAddressee = r.addressee || '';
+    if (r.accountId && !formAccount) { formAccount = r.accountId; renderAccountPicker(); }
+    if (formType==='expense' && !formMethod) {
+      const mid = suggestMethod(r.payMethod, isP() || !!$('fPayer').value);
+      if (mid) { formMethod = mid; renderMethodPicker(); renderPayerSelect(); }
+    }
+    const warn = addresseeWarning(formAddressee);
+    showToast(warn ? `読み取りました。${warn}` : '読み取りました。内容を確認してから保存してください');
   } catch(e) {
-    console.error(e);
-    showToast(String(e.message).includes('401') ? 'APIキーが無効です。設定画面で登録し直してください' : '読み取りに失敗しました。手入力してください');
+    console.error(e); showToast(aiErrorText(e) + '。手入力してください');
   } finally { btn.disabled=false; btn.textContent=orig; }
+}
+
+/* 宛名のチェック（上様・個人名など団体名以外） */
+function orgCore(){ return (settings.orgName||'').replace(/[〇○]/g,'').replace(/(町内会|自治会|町会)$/,'').trim(); }
+function addresseeWarning(a){
+  if (!a) return '';
+  if (/上様|空欄/.test(a)) return '宛名が「上様」です。団体名の領収証だと監査が安心です';
+  const core = orgCore();
+  if (core && !a.includes(core)) return `宛名が「${a}」です（団体名ではありません）`;
+  return '';
 }
 
 /* ---------- 保存 ---------- */
 $('formCancelBtn').onclick = () => { editing ? openDetail(editing.id) : showScreen('homeScreen'); };
+/* 伝票を1件保存する（フォームとまとめて読み込みで共通） */
+async function persistEntry(prev, f, photos, photosChanged){
+  const m = methodById(f.methodId);
+  const fy = fyOf(f.date);
+  const ref = prev ? R(`entries/${prev.id}`) : R('entries').push();
+  let voucherNo = prev ? prev.voucherNo : null;
+  if (!voucherNo) {
+    const tx = await R(`counters/${fy}`).transaction(n => (n||0)+1);
+    voucherNo = `${fy}-${pad(tx.snapshot.val(),3)}`;
+  }
+  const p = prev || {};
+  let thumb = p.thumb || null;
+  if (photosChanged) thumb = photos[0] ? await compressImage(photos[0], 160, 0.6) : null;
+  const settle = f.type==='expense' && !!(m && m.settle);
+  const status = isT() ? (p.status==='submitted' ? 'submitted' : 'approved') : 'submitted';
+  const data = {
+    ...p, ...f,
+    fy, voucherNo, payerId: f.payerId || null, addressee: f.addressee || '',
+    excludePublic: isT() ? !!f.excludePublic : !!p.excludePublic,
+    thumb, photoCount: photosChanged ? photos.length : (p.photoCount||0),
+    status, returnReason: null,
+    settleState: p.settleState==='settled' ? 'settled' : (settle ? 'pending' : 'none'),
+    auditStale: p.audit ? true : false,
+    createdBy: p.createdBy || me.uid, createdByName: p.createdByName || me.name,
+    createdAt: p.createdAt || TS(),
+    updatedAt: TS(), updatedByName: me.name
+  };
+  delete data.id; delete data._via;
+  await ref.set(data);
+  if (photosChanged) await R(`photos/${ref.key}`).set(photos.length ? photos : null);
+  const st = data.storageLocation;
+  if (st && !storageTags.includes(st)) { storageTags.push(st); R('storageTags').push().set({name:st}).catch(()=>{}); }
+  writeLog(prev ? '修正' : (isP() ? '申請' : '登録'), data, prev ? diffText(prev, data) : `${data.purpose||data.payee}${f._via?`（${f._via}）`:''}`);
+  return { ...data, id: ref.key };
+}
+
 $('formSaveBtn').onclick = async () => {
   const date = $('fDate').value;
   const amount = Math.round(Number($('fAmount').value)||0);
@@ -1171,42 +1332,16 @@ $('formSaveBtn').onclick = async () => {
 
   const btn = $('formSaveBtn'); btn.disabled=true; btn.textContent='保存中…';
   try {
-    const fy = fyOf(date);
-    const ref = editing ? R(`entries/${editing.id}`) : R('entries').push();
-    let voucherNo = editing ? editing.voucherNo : null;
-    if (!voucherNo) {
-      const tx = await R(`counters/${fy}`).transaction(n => (n||0)+1);
-      voucherNo = `${fy}-${pad(tx.snapshot.val(),3)}`;
-    }
-    let thumb = editing ? (editing.thumb||null) : null;
-    if (photosChanged) thumb = formPhotos[0] ? await compressImage(formPhotos[0], 160, 0.6) : null;
-    const settle = formType==='expense' && !!(m && m.settle);
-    const prev = editing || {};
-    const status = isT() ? (prev.status==='submitted' ? 'submitted' : 'approved') : 'submitted';
-    const data = {
-      ...prev,
-      type: formType, date, fy, voucherNo, amount,
+    const saved = await persistEntry(editing, {
+      type: formType, date, amount,
       payee: $('fPayee').value.trim(), purpose: $('fPurpose').value.trim(), memo: $('fMemo').value.trim(),
       accountId: formAccount, methodId: formMethod, payerId: payerId || null,
       storageLocation: $('fStorage').value.trim(),
       noReceipt, noReceiptReason: noReceipt ? $('fNoReceiptReason').value.trim() : '',
-      excludePublic: isT() ? $('fExclude').checked : !!prev.excludePublic,
-      thumb, photoCount: photosChanged ? formPhotos.length : (prev.photoCount||0),
-      status, returnReason: status==='returned' ? prev.returnReason : null,
-      settleState: prev.settleState==='settled' ? 'settled' : (settle ? 'pending' : 'none'),
-      auditStale: prev.audit ? true : false,
-      createdBy: prev.createdBy || me.uid, createdByName: prev.createdByName || me.name,
-      createdAt: prev.createdAt || TS(),
-      updatedAt: TS(), updatedByName: me.name
-    };
-    delete data.id;
-    await ref.set(data);
-    if (photosChanged) await R(`photos/${ref.key}`).set(formPhotos.length ? formPhotos : null);
-    const st = data.storageLocation;
-    if (st && !storageTags.includes(st)) R('storageTags').push().set({name:st}).catch(()=>{});
-    writeLog(editing ? '修正' : (isP() ? '申請' : '登録'), data, editing ? diffText(prev, data) : `${data.purpose||data.payee}`);
+      excludePublic: $('fExclude').checked, addressee: formAddressee
+    }, formPhotos, photosChanged);
     showToast(isP() ? '申請しました。会計の確認をお待ちください' : '保存しました');
-    openDetail(ref.key, {...data, id:ref.key});
+    openDetail(saved.id, saved);
   } catch(e) {
     console.error(e); showToast('保存に失敗しました（権限を確認してください）');
   } finally { btn.disabled=false; btn.textContent='保存する'; }
@@ -1260,6 +1395,7 @@ async function renderDetail(id){
       <dt>${inc?'受取方法':'支払方法'}</dt><dd>${esc(m?m.name:'－')}</dd>
       ${!inc?`<dt>支払った人</dt><dd>${esc(payerLabel(e.payerId)||'会計が直接支払い')}</dd>`:''}
       ${!inc?`<dt>精算</dt><dd>${e.settleState==='pending'?'未精算（精算待ち）':e.settleState==='settled'?`精算済み ${stl?`（${fmtDateFull(stl.date)}・${esc(stl.way)}）`:''}`:'精算不要'}</dd>`:''}
+      ${e.addressee?`<dt>宛名</dt><dd>${esc(e.addressee)}${addresseeWarning(e.addressee)?' <span class="stamp-tag" style="border-color:var(--amber);color:var(--amber)">要確認</span>':''}</dd>`:''}
       <dt>原本の保管</dt><dd>${esc(e.storageLocation||'－')}</dd>
       ${e.noReceipt?`<dt>領収証なし</dt><dd>${esc(e.noReceiptReason)}</dd>`:''}
       ${e.memo?`<dt>メモ</dt><dd>${esc(e.memo)}</dd>`:''}
@@ -1589,6 +1725,8 @@ function autoChecks(ap){
   if (noPhoto.length) out.push({ label:'写真も「領収証なし」理由もない支出', list:noPhoto });
   const noRc = ap.filter(e=>e.noReceipt);
   if (noRc.length) out.push({ label:'領収証なしの支出（理由を確認）', list:noRc });
+  const badAddr = ap.filter(e=>e.type==='expense' && addresseeWarning(e.addressee));
+  if (badAddr.length) out.push({ label:'宛名が団体名ではない領収証（上様・個人名など）', list:badAddr });
   const seen = {}, dup = new Set();
   ap.forEach(e=>{ const k=`${e.date}|${e.amount}|${(e.payee||'').trim()}`; if (seen[k]) { dup.add(seen[k]); dup.add(e); } else seen[k]=e; });
   if (dup.size) out.push({ label:'同じ日・同じ金額・同じ支払先（二重登録の可能性）', list:[...dup] });
@@ -1759,6 +1897,7 @@ function renderSettings(){
           <button class="lnk" data-rename="${a.id}">名前</button><button class="lnk" data-toggleacc="${a.id}">${a.active?'停止':'再開'}</button></div>`).join('');
     });
     html += `<div class="inline-add"><select id="newAccType"><option value="expense">支出</option><option value="income">収入</option></select><input id="newAccName" placeholder="新しい科目名"><button class="btn btn-navy sm" id="addAcc">追加</button></div>
+      <button class="btn btn-ghost full" id="budgetImportBtn" style="margin-top:10px">📄 総会資料の予算書（画像）から取り込む</button>
       <p class="hint">予算は入力欄から離れると保存されます。停止した科目は選択肢に出なくなりますが、過去の記録は残ります。</p>`;
 
     html += `<h2 class="section-title" style="margin-top:20px">支払方法</h2>` + methods.map(m=>`<div class="cat-row ${m.active?'':'inactive'}">
@@ -1797,10 +1936,19 @@ function renderSettings(){
       <h2 class="section-title" style="margin-top:16px">会員向けの会計報告</h2><div class="form-card"><div class="inline-add" style="margin:0"><input readonly value="${esc(publicUrl())}" id="pubUrl"><button class="btn btn-ghost sm" id="pubCopy">コピー</button></div></div>`;
   }
 
-  html += `<h2 class="section-title" style="margin-top:20px">AI自動入力（この端末の設定）</h2><div class="form-card">
-    <p class="hint" style="margin-top:0">Claude APIキーはこの端末のブラウザ内にだけ保存され、町内会のデータベースには送られません。</p>
-    <div class="field"><label>Claude APIキー</label><input type="password" id="apiKeyInput" placeholder="sk-ant-..."></div>
-    <p class="hint" style="margin-top:-6px">${getApiKey()?`設定済み（${esc(getApiKey().slice(0,10))}…）`:'未設定'}</p>
+  html += `<h2 class="section-title" style="margin-top:20px">AI自動読み取り（Claude APIキー）</h2>`;
+  if (isT()) html += `<div class="form-card">
+    <div style="font-weight:700;font-size:13.5px;margin-bottom:6px">町内会の共通キー</div>
+    <p class="hint" style="margin-top:0">ここに登録すると、班長・役員など<b>アプリを使う全員</b>が自分でキーを用意せずにAI読み取りを使えます。利用者はキーを読み出せる状態になるため、Anthropicのコンソールで<b>月の利用上限</b>を必ず設定してください。</p>
+    <div class="field"><input type="password" id="sharedKeyInput" placeholder="sk-ant-..." style="width:100%;border:1px solid var(--line);border-radius:8px;padding:11px 12px;font-size:15px"></div>
+    <p class="hint" style="margin-top:-6px">${sharedKey?`設定済み（${esc(sharedKey.slice(0,10))}…）`:'未設定'}</p>
+    <div class="btn-row"><button class="btn btn-ghost" id="delShared">削除</button><button class="btn btn-primary" id="saveShared">共通キーを保存</button></div></div>`;
+  else html += `<div class="form-card" style="padding:12px 14px"><p class="hint" style="margin:0">${sharedKey?'✓ 町内会の共通キーが設定されているので、そのままAI読み取りが使えます。':'町内会の共通キーは未設定です。自分のキーを下に登録するか、会計担当に相談してください。'}</p></div>`;
+  html += `<div class="form-card">
+    <div style="font-weight:700;font-size:13.5px;margin-bottom:6px">この端末だけのキー（任意）</div>
+    <p class="hint" style="margin-top:0">この端末のブラウザ内にだけ保存され、町内会のデータベースには送られません。登録すると共通キーより優先して使われます。</p>
+    <div class="field"><input type="password" id="apiKeyInput" placeholder="sk-ant-..." style="width:100%;border:1px solid var(--line);border-radius:8px;padding:11px 12px;font-size:15px"></div>
+    <p class="hint" style="margin-top:-6px">${getLocalKey()?`設定済み（${esc(getLocalKey().slice(0,10))}…）`:'未設定'}</p>
     <div class="btn-row"><button class="btn btn-ghost" id="delKey">削除</button><button class="btn btn-primary" id="saveKey">保存</button></div></div>
     <button class="btn btn-ghost full" style="margin-top:6px" onclick="if(confirm('ログアウトしますか？'))auth.signOut()">ログアウト</button>`;
   el.innerHTML = html;
@@ -1813,6 +1961,16 @@ function bindSettings(){
   $('saveKey').onclick = () => { const v=$('apiKeyInput').value.trim(); if(!v) return showToast('APIキーを入力してください'); try{localStorage.setItem(API_KEY_STORAGE,v);}catch(e){} showToast('保存しました'); renderSettings(); };
   $('delKey').onclick = () => { try{localStorage.removeItem(API_KEY_STORAGE);}catch(e){} showToast('削除しました'); renderSettings(); };
   if (!isT()) return;
+
+  $('saveShared').onclick = async () => {
+    const v = $('sharedKeyInput').value.trim(); if (!v) return showToast('APIキーを入力してください');
+    await R('secrets/claudeKey').set(v); writeLog('共通キー設定', null, 'Claude APIキーを登録'); showToast('共通キーを保存しました'); setTimeout(renderSettings, 300);
+  };
+  $('delShared').onclick = async () => {
+    if (!confirm('町内会の共通キーを削除しますか？')) return;
+    await R('secrets/claudeKey').remove(); writeLog('共通キー削除', null, ''); showToast('共通キーを削除しました'); setTimeout(renderSettings, 300);
+  };
+  $('budgetImportBtn').onclick = () => { if (!getApiKey()) return showToast('先にClaude APIキーを登録してください'); $('budgetInput').click(); };
 
   $('sSaveOrg').onclick = async () => {
     await R('settings').update({ orgName:$('sOrg').value.trim()||'町内会', fiscalStartMonth:Number($('sStart').value) });
@@ -1896,6 +2054,357 @@ async function publishReport(){
   await R('public/index').update({ orgName:settings.orgName, [`years/${curFY}`]: true });
   writeLog('会計報告公開', null, `${curFY}年度 ${ap.length}件`);
   showToast('会員向けの報告を更新しました');
+}
+
+/* =========================================================
+   レシート・領収証のまとめて読み込み（AI自動入力）
+   ========================================================= */
+let batchItems = [];     // {id, photo, state:'reading'|'done'|'error'|'saved', msg, on, f:{...}}
+let batchSeq = 0;
+let batchQueue = [];
+let batchRunning = 0;
+const batchCommon = { methodId:'', payerId:'', purpose:'', storageLocation:'' };
+
+function openBatch(){
+  if (isP() && !me.payerId) return showToast('支払者名簿との紐付けが済んでいません');
+  batchItems = batchItems.filter(i=>i.state!=='saved');
+  if (isP()) batchCommon.payerId = me.payerId;
+  if (!batchCommon.storageLocation) batchCommon.storageLocation = isP() ? '自分で保管中（精算時に会計へ渡す）' : '';
+  showScreen('batchScreen');
+  renderBatch();
+}
+function batchMethodOptions(sel, withAuto){
+  return (withAuto?`<option value="">AIの判定から推定</option>`:`<option value="">支払方法を選ぶ</option>`) +
+    methods.filter(m=>m.active && m.use!=='income').map(m=>`<option value="${m.id}" ${sel===m.id?'selected':''}>${esc(m.name)}${m.settle?'（要精算）':''}</option>`).join('');
+}
+function batchPayerOptions(sel){
+  return `<option value="">会計が直接支払い</option>` + payers.filter(p=>p.active).map(p=>`<option value="${p.id}" ${sel===p.id?'selected':''}>${esc(payerLabel(p.id))}</option>`).join('');
+}
+function renderBatch(){
+  const el = $('batchScreen');
+  const keyOk = !!getApiKey();
+  el.innerHTML = `<button class="text-link" id="bBack" style="padding-left:0">‹ ホームへ戻る</button>
+    <p class="hint" style="margin-top:0">レシート・領収証・振込控えの写真を何枚でも選ぶと、AIが日付・金額・支払先・科目・支払方法を読み取って下書きを作ります。内容を確認して「まとめて登録」を押してください。${keyOk?'':'<br><b style="color:var(--stamp-red)">APIキーが未設定のため、今は手入力の下書きになります。</b>'}</p>
+    <div class="btn-row" style="margin-bottom:12px"><button class="btn btn-ghost" id="bCam">📷 撮影して追加</button><button class="btn btn-navy" id="bPick">🖼️ 写真を選ぶ（複数可）</button></div>
+    <div class="panel"><h3>全件共通の設定 <small>個別に変えることもできます</small></h3>
+      <div class="field"><label>支払方法</label><select id="bcMethod" style="width:100%">${batchMethodOptions(batchCommon.methodId, true)}</select></div>
+      ${isT()?`<div class="field"><label>支払った人</label><select id="bcPayer" style="width:100%">${batchPayerOptions(batchCommon.payerId)}</select></div>`:''}
+      <div class="field"><label>用途・行事（空欄ならAIが推定）</label><input type="text" id="bcPurpose" value="${esc(batchCommon.purpose)}" placeholder="例）夏祭り" list="purposeList"></div>
+      <div class="field" style="margin:0"><label>原本の保管場所</label><input type="text" id="bcStorage" value="${esc(batchCommon.storageLocation)}"></div>
+      <button class="btn btn-ghost full" id="bcApply" style="margin-top:10px">この設定を全件に当てはめる</button>
+    </div>
+    <div id="bList"></div>
+    <div id="bFoot"></div>`;
+  $('bBack').onclick = () => showScreen('homeScreen');
+  $('bPick').onclick = () => $('batchInput').click();
+  $('bCam').onclick = () => $('batchCamera').click();
+  $('bcMethod').onchange = e => batchCommon.methodId = e.target.value;
+  if ($('bcPayer')) $('bcPayer').onchange = e => batchCommon.payerId = e.target.value;
+  $('bcPurpose').oninput = e => batchCommon.purpose = e.target.value;
+  $('bcStorage').oninput = e => batchCommon.storageLocation = e.target.value;
+  $('bcApply').onclick = () => {
+    batchItems.forEach(it => {
+      if (it.state==='saved') return;
+      if (batchCommon.methodId) it.f.methodId = batchCommon.methodId;
+      if (isT()) it.f.payerId = batchCommon.payerId;
+      if (batchCommon.purpose) it.f.purpose = batchCommon.purpose;
+      it.f.storageLocation = batchCommon.storageLocation;
+    });
+    renderBatchList(); showToast('全件に当てはめました');
+  };
+  $('purposeList').innerHTML = [...new Set(allEntries().map(x=>x.purpose).filter(Boolean))].slice(0,60).map(p=>`<option value="${esc(p)}">`).join('');
+  renderBatchList();
+}
+function renderBatchList(){
+  const list = $('bList'); if (!list) return;
+  const live = batchItems.filter(i=>i.state!=='saved');
+  list.innerHTML = live.length ? live.map(batchCardHTML).join('') : `<div class="empty"><div class="mark-big">写真<br>待ち</div>上のボタンから写真を追加してください</div>`;
+  live.forEach(bindBatchCard);
+  renderBatchFoot();
+}
+function renderBatchFoot(){
+  const foot = $('bFoot'); if (!foot) return;
+  const live = batchItems.filter(i=>i.state!=='saved');
+  const on = live.filter(i=>i.on);
+  const reading = live.filter(i=>i.state==='reading').length;
+  const total = on.reduce((s,i)=>s+(Number(i.f.amount)||0),0);
+  foot.innerHTML = live.length ? `<div class="summary-strip"><div><div class="lbl">登録する件数</div><div class="val">${on.length}</div></div><div><div class="lbl">合計金額</div><div class="val">${yen(total)}</div></div><div><div class="lbl">読み取り中</div><div class="val">${reading}</div></div></div>
+    <button class="btn btn-primary full" id="bSave" ${reading||!on.length?'disabled':''}>${reading?'AIの読み取りを待っています…':`${on.length}件をまとめて${isP()?'申請':'登録'}`}</button>
+    <p class="hint">AIの読み取りは間違えることがあります。特に金額と日付は写真と見比べてください。</p>` : '';
+  if ($('bSave')) $('bSave').onclick = saveBatch;
+}
+function batchCardHTML(it){
+  const f = it.f; const m = methodById(f.methodId);
+  const dup = f.amount && f.date && allEntries().some(e=>e.date===f.date && Number(e.amount)===Number(f.amount));
+  const dupIn = f.amount && f.date && batchItems.some(o=>o!==it && o.state!=='saved' && o.f.date===f.date && Number(o.f.amount)===Number(f.amount));
+  const warn = [dup?'同じ日付・金額の伝票が登録済みです（二重登録に注意）':'', dupIn?'この中に同じ日付・金額のものがあります（同じ写真の重複？）':'', addresseeWarning(f.addressee)].filter(Boolean).join('／');
+  return `<div class="batch-card ${it.on?'':'off'} ${it.invalid?'invalid':''}" id="bc-${it.id}">
+    <div class="b-img"><img src="${it.photo}" alt="" data-zoom="${it.id}">
+      <label class="check-line" style="font-size:11px;white-space:nowrap"><input type="checkbox" data-k="on" ${it.on?'checked':''}>登録</label>
+      <button class="text-link" data-del="${it.id}" style="font-size:11px;padding:0">削除</button></div>
+    <div class="b-body">
+      <div class="wide b-state ${it.state==='error'?'err':''}">${it.state==='reading'?'<span class="spinner"></span> AIが読み取り中…':it.state==='error'?`⚠ ${esc(it.msg)}（手入力してください）<button class="text-link" data-retry="${it.id}" style="font-size:11px">再読み取り</button>`:it.msg?esc(it.msg):''}</div>
+      <input type="date" data-k="date" value="${esc(f.date)}">
+      <input type="number" class="num" data-k="amount" value="${f.amount||''}" placeholder="金額" inputmode="numeric">
+      <input type="text" class="wide" data-k="payee" value="${esc(f.payee)}" placeholder="支払先">
+      <input type="text" class="wide" data-k="purpose" value="${esc(f.purpose)}" placeholder="用途・行事" list="purposeList">
+      <select data-k="accountId"><option value="">科目</option>${accounts.filter(a=>a.type==='expense'&&a.active).map(a=>`<option value="${a.id}" ${f.accountId===a.id?'selected':''}>${esc(a.name)}</option>`).join('')}</select>
+      <select data-k="methodId">${batchMethodOptions(f.methodId,false)}</select>
+      ${isT()?`<select class="wide" data-k="payerId">${batchPayerOptions(f.payerId)}</select>`:''}
+      ${m&&m.settle&&!f.payerId&&isT()?'<div class="b-warn">立替・仮払は「支払った人」を選んでください</div>':''}
+      ${warn?`<div class="b-warn">⚠ ${esc(warn)}</div>`:''}
+    </div></div>`;
+}
+function bindBatchCard(it){
+  const card = $(`bc-${it.id}`); if (!card) return;
+  card.querySelectorAll('[data-k]').forEach(inp => {
+    const k = inp.dataset.k;
+    const upd = () => {
+      if (k==='on') it.on = inp.checked;
+      else it.f[k] = k==='amount' ? Math.round(Number(inp.value)||0) : inp.value;
+      it.invalid = false;
+      if (['on','methodId','payerId'].includes(k)) redrawBatchCard(it); else renderBatchFoot();
+    };
+    inp.addEventListener(inp.tagName==='SELECT'||inp.type==='checkbox' ? 'change' : 'input', upd);
+  });
+  card.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{ batchItems = batchItems.filter(x=>x!==it); renderBatchList(); });
+  card.querySelectorAll('[data-retry]').forEach(b=>b.onclick=()=>{ it.state='reading'; redrawBatchCard(it); batchQueue.push(it); pumpBatch(); });
+  card.querySelectorAll('[data-zoom]').forEach(img=>img.onclick=()=>{
+    const d=document.createElement('div'); d.className='big-photo'; d.innerHTML=`<img src="${it.photo}" alt="">`; d.onclick=()=>d.remove(); document.body.appendChild(d);
+  });
+}
+function redrawBatchCard(it){
+  const card = $(`bc-${it.id}`);
+  if (!card) return;
+  const tmp = document.createElement('div'); tmp.innerHTML = batchCardHTML(it);
+  card.replaceWith(tmp.firstElementChild);
+  bindBatchCard(it); renderBatchFoot();
+}
+
+async function addBatchFiles(files){
+  const arr = [...files];
+  if (!arr.length) return;
+  for (const file of arr) {
+    try {
+      const photo = await compressImage(file, 1100, 0.65);
+      const it = { id: ++batchSeq, photo, state: getApiKey() ? 'reading' : 'done', msg: getApiKey() ? '' : '手入力してください', on:true,
+        f:{ date:localDate(), amount:0, payee:'', purpose:batchCommon.purpose, memo:'', accountId:'', methodId:batchCommon.methodId,
+            payerId: isP() ? me.payerId : batchCommon.payerId, storageLocation:batchCommon.storageLocation, addressee:'' } };
+      batchItems.push(it);
+      if (getApiKey()) batchQueue.push(it);
+    } catch(e){ showToast('読み込めない画像がありました'); }
+  }
+  renderBatchList();
+  pumpBatch();
+}
+$('batchInput').onchange = e => { addBatchFiles(e.target.files); e.target.value=''; };
+$('batchCamera').onchange = e => { addBatchFiles(e.target.files); e.target.value=''; };
+
+function pumpBatch(){
+  while (batchRunning < 2 && batchQueue.length) {
+    const it = batchQueue.shift(); batchRunning++;
+    recognizeReceipt(it.photo, 'expense').then(r => {
+      const f = it.f;
+      if (r.date) f.date = r.date;
+      if (r.amount) f.amount = r.amount;
+      if (r.payee) f.payee = r.payee;
+      if (!f.purpose) f.purpose = r.purpose || r.items || '';
+      if (r.items) f.memo = r.items;
+      if (r.accountId) f.accountId = r.accountId;
+      f.addressee = r.addressee || '';
+      if (!f.methodId) f.methodId = suggestMethod(r.payMethod, !!f.payerId);
+      it.state = 'done';
+      const pm = {cash:'現金',credit:'クレジットカード',qr:'QRコード決済',emoney:'電子マネー',transfer:'振込'}[r.payMethod];
+      it.msg = `✓ 読み取り完了${pm?`（レシート上の支払手段：${pm}）`:''}`;
+    }).catch(e => { console.error(e); it.state='error'; it.msg = aiErrorText(e); })
+      .finally(() => { batchRunning--; if (batchRunning===0 && !batchQueue.length) renderBatchList(); else redrawBatchCard(it); pumpBatch(); });
+  }
+}
+
+async function saveBatch(){
+  const targets = batchItems.filter(i=>i.on && i.state!=='saved');
+  let bad = 0;
+  targets.forEach(it => {
+    const f = it.f; const m = methodById(f.methodId);
+    it.invalid = !f.date || !(f.amount>0) || !f.accountId || !f.methodId || (m && m.settle && !f.payerId);
+    if (it.invalid) bad++;
+  });
+  if (bad) { renderBatchList(); return showToast(`${bad}件に未入力があります（赤枠）。日付・金額・科目・支払方法・支払った人を確認してください`); }
+  if (!confirm(`${targets.length}件、合計${yen(targets.reduce((s,i)=>s+i.f.amount,0))}を${isP()?'申請':'登録'}します。よろしいですか？`)) return;
+  const btn = $('bSave'); btn.disabled = true;
+  let ok = 0;
+  for (const it of targets) {
+    btn.textContent = `登録中… ${ok+1}／${targets.length}`;
+    try {
+      const f = it.f;
+      await persistEntry(null, {
+        type:'expense', date:f.date, amount:f.amount, payee:f.payee.trim(), purpose:f.purpose.trim(), memo:f.memo||'',
+        accountId:f.accountId, methodId:f.methodId, payerId: isP() ? me.payerId : (f.payerId||null),
+        storageLocation:(f.storageLocation||'').trim(), noReceipt:false, noReceiptReason:'', excludePublic:false,
+        addressee:f.addressee||'', _via:'まとめて読み込み'
+      }, [it.photo], true);
+      it.state = 'saved'; ok++;
+    } catch(e){ console.error(e); it.state='error'; it.msg='保存に失敗しました'; }
+  }
+  showToast(`${ok}件を${isP()?'申請':'登録'}しました`);
+  if (batchItems.every(i=>i.state==='saved')) { batchItems = []; showScreen(isP()?'homeScreen':'bookScreen'); }
+  else renderBatchList();
+}
+
+/* =========================================================
+   予算書（総会資料の画像）からの取り込み
+   ========================================================= */
+let budgetDraft = null;
+$('budgetInput').onchange = async e => {
+  const files = [...e.target.files]; e.target.value='';
+  if (!files.length) return;
+  budgetDraft = { fy:curFY, opening:null, useOpening:true, rows:[], images:[], level:'major', state:'reading', incomeTotal:null, expenseTotal:null };
+  showScreen('budgetImportScreen'); renderBudgetImport();
+  try {
+    for (const f of files.slice(0,4)) budgetDraft.images.push(await compressImage(f, 1800, 0.8));
+    await readBudget();
+  } catch(err){ console.error(err); budgetDraft.state='error'; budgetDraft.msg = aiErrorText(err); renderBudgetImport(); }
+};
+async function readBudget(){
+  const d = budgetDraft; d.state='reading'; renderBudgetImport();
+  const lvl = d.level==='major'
+    ? '大きな科目（款・大科目）の単位で出力してください。内訳（項・目・細目）に分かれている場合は大科目の金額を使い、内訳は出力しないでください。'
+    : '金額が書かれている最も細かい科目（内訳）の単位で出力してください。大科目と内訳の両方に金額がある場合は内訳のみを出力し、二重に数えないでください。';
+  try {
+    const r = await callClaude(d.images,
+      'あなたは町内会・自治会の会計担当を手伝うアシスタントです。定期総会資料の予算書の画像から予算額を正確に読み取り、JSONオブジェクトのみを出力します。前後の説明文やコードブロック記号は付けません。',
+      `画像は町内会・自治会の定期総会資料にある「収支予算書（予算案）」です。複数枚の場合は続きのページです。次の形式のJSONのみで出力してください。
+{"fiscalYear":予算の年度の開始年（西暦の数値。令和8年度なら2026。不明ならnull）,"opening":前年度繰越金の予算額（数値、なければnull）,"income":[{"name":"科目名","amount":予算額}],"expense":[{"name":"科目名","amount":予算額}],"incomeTotal":画像に書かれた収入合計（数値、なければnull）,"expenseTotal":画像に書かれた支出合計（数値、なければnull）,"note":"読み取りで気になった点（なければ空文字）"}
+注意：
+・「本年度予算」「予算額」「今年度」の列の金額を使い、「前年度予算」「前年度決算」「増減」「比較」の列は使わないでください。
+・合計・小計・収入合計・支出合計の行は income / expense に含めないでください。
+・前年度繰越金は income に含めず opening に入れてください。
+・「予備費」は支出の科目として含めてください。
+・金額が千円単位の表なら円に換算してください。
+・${lvl}`, 4000);
+    d.fy = Number(r.fiscalYear) || d.fy;
+    d.opening = nullish(r.opening)!==null ? Math.round(Number(r.opening)||0) : null;
+    d.incomeTotal = nullish(r.incomeTotal)!==null ? Number(r.incomeTotal) : null;
+    d.expenseTotal = nullish(r.expenseTotal)!==null ? Number(r.expenseTotal) : null;
+    d.note = r.note || '';
+    d.rows = [];
+    [['income', r.income], ['expense', r.expense]].forEach(([type, list]) => {
+      asList(list).forEach(x => {
+        const name = String(x.name||'').trim(); if (!name) return;
+        d.rows.push({ type, name, amount: Math.round(Number(x.amount)||0), target: matchAccount(type, name), on:true });
+      });
+    });
+    d.state = 'done';
+  } catch(err){ console.error(err); d.state='error'; d.msg = aiErrorText(err); }
+  renderBudgetImport();
+}
+function normName(s){ return String(s||'').normalize('NFKC').replace(/[\s()（）「」]/g,''); }
+function matchAccount(type, name){
+  const n = normName(name).replace(/・/g,'');
+  const cands = accounts.filter(a=>a.type===type);
+  const exact = cands.find(a=>normName(a.name).replace(/・/g,'')===n);
+  if (exact) return exact.id;
+  // 「会費」⇔「会費収入」、「市補助金」⇔「補助金・助成金」のような部分一致
+  const part = cands.find(a=>{
+    const tokens = normName(a.name).split('・').filter(t=>t.length>=2);
+    return tokens.some(t => n.includes(t) || (n.length>=2 && t.includes(n)));
+  });
+  return part ? part.id : 'new';
+}
+function renderBudgetImport(){
+  const el = $('budgetImportScreen'); const d = budgetDraft;
+  if (!d) { el.innerHTML=''; return; }
+  let html = `<button class="text-link" id="biBack" style="padding-left:0">‹ 設定へ戻る</button>
+    <div class="photo-strip" style="margin-bottom:12px">${d.images.map((p,i)=>`<div class="photo-item"><img src="${p}" alt="予算書${i+1}" data-z="${i}" style="cursor:zoom-in"></div>`).join('')}</div>`;
+  if (d.state==='reading') { el.innerHTML = html + `<div class="empty"><span class="spinner"></span> AIが予算書を読み取っています…<br><span class="hint">表の大きさにより30秒ほどかかります</span></div>`; bindBI(); return; }
+  if (d.state==='error') { el.innerHTML = html + `<div class="empty">⚠ ${esc(d.msg)}</div><button class="btn btn-primary full" id="biRetry">もう一度読み取る</button>`; bindBI(); return; }
+
+  const sum = t => d.rows.filter(r=>r.type===t && r.on).reduce((s,r)=>s+(Number(r.amount)||0),0);
+  const check = (t, printed) => {
+    const got = sum(t) + (t==='income' && d.useOpening && d.opening ? d.opening : 0);
+    if (printed===null) return `<div class="total-check"><span>読み取った合計</span><span class="num">${yen(got)}</span></div>`;
+    const ok = got===printed || sum(t)===printed;
+    return `<div class="total-check ${ok?'':'ng'}"><span>${ok?'✓ 予算書の合計と一致':'⚠ 予算書の合計と一致しません'}</span><span class="num">${yen(sum(t))}${t==='income'&&d.opening?`＋繰越${yen(d.opening)}`:''} ／ 予算書 ${yen(printed)}</span></div>`;
+  };
+  const rowHTML = (r, i) => {
+    const opts = accounts.filter(a=>a.type===r.type).map(a=>`<option value="${a.id}" ${r.target===a.id?'selected':''}>${esc(a.name)}${a.active?'':'（停止中）'}</option>`).join('');
+    const cur = r.target!=='new' ? Number((accById(r.target)?.budget||{})[d.fy])||0 : 0;
+    return `<div class="imp-row ${r.on?'':'off'}">
+      <input type="checkbox" data-i="${i}" data-k="on" ${r.on?'checked':''}>
+      <input type="text" data-i="${i}" data-k="name" value="${esc(r.name)}">
+      <input type="number" data-i="${i}" data-k="amount" value="${r.amount}" inputmode="numeric">
+      <div class="imp-sub">取り込み先 <select data-i="${i}" data-k="target"><option value="new" ${r.target==='new'?'selected':''}>＋ 新しい科目として追加</option>${opts}</select>${cur?`<span>現在 ${yen(cur)}</span>`:''}</div>
+    </div>`;
+  };
+  html += `<div class="form-card">
+    <div class="field"><label>取り込む年度</label><select id="biFy">${[d.fy-1,d.fy,d.fy+1,curFY].filter((v,i,a)=>a.indexOf(v)===i).sort().map(y=>`<option value="${y}" ${y===d.fy?'selected':''}>${y}年度（${fyRangeLabel(y)}）</option>`).join('')}</select></div>
+    <div class="field" style="margin-bottom:6px"><label>読み取りの細かさ</label>
+      <div class="seg" id="biLevel"><button type="button" data-l="major" class="${d.level==='major'?'sel':''}">大きな科目でまとめる</button><button type="button" data-l="detail" class="${d.level==='detail'?'sel':''}">内訳の科目で取り込む</button></div></div>
+    ${d.note?`<p class="hint">AIのメモ：${esc(d.note)}</p>`:''}
+  </div>
+  <div class="form-card"><h3 style="font-size:14.5px;margin-bottom:6px">収入の部</h3>
+    <label class="check-line" style="padding:6px 0"><input type="checkbox" id="biUseOp" ${d.useOpening?'checked':''}> 前年度繰越金を設定する <input type="number" id="biOpening" value="${d.opening??''}" placeholder="0" class="num" style="margin-left:auto;width:120px;border:1px solid var(--line);border-radius:6px;padding:6px 8px;text-align:right"></label>
+    ${d.rows.map((r,i)=>r.type==='income'?rowHTML(r,i):'').join('')}
+    ${check('income', d.incomeTotal)}</div>
+  <div class="form-card"><h3 style="font-size:14.5px;margin-bottom:6px">支出の部</h3>
+    ${d.rows.map((r,i)=>r.type==='expense'?rowHTML(r,i):'').join('')}
+    ${check('expense', d.expenseTotal)}</div>
+  <button class="btn btn-primary full" id="biApply">${d.fy}年度の予算として反映する</button>
+  <p class="hint">反映すると科目ごとの予算が上書きされます。「新しい科目として追加」の行は科目が作られます。金額は必ず予算書と見比べてください。</p>`;
+  el.innerHTML = html;
+  bindBI();
+}
+function bindBI(){
+  const d = budgetDraft; const el = $('budgetImportScreen');
+  $('biBack').onclick = () => { budgetDraft=null; showScreen('settingsScreen'); };
+  el.querySelectorAll('[data-z]').forEach(img=>img.onclick=()=>{ const x=document.createElement('div'); x.className='big-photo'; x.innerHTML=`<img src="${img.src}">`; x.onclick=()=>x.remove(); document.body.appendChild(x); });
+  if ($('biRetry')) $('biRetry').onclick = readBudget;
+  if (d.state!=='done') return;
+  $('biFy').onchange = e => { d.fy = Number(e.target.value); renderBudgetImport(); };
+  $('biLevel').querySelectorAll('button').forEach(b=>b.onclick=()=>{ if (d.level===b.dataset.l) return; d.level=b.dataset.l; readBudget(); });
+  $('biUseOp').onchange = e => { d.useOpening = e.target.checked; renderBudgetImport(); };
+  $('biOpening').onchange = e => { d.opening = e.target.value==='' ? null : Math.round(Number(e.target.value)||0); renderBudgetImport(); };
+  el.querySelectorAll('[data-i]').forEach(inp => {
+    const r = d.rows[Number(inp.dataset.i)], k = inp.dataset.k;
+    inp.addEventListener('change', () => {
+      if (k==='on') r.on = inp.checked;
+      else if (k==='amount') r.amount = Math.round(Number(inp.value)||0);
+      else if (k==='name') { r.name = inp.value.trim(); }
+      else r.target = inp.value;
+      renderBudgetImport();
+    });
+  });
+  $('biApply').onclick = applyBudget;
+}
+async function applyBudget(){
+  const d = budgetDraft;
+  const rows = d.rows.filter(r=>r.on && r.name);
+  if (!rows.length) return showToast('取り込む科目がありません');
+  // 同じ既存科目に複数行が向いている場合は合算する
+  const toExisting = {}, toNew = {};
+  rows.forEach(r => {
+    if (r.target==='new') { const k = r.type+'|'+r.name; toNew[k] = { type:r.type, name:r.name, amount:(toNew[k]?.amount||0)+r.amount }; }
+    else toExisting[r.target] = (toExisting[r.target]||0) + r.amount;
+  });
+  const merged = rows.filter(r=>r.target!=='new').length - Object.keys(toExisting).length;
+  const msg = `${d.fy}年度の予算として\n・既存の科目 ${Object.keys(toExisting).length}件を更新\n・新しい科目 ${Object.keys(toNew).length}件を追加${merged>0?`\n・同じ科目への${merged}行は合算`:''}${d.useOpening&&d.opening!==null?`\n・前年度繰越金 ${yen(d.opening)}`:''}\nを反映します。よろしいですか？`;
+  if (!confirm(msg)) return;
+  const ups = {};
+  Object.entries(toExisting).forEach(([id, amt]) => { ups[`accounts/${id}/budget/${d.fy}`] = amt; ups[`accounts/${id}/active`] = true; });
+  let order = accounts.length;
+  Object.values(toNew).forEach((x, i) => {
+    const key = R('accounts').push().key;
+    ups[`accounts/${key}`] = { name:x.name, type:x.type, color:PALETTE[(order+i)%PALETTE.length], active:true, order:(x.type==='income'?100:0)+order+i, budget:{ [d.fy]: x.amount } };
+  });
+  if (d.useOpening && d.opening!==null) ups[`settings/opening/${d.fy}`] = d.opening;
+  try {
+    await db.ref(ROOT).update(ups);
+    writeLog('予算取り込み', null, `${d.fy}年度 予算書画像から ${rows.length}科目（収入${yen(rows.filter(r=>r.type==='income').reduce((s,r)=>s+r.amount,0))}・支出${yen(rows.filter(r=>r.type==='expense').reduce((s,r)=>s+r.amount,0))}）`);
+    showToast('予算を反映しました');
+    curFY = d.fy; subscribeFY();
+    budgetDraft = null;
+    showScreen('homeScreen');
+  } catch(e){ console.error(e); showToast('反映に失敗しました（権限を確認してください）'); }
 }
 
 /* =========================================================
