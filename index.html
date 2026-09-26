@@ -11,41 +11,18 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 
+<!-- アプリとしてインストールするための設定（manifest・アイコン・sw.js は index.html と同じ場所に置く） -->
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#B4432C">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="会計簿">
 <script>
-/* =========================================================
-   アプリアイコン・PWAマニフェスト・Service Worker
-   ========================================================= */
-const APP_ICON_SVG = `
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-<rect width="100" height="100" rx="14" fill="#FBF6EC"/>
-<rect x="18" y="14" width="52" height="70" rx="3" fill="#fff" stroke="#3A322A" stroke-width="3"/>
-<line x1="28" y1="30" x2="60" y2="30" stroke="#3A322A" stroke-width="3"/>
-<line x1="28" y1="41" x2="60" y2="41" stroke="#3A322A" stroke-width="3"/>
-<line x1="28" y1="52" x2="50" y2="52" stroke="#3A322A" stroke-width="3"/>
-<circle cx="70" cy="68" r="17" fill="#FBF6EC" stroke="#B4432C" stroke-width="3"/>
-<text x="70" y="73.5" font-size="14" text-anchor="middle" fill="#B4432C" font-family="serif" font-weight="bold">会計</text>
-</svg>`.trim();
-function svgDataUrl(svg){ return 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg))); }
-const ICON_URL = svgDataUrl(APP_ICON_SVG);
-function addLink(rel, href){ const l=document.createElement('link'); l.rel=rel; l.href=href; document.head.appendChild(l); }
-function addMeta(name, content){ const m=document.createElement('meta'); m.name=name; m.content=content; document.head.appendChild(m); }
-addLink('icon', ICON_URL);
-addLink('apple-touch-icon', ICON_URL);
-const manifest = {
-  name:"町内会 会計簿", short_name:"会計簿", start_url:".", display:"standalone",
-  background_color:"#FBF6EC", theme_color:"#B4432C",
-  icons:[{src:ICON_URL,sizes:"192x192",type:"image/svg+xml",purpose:"any"},{src:ICON_URL,sizes:"512x512",type:"image/svg+xml",purpose:"any"}]
-};
-addLink('manifest', 'data:application/manifest+json,' + encodeURIComponent(JSON.stringify(manifest)));
-addMeta('apple-mobile-web-app-capable','yes');
-addMeta('apple-mobile-web-app-status-bar-style','black-translucent');
-addMeta('apple-mobile-web-app-title','会計簿');
-addMeta('theme-color','#B4432C');
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    const swCode = "self.addEventListener('install',e=>self.skipWaiting());self.addEventListener('activate',e=>self.clients.claim());self.addEventListener('fetch',e=>{});";
-    navigator.serviceWorker.register(URL.createObjectURL(new Blob([swCode],{type:'text/javascript'}))).catch(()=>{});
-  });
+if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(()=>{}));
 }
 </script>
 
@@ -512,7 +489,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.09.26-9';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.09.27-1';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 const CONFIGURED = !firebaseConfig.apiKey.startsWith('YOUR_');
 const ROOT = 'chokai-kaikei';
 let auth = null, db = null;
