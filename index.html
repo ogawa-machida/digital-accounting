@@ -580,6 +580,39 @@ if (!CONFIGURED) { hideAllRoots(); $('setupScreen').style.display='block'; }
 else if (params.get('view')==='public') { openPublic(); }
 else { startAuth(); }
 
+/* LINEなどアプリ内ブラウザではGoogleログインが禁止されている（403 disallowed_useragent）ため、
+   通常のブラウザで開き直してもらう */
+function inAppBrowser(){
+  const ua = navigator.userAgent || '';
+  if (/\bLine\//i.test(ua)) return 'LINE';
+  if (/FBAN|FBAV|FB_IAB/i.test(ua)) return 'Facebook';
+  if (/Instagram/i.test(ua)) return 'Instagram';
+  if (/MicroMessenger/i.test(ua)) return 'WeChat';
+  if (/YJApp|YahooJ/i.test(ua)) return 'Yahoo!';
+  if (/GSA\//i.test(ua) && /iPhone|iPad/i.test(ua)) return 'Googleアプリ';
+  return '';
+}
+function handleInAppBrowser(){
+  const app = inAppBrowser();
+  if (!app) return false;
+  // LINEは openExternalBrowser=1 を付けると標準ブラウザで開き直せる
+  if (app==='LINE' && params.get('openExternalBrowser')!=='1') {
+    const u = new URL(location.href); u.searchParams.set('openExternalBrowser','1');
+    location.replace(u.toString());
+    return true;
+  }
+  const isAndroid = /Android/i.test(navigator.userAgent);
+  const url = location.href.replace(/[?&]openExternalBrowser=1/,'');
+  const intent = `intent://${location.host}${location.pathname}${location.search}#Intent;scheme=https;package=com.android.chrome;end`;
+  $('googleLoginBtn').style.display = 'none';
+  $('loginError').innerHTML = `<b>${esc(app)}の中のブラウザではGoogleログインができません。</b><br>
+    ${isAndroid ? `<a href="${esc(intent)}" class="google-btn" style="display:inline-flex;margin:12px 0;text-decoration:none">Chromeで開く</a><br>` : '右上（または右下）の「…」や共有ボタンから<b>「Safariで開く」</b>を選んでください。<br>'}
+    うまくいかない場合は、このURLをコピーしてSafari・Chromeに貼り付けてください。<br>
+    <input readonly value="${esc(url)}" onclick="this.select()" style="width:100%;margin-top:8px;padding:8px;border:1px solid var(--line);border-radius:6px;font-size:12px">
+    <button class="text-link" onclick="navigator.clipboard&&navigator.clipboard.writeText('${esc(url)}').then(()=>showToast('URLをコピーしました'))">URLをコピー</button>`;
+  return false;
+}
+
 function startAuth(){
   const LOGIN_ERRORS = {
     'auth/unauthorized-domain':'このURLがFirebaseの「承認済みドメイン」に登録されていません',
@@ -609,8 +642,14 @@ function startAuth(){
   $('logoutBtn').onclick = () => { if (confirm('ログアウトしますか？')) auth.signOut(); };
   auth.onAuthStateChanged(async user => {
     detachAll();
-    if (!user) { me=null; hideAllRoots(); $('loginScreen').style.display='block'; return; }
-    try { await enterAs(user); } catch(e){ console.error(e); showToast('読み込みに失敗しました'); }
+    if (!user) { me=null; hideAllRoots(); $('loginScreen').style.display='block'; handleInAppBrowser(); return; }
+    try { await enterAs(user); }
+    catch(e){
+      console.error(e);
+      hideAllRoots(); $('loginScreen').style.display='block';
+      const perm = /permission/i.test(String(e && (e.code||e.message)));
+      $('loginError').innerHTML = `${perm ? 'データベースの読み取りが許可されませんでした（ルール設定を確認してください）' : 'ログイン後の読み込みに失敗しました'}<br>詳細：${esc(e && (e.code||e.message) || 'unknown')}<br><button class="text-link" onclick="auth.signOut()">別のアカウントでやり直す</button>`;
+    }
   });
 }
 
