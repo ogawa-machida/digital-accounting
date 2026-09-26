@@ -512,7 +512,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.09.26-8';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.09.26-9';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 const CONFIGURED = !firebaseConfig.apiKey.startsWith('YOUR_');
 const ROOT = 'chokai-kaikei';
 let auth = null, db = null;
@@ -712,6 +712,7 @@ function startAuth(){
       const back = new URL(location.origin + location.pathname);
       const code = JOIN_CODE_FROM_URL || lsGet(CODE_KEY);
       if (code) back.searchParams.set('code', code);
+      ['open','screen'].forEach(k => { if (params.get(k)) back.searchParams.set(k, params.get(k)); });
       await auth.sendSignInLinkToEmail(email, { url: back.toString(), handleCodeInApp: true });
       lsSet(EMAIL_KEY, email);
       $('emailLoginMsg').innerHTML = `<b style="color:var(--moss)">✓ ${esc(email)} にログイン用のリンクを送りました。</b><br>メールを開いてリンクを押すとログインできます（1時間以内）。届かない場合は迷惑メールフォルダも確認してください。差出人は noreply@${esc(firebaseConfig.authDomain)} です。`;
@@ -824,11 +825,16 @@ async function enterAs(user){
     $('roleBadge').textContent = ROLES[v.role]?.name || '';
     $('userName').textContent = v.name || '';
     renderAll();
-    const openId = params.get('open');
-    if (openId && !window.__opened) {
+    // メールのリンクから開いたとき：?open=伝票ID ／ ?screen=approvals（承認待ち一覧）／ ?screen=settings（利用者と権限）
+    const openId = params.get('open'), scr = params.get('screen');
+    if ((openId || scr) && !window.__opened) {
       window.__opened = true;
       history.replaceState(null, '', location.pathname);
-      setTimeout(() => openDetail(openId), 1200);   // データの読み込みを待ってから開く
+      setTimeout(() => {      // データの読み込みを待ってから開く
+        if (openId) return openDetail(openId);
+        if (scr==='approvals' && isT()) { bookFilter.status = 'submitted'; showScreen('bookScreen'); }
+        else if (scr==='settings' && isT()) { showScreen('settingsScreen'); [300, 1200].forEach(t => setTimeout(()=>{ const m=$('membersSection'); if (m) m.scrollIntoView({block:'start'}); }, t)); }
+      }, 1200);
     }
   });
   listeners.push(()=>mref.off('value', h));
@@ -2194,7 +2200,7 @@ function renderSettings(){
        <datalist id="postList">${POSTS.map(p=>`<option value="${p}">`).join('')}</datalist>`;
 
     const ms = [...members].sort((a,b)=>(a.role==='pending'?-1:0)-(b.role==='pending'?-1:0));
-    html += `<h2 class="section-title" style="margin-top:20px">アプリの利用者と権限</h2><p class="hint" style="margin-top:-4px">Googleでログインした人がここに「承認待ち」で表示されます。権限を選ぶと使えるようになります。支払者には名簿の誰なのかを紐付けてください。</p>` +
+    html += `<h2 class="section-title" id="membersSection" style="margin-top:20px;scroll-margin-top:70px">アプリの利用者と権限</h2><p class="hint" style="margin-top:-4px">ログインして名前・役職を登録した人は「仮登録」で表示されます。最初の申請を承認すると支払者になります。監査・役員にする人はここで権限を変更してください。</p>` +
       ms.map(m=>`<div class="cat-row" style="flex-wrap:wrap;${m.role==='pending'||m.role==='guest'?'border-color:var(--amber)':''}">
         <span class="cname" style="flex-basis:100%">${esc(m.name)}<small>${esc(m.email)}${m.id===me.uid?'（あなた）':''}</small></span>
         <select data-role="${m.id}" ${m.id===me.uid?'disabled':''}>${Object.entries(ROLES).map(([k,r])=>`<option value="${k}" ${m.role===k?'selected':''}>${r.name}</option>`).join('')}</select>
