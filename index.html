@@ -458,6 +458,8 @@ table.pub th{font-family:'Shippori Mincho',serif; background:var(--tint);}
     <section id="settingsScreen" class="screen"></section>
     <section id="batchScreen" class="screen"></section>
     <section id="budgetImportScreen" class="screen"></section>
+    <section id="importScreen" class="screen"></section>
+    <input type="file" id="importInput" accept=".csv,.tsv,.txt,.xlsx,.xls,text/csv" style="display:none;">
     <input type="file" id="batchInput" accept="image/*" multiple style="display:none;">
     <input type="file" id="batchCamera" accept="image/*" capture="environment" style="display:none;">
     <input type="file" id="budgetInput" accept="image/*" multiple style="display:none;">
@@ -523,7 +525,8 @@ let bookFilter = { status:'all', q:'', account:'', method:'', payer:'' };
 let auditFilter = 'todo';
 let settleView = null;         // 精算画面で開いている支払者ID
 let detailId = null;
-let sharedKey = null;          // 町内会共通のClaude APIキー（会計が設定した場合）
+let sharedKey = null;
+let importsList = [];          // 町内会共通のClaude APIキー（会計が設定した場合）
 
 /* ---------- ユーティリティ ---------- */
 function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -805,6 +808,7 @@ function attachData(){
     onData(R('advances'), s => { advances = toArr(s.val()); renderAll(); });
     onData(R('settlements'), s => { settlements = toArr(s.val()).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)); renderAll(); });
     onData(R('members'), s => { members = toArr(s.val()); syncRecipients(); renderAll(); });
+    onData(R('imports'), s => { importsList = toArr(s.val()).sort((a,b)=>(b.at||0)-(a.at||0)); if (currentScreen==='settingsScreen') renderSettings(); });
     onData(R('log').limitToLast(300), s => { logs = toArr(s.val()).sort((a,b)=>(b.at||0)-(a.at||0)); if (currentScreen==='auditScreen') renderAudit(); });
   } else if (isP() && me.payerId) {
     onData(R('entries').orderByChild('payerId').equalTo(me.payerId), s => { mineMap = objWithIds(s.val()); renderAll(); });
@@ -853,7 +857,7 @@ function buildNav(){
   if (!navItems().some(n=>n[0]===currentScreen)) currentScreen='homeScreen';
   showScreen(currentScreen);
 }
-const TITLES = { homeScreen:'ホーム', bookScreen:'出納帳', settleScreen:'精算', auditScreen:'監査', settingsScreen:'設定', formScreen:'登録', detailScreen:'伝票', batchScreen:'まとめて読み込み', budgetImportScreen:'予算の取り込み' };
+const TITLES = { homeScreen:'ホーム', bookScreen:'出納帳', settleScreen:'精算', auditScreen:'監査', settingsScreen:'設定', formScreen:'登録', detailScreen:'伝票', batchScreen:'まとめて読み込み', budgetImportScreen:'予算の取り込み', importScreen:'データ取り込み' };
 function showScreen(id){
   currentScreen = id;
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
@@ -1513,7 +1517,7 @@ async function renderDetail(id){
       ${e.memo?`<dt>メモ</dt><dd>${esc(e.memo)}</dd>`:''}
       ${e.excludePublic?`<dt>公開</dt><dd>会員向け報告では明細を伏せる</dd>`:''}
     </dl>
-    <p class="history">登録：${esc(e.createdByName||'')} ${fmtTs(e.createdAt)}${e.updatedByName?`<br>最終更新：${esc(e.updatedByName)} ${fmtTs(e.updatedAt)}`:''}${e.approvedByName?`<br>承認：${esc(e.approvedByName)} ${fmtTs(e.approvedAt)}`:''}</p>
+    <p class="history">${e.imported?'📥 CSV・Excelから取り込んだ伝票<br>':''}登録：${esc(e.createdByName||'')} ${fmtTs(e.createdAt)}${e.updatedByName?`<br>最終更新：${esc(e.updatedByName)} ${fmtTs(e.updatedAt)}`:''}${e.approvedByName?`<br>承認：${esc(e.approvedByName)} ${fmtTs(e.approvedAt)}`:''}</p>
   </div>
 
   <div class="form-card"><div class="field" style="margin:0"><label>証憑写真</label><div id="detailPhotos" class="detail-photos">${e.photoCount?'<p class="hint">読み込み中…</p>':'<p class="hint">写真はありません</p>'}</div></div></div>`;
@@ -1833,7 +1837,7 @@ function openPrint(title, body){
    ========================================================= */
 function autoChecks(ap){
   const out = [];
-  const noPhoto = ap.filter(e=>e.type==='expense' && !e.photoCount && !e.noReceipt);
+  const noPhoto = ap.filter(e=>e.type==='expense' && !e.photoCount && !e.noReceipt && !e.imported);
   if (noPhoto.length) out.push({ label:'写真も「領収証なし」理由もない支出', list:noPhoto });
   const noRc = ap.filter(e=>e.noReceipt);
   if (noRc.length) out.push({ label:'領収証なしの支出（理由を確認）', list:noRc });
@@ -1931,11 +1935,7 @@ function exportCsv(){
       e.createdByName||'', e.memo||''
     ]);
   });
-  const csv = '\uFEFF' + rows.map(r=>r.map(v=>{ const s=String(v??''); return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s; }).join(',')).join('\r\n');
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
-  a.download = `出納帳_${settings.orgName}_${curFY}年度.csv`;
-  document.body.appendChild(a); a.click(); a.remove();
+  downloadText(csvText(rows), `出納帳_${settings.orgName}_${curFY}年度.csv`);
   showToast('CSVを書き出しました');
 }
 
@@ -2038,6 +2038,16 @@ function renderSettings(){
       `<p class="hint">会計＝全操作／監査＝全件閲覧と監査チェック／役員＝全件閲覧のみ／支払者＝自分の申請と精算確認。本部役員も会計へ申請する場合は「支払者」にします。</p>`;
 
     const trs = members.filter(m=>m.role==='treasurer');
+    html += `<h2 class="section-title" style="margin-top:20px">データの取り込み・バックアップ</h2><div class="form-card">
+      <div style="font-weight:700;font-size:13.5px;margin-bottom:6px">過去データの取り込み</div>
+      <p class="hint" style="margin-top:0">これまでExcelでつけていた出納帳などを取り込みます。CSV（Excelで保存したShift_JISも可）とExcelファイル（.xlsx）に対応しています。列の対応や科目の割り当ては取り込み前に確認できます。</p>
+      <button class="btn btn-navy full" id="impBtn">📥 CSV・Excelファイルを取り込む</button>
+      ${importsList.length?`<div style="margin-top:12px;font-size:12.5px;font-weight:700">取り込みの履歴</div>`+importsList.slice(0,10).map(x=>`<div class="cat-row"><span class="cname">${esc(x.fileName)}<small>${fmtTs(x.at)}・${esc(x.byName)}・${x.count}件（${asList(x.fys).map(y=>y+'年度').join('、')}）</small></span><button class="lnk" data-undoimp="${x.id}" style="color:var(--stamp-red)">取り消す</button></div>`).join(''):''}
+      <div style="font-weight:700;font-size:13.5px;margin:16px 0 6px">バックアップ（CSVで書き出し）</div>
+      <p class="hint" style="margin-top:0">伝票のCSVは全年度・全状態を含み、このアプリにそのまま取り込み直せる形式です。領収証の写真は含まれません（データベースに保存されています）。</p>
+      <div class="btn-row"><button class="btn btn-ghost" id="bkEntries">伝票（全年度）</button><button class="btn btn-ghost" id="bkAccounts">科目・予算・名簿</button></div>
+      ${settings.lastBackupAt?`<p class="hint">前回のバックアップ：${fmtTs(settings.lastBackupAt)}</p>`:''}
+    </div>`;
     html += `<h2 class="section-title" style="margin-top:20px">承認依頼のメール通知</h2><div class="form-card">
       <p class="hint" style="margin-top:0">支出の申請や利用申請が来たとき、会計担当（${trs.map(m=>esc(m.email)).join('、')||'未登録'}）のGoogleアドレスへ自動でメールを送ります。送信にはGoogle Apps Script（無料）を使います。</p>
       <div class="field"><label>通知用 Apps Script のURL</label><input type="text" id="nUrl" value="${esc(settings.notifyUrl||'')}" placeholder="https://script.google.com/macros/s/…/exec"></div>
@@ -2154,6 +2164,10 @@ function bindSettings(){
   });
   $('pubDetail').onchange = () => R('settings/publicDetail').set($('pubDetail').value);
   $('nEntry').onchange = e => R('settings/notifyOnEntry').set(e.target.checked);
+  $('impBtn').onclick = openImport;
+  $('bkEntries').onclick = async () => { await exportBackupCsv(); R('settings/lastBackupAt').set(TS()); };
+  $('bkAccounts').onclick = exportAccountsCsv;
+  q('[data-undoimp]').forEach(b => b.onclick = () => undoImport(b.dataset.undoimp));
   $('nMember').onchange = e => R('settings/notifyOnMember').set(e.target.checked);
   $('nSave').onclick = async () => {
     const url = $('nUrl').value.trim();
@@ -2598,6 +2612,410 @@ async function applyBudget(){
     budgetDraft = null;
     showScreen('homeScreen');
   } catch(e){ console.error(e); showToast('反映に失敗しました（権限を確認してください）'); }
+}
+
+/* =========================================================
+   CSVの書き出し（バックアップ）と取り込み（過去データ）
+   ========================================================= */
+function csvText(rows){
+  return '\uFEFF' + rows.map(r=>r.map(v=>{ const s=String(v??''); return /[",\n\r]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s; }).join(',')).join('\r\n');
+}
+function downloadText(text, filename, type){
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text],{type:type||'text/csv'}));
+  a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+}
+const BACKUP_HEAD = ['伝票番号','日付','年度','区分','科目','用途・行事','支払先・入金元','支払方法','支払った人','金額','状態','精算状況','精算番号','精算日','領収証なし理由','宛名','原本保管場所','写真枚数','監査','監査コメント','公開除外','メモ','登録者','登録日時','伝票ID'];
+
+/* 全年度の伝票をバックアップ（このCSVはそのまま取り込み直せる） */
+async function exportBackupCsv(){
+  showToast('全年度の伝票を読み込んでいます…');
+  const all = toArr((await R('entries').get()).val());
+  if (!all.length) return showToast('伝票がありません');
+  all.sort((a,b)=> (a.fy-b.fy) || (a.date<b.date?-1:a.date>b.date?1:0) || ((a.voucherNo||'')<(b.voucherNo||'')?-1:1));
+  const st = { submitted:'承認待ち', returned:'差戻し', approved:'承認済' };
+  const rows = [BACKUP_HEAD];
+  all.forEach(e=>{
+    const stl = e.settlementId ? settlements.find(s=>s.id===e.settlementId) : null;
+    rows.push([
+      e.voucherNo||'', e.date, e.fy, e.type==='income'?'収入':'支出', accById(e.accountId)?.name||'', e.purpose||'', e.payee||'',
+      methodById(e.methodId)?.name||'', payerName(e.payerId), Number(e.amount)||0, st[e.status]||e.status||'',
+      e.type==='expense' ? (e.settleState==='pending'?'未精算':e.settleState==='settled'?'精算済':'不要') : '',
+      stl?stl.no:'', stl?stl.date:'', e.noReceipt?(e.noReceiptReason||'理由未記入'):'', e.addressee||'', e.storageLocation||'', e.photoCount||0,
+      e.audit?(e.auditStale?'要再確認':e.audit.result==='ok'?'確認済':'指摘'):'', e.audit?.comment||'', e.excludePublic?'1':'',
+      e.memo||'', e.createdByName||'', e.createdAt?fmtTs(e.createdAt):'', e.id
+    ]);
+  });
+  downloadText(csvText(rows), `会計簿バックアップ_伝票_${settings.orgName}_${localDate()}.csv`);
+  writeLog('バックアップ', null, `伝票CSV ${all.length}件`);
+  showToast(`${all.length}件を書き出しました`);
+}
+/* 科目・予算・繰越金のバックアップ */
+function exportAccountsCsv(){
+  const fys = new Set(Object.keys(settings.opening||{}).map(Number));
+  accounts.forEach(a=>Object.keys(a.budget||{}).forEach(y=>fys.add(Number(y))));
+  const years = [...fys].filter(Boolean).sort();
+  const rows = [['区分','科目','摘要','状態', ...years.map(y=>`${y}年度予算`)]];
+  years.length && rows.push(['繰越','前年度繰越金','','', ...years.map(y=>(settings.opening||{})[y] ?? '')]);
+  accounts.forEach(a=>rows.push([a.type==='income'?'収入':'支出', a.name, a.desc||'', a.active?'使用中':'停止', ...years.map(y=>(a.budget||{})[y] ?? '')]));
+  rows.push([]);
+  rows.push(['支払者名簿']); rows.push(['氏名','役職','状態']);
+  payers.forEach(p=>rows.push([p.name, p.post||'', p.active?'使用中':'停止']));
+  rows.push([]);
+  rows.push(['支払方法']); rows.push(['名前','用途','精算']);
+  methods.forEach(m=>rows.push([m.name, m.use==='income'?'収入':m.use==='both'?'共通':'支出', m.settle?'要精算':'不要']));
+  downloadText(csvText(rows), `会計簿バックアップ_科目予算_${settings.orgName}_${localDate()}.csv`);
+  showToast('科目・予算・名簿を書き出しました');
+}
+
+/* ---------- 取り込み ---------- */
+const IMPORT_FIELDS = [
+  ['date','日付','必須'], ['type','区分（収入／支出）',''], ['amount','金額',''], ['income','収入の金額（収入列）',''], ['expense','支出の金額（支出列）',''],
+  ['account','科目',''], ['purpose','用途・摘要',''], ['payee','支払先・入金元',''], ['method','支払方法',''], ['payer','支払った人',''],
+  ['memo','メモ・備考',''], ['voucher','伝票番号',''], ['storage','原本保管場所',''], ['settle','精算状況',''],
+  ['noReceiptReason','領収証なし理由',''], ['addressee','宛名',''], ['exclude','公開除外',''], ['id','伝票ID（バックアップ）','']
+];
+const IMPORT_GUESS = [
+  ['id', /^伝票ID$/], ['voucher', /伝票番号|伝票No|^No\.?$|^番号$/i], ['date', /日付|年月日|支払日|入金日|取引日/], ['type', /^区分$|収支|^種別$/],
+  ['income', /^収入$|入金額|^入金$|収入金額/], ['expense', /^支出$|出金額|^出金$|支出金額/], ['amount', /^金額|^額$|税込/],
+  ['account', /科目|費目/], ['method', /支払方法|決済|受取方法|^方法$/], ['payer', /支払った人|支払者|立替者|担当/],
+  ['payee', /支払先|入金元|相手先|取引先|店名/], ['purpose', /用途|摘要|内容|行事|件名/], ['settle', /精算状況/],
+  ['noReceiptReason', /領収証なし/], ['addressee', /宛名/], ['storage', /保管/], ['exclude', /公開除外/], ['memo', /メモ|備考/]
+];
+let imp = null;
+
+function openImport(){ $('importInput').click(); }
+$('importInput').onchange = async e => {
+  const file = e.target.files[0]; e.target.value='';
+  if (!file) return;
+  imp = { fileName:file.name, state:'loading', map:{}, accMap:{}, methMap:{}, payerMap:{}, settledDefault:true, skipDup:true, noYearFy:curFY, showAll:false };
+  showScreen('importScreen'); renderImport();
+  try {
+    if (/\.xlsx?$/i.test(file.name)) {
+      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
+      const wb = XLSX.read(await file.arrayBuffer(), { type:'array' });
+      imp.sheets = wb.SheetNames.map(n => ({ name:n, table: XLSX.utils.sheet_to_json(wb.Sheets[n], { header:1, raw:false, defval:'' }) }));
+      imp.sheetIdx = 0;
+      imp.table = imp.sheets[0].table;
+    } else {
+      imp.table = parseCsv(await readTextSmart(file));
+    }
+    imp.existing = toArr((await R('entries').get()).val());
+    setupTable();
+    imp.state = 'ready';
+  } catch(err){ console.error(err); imp.state='error'; imp.msg = String(err.message||err); }
+  renderImport();
+};
+function loadScript(src){ return new Promise((ok,ng)=>{ if (window.XLSX) return ok(); const s=document.createElement('script'); s.src=src; s.onload=ok; s.onerror=()=>ng(new Error('Excel読み込み用ライブラリを取得できませんでした')); document.head.appendChild(s); }); }
+async function readTextSmart(file){
+  const buf = await file.arrayBuffer();
+  let t = new TextDecoder('utf-8').decode(buf);
+  if (t.includes('\uFFFD')) { try { t = new TextDecoder('shift_jis').decode(buf); } catch(e){} }   // Excelで保存したCSV（Shift_JIS）に対応
+  return t.replace(/^\uFEFF/, '');
+}
+function parseCsv(text){
+  const first = text.split(/\r?\n/).slice(0,5).join('\n');
+  const delim = (first.match(/\t/g)||[]).length > (first.match(/,/g)||[]).length ? '\t' : ',';
+  const rows=[]; let row=[], f='', q=false;
+  for (let i=0;i<text.length;i++){
+    const c=text[i];
+    if (q) { if (c==='"') { if (text[i+1]==='"') { f+='"'; i++; } else q=false; } else f+=c; }
+    else if (c==='"') q=true;
+    else if (c===delim) { row.push(f); f=''; }
+    else if (c==='\n') { row.push(f); rows.push(row); row=[]; f=''; }
+    else if (c!=='\r') f+=c;
+  }
+  if (f!=='' || row.length) { row.push(f); rows.push(row); }
+  return rows;
+}
+/* 見出し行と列の対応を推定 */
+function setupTable(){
+  const t = imp.table;
+  let best = 0, bestScore = -1;
+  t.slice(0,20).forEach((r,i)=>{
+    const score = r.filter(c=>IMPORT_GUESS.some(([,re])=>re.test(String(c).trim()))).length;
+    if (score > bestScore) { bestScore = score; best = i; }
+  });
+  imp.headerRow = best;
+  guessColumns();
+}
+function guessColumns(){
+  const head = (imp.table[imp.headerRow]||[]).map(c=>String(c).normalize('NFKC').trim());
+  imp.map = {};
+  const used = new Set();
+  IMPORT_GUESS.forEach(([k,re])=>{
+    if (imp.map[k]!==undefined) return;
+    const i = head.findIndex((h,idx)=>!used.has(idx) && h && re.test(h));
+    if (i>=0) { imp.map[k]=i; used.add(i); }
+  });
+  imp.accMap = {}; imp.methMap = {}; imp.payerMap = {};
+}
+
+function parseAmount(s){
+  s = String(s??'').normalize('NFKC').trim();
+  if (!s) return null;
+  const neg = /^[-−△▲]/.test(s) || /^\(.*\)$/.test(s);
+  s = s.replace(/[^\d.]/g,'');
+  if (!s) return null;
+  const n = Math.round(Number(s));
+  return isNaN(n) ? null : (neg ? -n : n);
+}
+function isoDate(y,m,d){
+  const dt = new Date(y, m-1, d);
+  if (dt.getFullYear()!==y || dt.getMonth()!==m-1 || dt.getDate()!==d) return null;
+  return `${y}-${pad(m)}-${pad(d)}`;
+}
+function parseDateCell(v, fyForNoYear){
+  let s = String(v??'').normalize('NFKC').trim();
+  if (!s) return null;
+  if (/^\d{5}(\.\d+)?$/.test(s)) {           // Excelの日付シリアル値
+    const n = Math.floor(Number(s));
+    if (n>20000 && n<80000) { const d = new Date(Date.UTC(1899,11,30) + n*86400000); return isoDate(d.getUTCFullYear(), d.getUTCMonth()+1, d.getUTCDate()); }
+  }
+  let m = s.match(/^(令和|R|平成|H)\s*(\d{1,2}|元)\s*[.\/\-年]\s*(\d{1,2})\s*[.\/\-月]\s*(\d{1,2})/i);
+  if (m) { const base = /令和|R/i.test(m[1]) ? 2018 : 1988; return isoDate(base + (m[2]==='元'?1:Number(m[2])), Number(m[3]), Number(m[4])); }
+  m = s.match(/^(\d{4})\s*[.\/\-年]\s*(\d{1,2})\s*[.\/\-月]\s*(\d{1,2})/);
+  if (m) return isoDate(Number(m[1]), Number(m[2]), Number(m[3]));
+  m = s.match(/^(\d{1,2})\s*[.\/\-月]\s*(\d{1,2})日?$/);
+  if (m) { const mo = Number(m[1]); return isoDate(mo >= startMonth() ? fyForNoYear : fyForNoYear+1, mo, Number(m[2])); }
+  return null;
+}
+function normKey(s){ return String(s||'').normalize('NFKC').replace(/\s/g,''); }
+
+function computeImport(){
+  const d = imp; const col = k => (d.map[k]===undefined || d.map[k]==='') ? -1 : Number(d.map[k]);
+  const rows = [];
+  d.table.slice(d.headerRow+1).forEach((r, i) => {
+    if (!r || r.every(c=>!String(c??'').trim())) return;
+    const get = k => col(k)>=0 ? String(r[col(k)]??'').trim() : '';
+    const inc = parseAmount(get('income')), exp = parseAmount(get('expense')), amt = parseAmount(get('amount'));
+    let type = null, amount = null;
+    if (inc) { type='income'; amount=inc; }
+    else if (exp) { type='expense'; amount=exp; }
+    else if (amt) amount = amt;
+    const t = get('type'), accName = get('account');
+    if (!type && t) type = /収|入金/.test(t) ? 'income' : (/支|出金/.test(t) ? 'expense' : null);
+    if (!type && accName) {
+      const k = normKey(accName);
+      if (accounts.some(a=>a.type==='income' && normKey(a.name)===k)) type='income';
+      else if (accounts.some(a=>a.type==='expense' && normKey(a.name)===k)) type='expense';
+    }
+    if (!type) type = 'expense';
+    if (amount!==null && amount<0) amount = -amount;
+    const purpose = get('purpose');
+    const date = parseDateCell(get('date'), Number(d.noYearFy));
+    let skip = '', err = '';
+    if (/繰越|合計|小計|累計|^計$|月計$|年計$|度計$|期計$/.test((accName+' '+purpose).trim()) || /繰越|合計|小計/.test(get('date'))) skip = '繰越・合計の行';
+    else if (!date && !amount) skip = '空の行';
+    else if (!date) err = `日付を読めません（${get('date')||'空欄'}）`;
+    else if (!amount) err = '金額がありません';
+    rows.push({ line: d.headerRow+2+i, date, type, amount: amount||0, accName, purpose, payee:get('payee'), methodName:get('method'),
+      payerName:get('payer'), memo:get('memo'), voucherNo:get('voucher'), storage:get('storage'), settleText:get('settle'),
+      noReceiptReason:get('noReceiptReason'), addressee:get('addressee'), exclude:/^(1|true|はい|○|〇|yes)$/i.test(get('exclude')), srcId:get('id'), skip, err });
+  });
+  // 重複（同じ伝票ID、または同じ日付・区分・金額・支払先の伝票が登録済み）
+  const ids = new Set(d.existing.map(e=>e.id));
+  const keys = new Set(d.existing.map(e=>`${e.date}|${e.type}|${Number(e.amount)}|${normKey(e.payee)}`));
+  rows.forEach(r => { if (!r.skip && !r.err) r.dup = (r.srcId && ids.has(r.srcId)) || keys.has(`${r.date}|${r.type}|${r.amount}|${normKey(r.payee)}`); });
+  // 値の対応表を初期化
+  const live = rows.filter(r=>!r.skip && !r.err);
+  live.forEach(r => {
+    const ak = `${r.type}|${r.accName}`;
+    if (d.accMap[ak]===undefined) {
+      if (!r.accName) { const fb = accounts.find(a=>a.type===r.type && a.active && /雑/.test(a.name)) || accounts.find(a=>a.type===r.type && a.active); d.accMap[ak] = fb ? fb.id : 'new'; }
+      else { const ex = accounts.find(a=>a.type===r.type && normKey(a.name)===normKey(r.accName)); d.accMap[ak] = ex ? ex.id : matchAccount(r.type, r.accName); }
+    }
+    const mk = `${r.type}|${r.methodName}`;
+    if (d.methMap[mk]===undefined) {
+      const pool = methods.filter(m=>m.use===r.type || m.use==='both');
+      if (!r.methodName) { const fb = r.type==='income' ? (pool.find(m=>/現金/.test(m.name))||pool[0]) : (pool.find(m=>/手元現金/.test(m.name))||pool.find(m=>!m.settle)||pool[0]); d.methMap[mk] = fb ? fb.id : 'new'; }
+      else { const k = normKey(r.methodName); const ex = pool.find(m=>normKey(m.name)===k) || pool.find(m=>normKey(m.name).includes(k) || k.includes(normKey(m.name))); d.methMap[mk] = ex ? ex.id : 'new'; }
+    }
+    if (r.payerName && d.payerMap[r.payerName]===undefined) {
+      const k = normKey(r.payerName).replace(/さん$/,'');
+      const ex = payers.find(p=>normKey(p.name)===k) || payers.find(p=>k.length>=2 && (normKey(p.name).includes(k) || k.includes(normKey(p.name))));
+      d.payerMap[r.payerName] = ex ? ex.id : 'new';
+    }
+  });
+  return rows;
+}
+
+function renderImport(){
+  const el = $('importScreen'); const d = imp;
+  if (!d) { el.innerHTML=''; return; }
+  let html = `<button class="text-link" id="ipBack" style="padding-left:0">‹ 設定へ戻る</button>
+    <h2 class="section-title">過去データの取り込み</h2><p class="hint" style="margin-top:-4px">ファイル：${esc(d.fileName)}</p>`;
+  if (d.state==='loading') { el.innerHTML = html + `<div class="empty"><span class="spinner"></span> 読み込んでいます…</div>`; $('ipBack').onclick=closeImport; return; }
+  if (d.state==='error') { el.innerHTML = html + `<div class="empty">⚠ 読み込めませんでした<br>${esc(d.msg)}</div>`; $('ipBack').onclick=closeImport; return; }
+  if (d.state==='done') { el.innerHTML = html + `<div class="empty"><div class="mark-big">完了</div>${d.doneMsg}</div><button class="btn btn-primary full" id="ipFin">出納帳を見る</button>`; $('ipBack').onclick=closeImport; $('ipFin').onclick=()=>{ imp=null; showScreen('bookScreen'); }; return; }
+
+  const head = d.table[d.headerRow] || [];
+  const colOpts = sel => `<option value="">（使わない）</option>` + head.map((h,i)=>`<option value="${i}" ${String(sel)===String(i)?'selected':''}>${esc(String.fromCharCode(65+(i%26)))}${i>=26?Math.floor(i/26):''}列：${esc(String(h).slice(0,14)||'（見出しなし）')}</option>`).join('');
+  const rows = computeImport();
+  const live = rows.filter(r=>!r.skip && !r.err);
+  const willImport = live.filter(r=>!(r.dup && d.skipDup));
+
+  html += `<div class="form-card"><h3 style="font-size:14.5px;margin-bottom:10px">① 表の読み方</h3>
+    ${d.sheets && d.sheets.length>1 ? `<div class="field"><label>シート</label><select id="ipSheet">${d.sheets.map((s,i)=>`<option value="${i}" ${i===d.sheetIdx?'selected':''}>${esc(s.name)}</option>`).join('')}</select></div>` : ''}
+    <div class="field"><label>見出し（列名）の行</label><select id="ipHead">${d.table.slice(0,20).map((r,i)=>`<option value="${i}" ${i===d.headerRow?'selected':''}>${i+1}行目：${esc(r.filter(Boolean).slice(0,4).join('／').slice(0,40))}</option>`).join('')}</select></div>
+    <div class="field" style="margin:0"><label>「4/1」のように年のない日付の年度</label><select id="ipNoYear">${[curFY-3,curFY-2,curFY-1,curFY,curFY+1].map(y=>`<option value="${y}" ${Number(d.noYearFy)===y?'selected':''}>${y}年度</option>`).join('')}</select></div>
+  </div>`;
+
+  html += `<div class="form-card"><h3 style="font-size:14.5px;margin-bottom:4px">② 列の対応</h3>
+    <p class="hint" style="margin-top:0">金額は「金額＋区分」か「収入・支出の2列」のどちらかを指定します。区分がない場合は科目名から判断し、分からなければ支出になります。</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+    ${IMPORT_FIELDS.map(([k,l,req])=>`<div><label style="font-size:11.5px;color:var(--ink-soft)">${l}${req?' <b style="color:var(--stamp-red)">*</b>':''}</label>
+      <select data-col="${k}" style="width:100%;border:1px solid var(--line);border-radius:6px;padding:7px;font-size:12.5px;font-family:inherit;background:#fff">${colOpts(d.map[k])}</select></div>`).join('')}
+    </div></div>`;
+
+  // 科目・支払方法・支払った人の対応
+  const accKeys = [...new Set(live.map(r=>`${r.type}|${r.accName}`))];
+  const methKeys = [...new Set(live.filter(r=>r.type==='expense'||r.methodName).map(r=>`${r.type}|${r.methodName}`))];
+  const payerKeys = [...new Set(live.map(r=>r.payerName).filter(Boolean))];
+  const cnt = (f) => live.filter(f).length;
+  const mapRow = (label, count, attr, key, opts, cur) => `<div class="imp-row" style="grid-template-columns:1fr 1fr">
+      <span style="font-size:13px">${label}<span class="hint" style="display:block;margin:0">${count}件</span></span>
+      <select ${attr}="${esc(key)}">${opts(cur)}</select></div>`;
+  html += `<div class="form-card"><h3 style="font-size:14.5px;margin-bottom:4px">③ 科目の対応</h3>` +
+    accKeys.map(k=>{ const [type,name]=[k.split('|')[0], k.slice(k.indexOf('|')+1)];
+      return mapRow(`${type==='income'?'［収］':'［支］'}${esc(name||'（科目なし）')}`, cnt(r=>`${r.type}|${r.accName}`===k), 'data-acc', k,
+        cur => (name?`<option value="new" ${cur==='new'?'selected':''}>＋ 新しい科目「${esc(name)}」</option>`:'') + accounts.filter(a=>a.type===type).map(a=>`<option value="${a.id}" ${cur===a.id?'selected':''}>${esc(a.name)}${a.active?'':'（停止中）'}</option>`).join(''), d.accMap[k]); }).join('') + `</div>`;
+  html += `<div class="form-card"><h3 style="font-size:14.5px;margin-bottom:4px">④ 支払方法の対応</h3>` +
+    methKeys.map(k=>{ const [type,name]=[k.split('|')[0], k.slice(k.indexOf('|')+1)];
+      return mapRow(`${type==='income'?'［収］':'［支］'}${esc(name||'（記載なし）')}`, cnt(r=>`${r.type}|${r.methodName}`===k), 'data-meth', k,
+        cur => (name?`<option value="new" ${cur==='new'?'selected':''}>＋ 新しい支払方法「${esc(name)}」</option>`:'') + methods.filter(m=>m.use===type||m.use==='both').map(m=>`<option value="${m.id}" ${cur===m.id?'selected':''}>${esc(m.name)}${m.settle?'（要精算）':''}</option>`).join(''), d.methMap[k]); }).join('') + `</div>`;
+  if (payerKeys.length) html += `<div class="form-card"><h3 style="font-size:14.5px;margin-bottom:4px">⑤ 支払った人の対応</h3>` +
+    payerKeys.map(n=>mapRow(esc(n), cnt(r=>r.payerName===n), 'data-payer', n,
+      cur => `<option value="new" ${cur==='new'?'selected':''}>＋ 名簿に追加「${esc(n)}」</option><option value="none" ${cur==='none'?'selected':''}>記録しない</option>` + payers.map(p=>`<option value="${p.id}" ${cur===p.id?'selected':''}>${esc(payerLabel(p.id))}</option>`).join(''), d.payerMap[n])).join('') + `</div>`;
+
+  html += `<div class="form-card"><h3 style="font-size:14.5px;margin-bottom:8px">⑥ 取り込み方</h3>
+    <label class="check-line" style="margin-bottom:8px"><input type="checkbox" id="ipSettled" ${d.settledDefault?'checked':''}> 立替・仮払の伝票は「精算済み」として取り込む（精算状況の列がある場合はそちらを優先）</label>
+    <label class="check-line"><input type="checkbox" id="ipSkipDup" ${d.skipDup?'checked':''}> 登録済みと重複する行は取り込まない</label>
+    <p class="hint">取り込んだ伝票は「承認済み」になります。写真はありませんが、監査の「写真なし」チェックの対象外にします。</p></div>`;
+
+  const skipN = rows.filter(r=>r.skip).length, errN = rows.filter(r=>r.err).length, dupN = live.filter(r=>r.dup).length;
+  const inc = willImport.filter(r=>r.type==='income').reduce((s,r)=>s+r.amount,0), exp = willImport.filter(r=>r.type==='expense').reduce((s,r)=>s+r.amount,0);
+  const fyList = [...new Set(willImport.map(r=>fyOf(r.date)))].sort();
+  html += `<div class="summary-strip"><div><div class="lbl">取り込む</div><div class="val">${willImport.length}件</div></div><div><div class="lbl">収入</div><div class="val" style="color:var(--stamp-navy)">${yen(inc)}</div></div><div><div class="lbl">支出</div><div class="val" style="color:var(--stamp-red)">${yen(exp)}</div></div></div>
+    <p class="hint" style="margin-top:-4px">対象年度：${fyList.map(y=>y+'年度').join('、')||'－'}　／　読み飛ばし ${skipN}行（繰越・合計・空行）　重複 ${dupN}行　エラー ${errN}行</p>`;
+  const shown = d.showAll ? rows : rows.slice(0,60);
+  html += `<div class="tbl-wrap panel" style="padding:8px"><table class="pub"><thead><tr><th>行</th><th>日付</th><th>科目</th><th>用途・支払先</th><th class="r">金額</th><th>判定</th></tr></thead><tbody>
+    ${shown.map(r=>`<tr style="${r.skip||r.err||(r.dup&&d.skipDup)?'opacity:.5':''}"><td>${r.line}</td><td style="white-space:nowrap">${r.date?fmtDate(r.date):'－'}</td><td>${r.type==='income'?'［収］':''}${esc(r.accName)}</td><td>${esc(r.purpose||r.payee)}</td>
+      <td class="r" style="color:${r.type==='income'?'var(--stamp-navy)':'inherit'}">${r.amount?yen(r.amount):''}</td>
+      <td style="font-size:11px;color:${r.err?'var(--stamp-red)':'var(--ink-soft)'}">${r.err?esc(r.err):r.skip?esc(r.skip):r.dup?'重複':'✓'}</td></tr>`).join('')}
+    </tbody></table>${rows.length>60&&!d.showAll?`<button class="text-link" id="ipAll">残り${rows.length-60}行も表示</button>`:''}</div>`;
+  html += `<button class="btn btn-primary full" id="ipDo" ${willImport.length&&d.map.date!==undefined&&d.map.date!==''?'':'disabled'}>${willImport.length}件を取り込む</button>
+    <p class="hint">取り込み後でも、設定画面の「取り込みの履歴」からこの取り込み分だけをまとめて取り消せます。</p>`;
+  el.innerHTML = html;
+
+  $('ipBack').onclick = closeImport;
+  if ($('ipSheet')) $('ipSheet').onchange = e => { d.sheetIdx=Number(e.target.value); d.table=d.sheets[d.sheetIdx].table; setupTable(); renderImport(); };
+  $('ipHead').onchange = e => { d.headerRow = Number(e.target.value); guessColumns(); renderImport(); };
+  $('ipNoYear').onchange = e => { d.noYearFy = Number(e.target.value); renderImport(); };
+  el.querySelectorAll('[data-col]').forEach(s=>s.onchange=()=>{
+    const k=s.dataset.col; if (s.value==='') delete d.map[k]; else {
+      Object.keys(d.map).forEach(o=>{ if (o!==k && String(d.map[o])===s.value) delete d.map[o]; });   // 同じ列を二重に使わない
+      d.map[k]=Number(s.value);
+    }
+    d.accMap={}; d.methMap={}; d.payerMap={}; renderImport();
+  });
+  el.querySelectorAll('[data-acc]').forEach(s=>s.onchange=()=>{ d.accMap[s.dataset.acc]=s.value; renderImport(); });
+  el.querySelectorAll('[data-meth]').forEach(s=>s.onchange=()=>{ d.methMap[s.dataset.meth]=s.value; renderImport(); });
+  el.querySelectorAll('[data-payer]').forEach(s=>s.onchange=()=>{ d.payerMap[s.dataset.payer]=s.value; renderImport(); });
+  $('ipSettled').onchange = e => { d.settledDefault = e.target.checked; };
+  $('ipSkipDup').onchange = e => { d.skipDup = e.target.checked; renderImport(); };
+  if ($('ipAll')) $('ipAll').onclick = () => { d.showAll = true; renderImport(); };
+  $('ipDo').onclick = () => runImport(willImport);
+}
+function closeImport(){ imp = null; showScreen('settingsScreen'); }
+
+async function runImport(list){
+  const d = imp;
+  const fys = [...new Set(list.map(r=>fyOf(r.date)))].sort();
+  if (!confirm(`${list.length}件（${fys.map(y=>y+'年度').join('、')}）を取り込みます。よろしいですか？`)) return;
+  const btn = $('ipDo'); btn.disabled = true; btn.textContent = '取り込み中…';
+  try {
+    const batchId = R('imports').push().key;
+    const ups = {};
+    // 新しい科目・支払方法・支払者を先に作る
+    const newAcc = {}, newMeth = {}, newPayer = {};
+    let order = accounts.length;
+    list.forEach(r => {
+      const ak = `${r.type}|${r.accName}`;
+      if (d.accMap[ak]==='new' && !newAcc[ak]) { const key=R('accounts').push().key; newAcc[ak]=key; ups[`accounts/${key}`]={ name:r.accName||'未分類', type:r.type, color:PALETTE[order%PALETTE.length], active:true, order:(r.type==='income'?100:0)+(order++) }; }
+      const mk = `${r.type}|${r.methodName}`;
+      if (d.methMap[mk]==='new' && !newMeth[mk]) { const key=R('methods').push().key; newMeth[mk]=key; ups[`methods/${key}`]={ name:r.methodName||'不明', use:r.type, settle:/立替|仮払/.test(r.methodName), active:true, order:methods.length+Object.keys(newMeth).length }; }
+      if (r.payerName && d.payerMap[r.payerName]==='new' && !newPayer[r.payerName]) { const key=R('payers').push().key; newPayer[r.payerName]=key; ups[`payers/${key}`]={ name:r.payerName.replace(/さん$/,''), post:'', active:true, createdAt:TS() }; }
+    });
+    const methOf = r => { const v=d.methMap[`${r.type}|${r.methodName}`]; return v==='new' ? { id:newMeth[`${r.type}|${r.methodName}`], settle:/立替|仮払/.test(r.methodName) } : { id:v, settle:!!methodById(v)?.settle }; };
+    // 伝票番号：CSVの番号（2025-012 形式）が空いていればそのまま使い、なければ新しく振る
+    const usedNo = new Set(d.existing.map(e=>e.voucherNo));
+    const byFy = {};
+    list.slice().sort((a,b)=>a.date<b.date?-1:1).forEach(r => (byFy[fyOf(r.date)] = byFy[fyOf(r.date)] || []).push(r));
+    for (const [fyS, rs] of Object.entries(byFy)) {
+      const fy = Number(fyS);
+      let maxKept = 0; const needNew = [];
+      rs.forEach(r => {
+        const m = String(r.voucherNo).normalize('NFKC').match(new RegExp(`^${fy}-(\\d+)$`));
+        if (m && !usedNo.has(r.voucherNo)) { r._no = r.voucherNo; usedNo.add(r.voucherNo); maxKept = Math.max(maxKept, Number(m[1])); }
+        else needNew.push(r);
+      });
+      const tx = await R(`counters/${fy}`).transaction(n => Math.max(n||0, maxKept) + needNew.length);
+      let next = tx.snapshot.val() - needNew.length + 1;
+      needNew.forEach(r => { r._no = `${fy}-${pad(next++,3)}`; });
+    }
+    list.forEach(r => {
+      const key = R('entries').push().key;
+      const m = methOf(r);
+      const accId = d.accMap[`${r.type}|${r.accName}`]==='new' ? newAcc[`${r.type}|${r.accName}`] : d.accMap[`${r.type}|${r.accName}`];
+      const pv = r.payerName ? d.payerMap[r.payerName] : 'none';
+      const payerId = pv==='new' ? newPayer[r.payerName] : (pv==='none' ? null : pv);
+      const settle = r.type==='expense' && m.settle;
+      const settleState = !settle ? 'none' : /未精算/.test(r.settleText) ? 'pending' : /精算済/.test(r.settleText) ? 'settled' : (d.settledDefault ? 'settled' : 'pending');
+      const memo = [r.memo, r.voucherNo && r._no!==r.voucherNo ? `元の伝票番号：${r.voucherNo}` : ''].filter(Boolean).join('／');
+      ups[`entries/${key}`] = {
+        type:r.type, date:r.date, fy:fyOf(r.date), voucherNo:r._no, amount:r.amount,
+        payee:r.payee, purpose:r.purpose, memo, accountId:accId||null, methodId:m.id||null, payerId: payerId||null,
+        storageLocation:r.storage, noReceipt:!!r.noReceiptReason, noReceiptReason:r.noReceiptReason, addressee:r.addressee, excludePublic:r.exclude,
+        thumb:null, photoCount:0, status:'approved', settleState, auditStale:false,
+        imported:true, importBatch:batchId, importLine:r.line,
+        createdBy:me.uid, createdByName:me.name, createdAt:TS(), updatedAt:TS(), updatedByName:me.name,
+        approvedBy:me.uid, approvedByName:`${me.name}（取込）`, approvedAt:TS()
+      };
+    });
+    ups[`imports/${batchId}`] = { fileName:d.fileName, count:list.length, fys, byName:me.name, at:TS(),
+      income:list.filter(r=>r.type==='income').reduce((s,r)=>s+r.amount,0), expense:list.filter(r=>r.type==='expense').reduce((s,r)=>s+r.amount,0) };
+    // 大量でも失敗しないよう分けて書き込む
+    const keys = Object.keys(ups); const nonEntry = keys.filter(k=>!k.startsWith('entries/')); const entryKeys = keys.filter(k=>k.startsWith('entries/'));
+    await db.ref(ROOT).update(Object.fromEntries(nonEntry.map(k=>[k,ups[k]])));
+    for (let i=0;i<entryKeys.length;i+=300) {
+      btn.textContent = `取り込み中… ${Math.min(i+300,entryKeys.length)}／${entryKeys.length}`;
+      await db.ref(ROOT).update(Object.fromEntries(entryKeys.slice(i,i+300).map(k=>[k,ups[k]])));
+    }
+    writeLog('CSV取込', null, `${d.fileName}：${list.length}件（${fys.map(y=>y+'年度').join('、')}）`);
+    d.state = 'done';
+    d.doneMsg = `${list.length}件を取り込みました。<br>${fys.map(y=>y+'年度').join('、')}の出納帳で確認できます。${Object.keys(newAcc).length?`<br>新しい科目 ${Object.keys(newAcc).length}件、`:''}${Object.keys(newPayer).length?`名簿 ${Object.keys(newPayer).length}人を追加しました。`:''}`;
+    if (fys.length) { curFY = fys[fys.length-1]; subscribeFY(); }
+    renderImport();
+  } catch(e){ console.error(e); showToast('取り込みに失敗しました：' + (e.message||e)); btn.disabled=false; btn.textContent='もう一度取り込む'; }
+}
+
+/* 取り込みの取り消し（その回に取り込んだ伝票だけを削除） */
+async function undoImport(id){
+  const info = importsList.find(x=>x.id===id); if (!info) return;
+  const snap = await R('entries').orderByChild('importBatch').equalTo(id).get();
+  const list = toArr(snap.val());
+  const locked = list.filter(e=>e.settlementId);
+  if (locked.length) return showToast(`${locked.length}件がアプリ上で精算済みのため取り消せません。先に精算を取り消してください`);
+  if (!confirm(`「${info.fileName}」で取り込んだ ${list.length}件を削除します。\n（取り込み後に修正した伝票も含みます）よろしいですか？`)) return;
+  const ups = {};
+  list.forEach(e => { ups[`entries/${e.id}`] = null; ups[`photos/${e.id}`] = null; });
+  ups[`imports/${id}`] = null;
+  await db.ref(ROOT).update(ups);
+  writeLog('CSV取込の取消', null, `${info.fileName}：${list.length}件を削除`);
+  showToast(`${list.length}件を取り消しました`);
 }
 
 /* =========================================================
