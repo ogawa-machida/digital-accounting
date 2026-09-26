@@ -320,12 +320,36 @@ table.pub th{font-family:'Shippori Mincho',serif; background:var(--tint);}
       <svg viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.9 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.6 6.1 29.6 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.7-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.6 15.9 18.9 13 24 13c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.6 6.1 29.6 4 24 4c-7.4 0-13.8 4.1-17.1 10.1z"/><path fill="#4CAF50" d="M24 44c5.5 0 10.4-1.9 14.3-5.1l-6.6-5.4C29.6 35.4 26.9 36.2 24 36.2c-5.3 0-9.7-3.1-11.3-7.5l-6.6 5.1C9.9 39.9 16.4 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.3 4.2-4.2 5.5l6.6 5.4C41.4 35.4 44 30.1 44 24c0-1.3-.1-2.7-.4-3.5z"/></svg>
       Googleでログイン
     </button>
+    <div style="width:100%;max-width:340px;text-align:left">
+      <div style="display:flex;align-items:center;gap:10px;color:var(--ink-soft);font-size:12px;margin:4px 0 10px"><span style="flex:1;border-top:1px solid var(--line)"></span>または<span style="flex:1;border-top:1px solid var(--line)"></span></div>
+      <input type="email" id="emailLoginInput" placeholder="メールアドレス（携帯・Yahoo!メールなども可）" autocomplete="email"
+        style="width:100%;border:1px solid var(--line);border-radius:10px;padding:12px;font-size:15px;font-family:inherit;background:#fff">
+      <button class="btn btn-navy full" id="emailLoginBtn" style="margin-top:8px">📧 メールでログイン用リンクを受け取る</button>
+      <p class="hint" id="emailLoginMsg" style="text-align:center">Googleアカウントがない方はこちら。パスワードは不要です。</p>
+    </div>
     <button class="text-link" onclick="openPublic()">会員向けの会計報告を見る（ログイン不要）</button>
     <p id="loginError" style="color:var(--stamp-red);font-size:12px;"></p>
+    <p class="hint" style="margin-top:8px" id="verLogin"></p>
   </div>
 </div>
 
 <!-- 利用承認待ち -->
+<div id="joinScreen" style="display:none;">
+  <div class="center-wrap" style="min-height:auto;padding-top:40px">
+    <div class="mark-big">はじめ<br>まして</div>
+    <h1 style="font-size:20px;">お名前と役職を教えてください</h1>
+    <p>登録するとすぐに、レシートの写真を撮って立替の申請ができます。最初の申請を会計が確認したときに、あわせて本登録されます。</p>
+    <div class="form-card" style="width:100%;max-width:380px;text-align:left">
+      <div class="field"><label>お名前</label><input type="text" id="jName" placeholder="例）山田 花子"></div>
+      <div class="field"><label>役職・班</label><input type="text" id="jPost" placeholder="例）3班 班長、防災支隊長" list="postList2"><datalist id="postList2"></datalist></div>
+      <div class="field" id="jCodeField"><label>参加コード（会計から案内があった場合）</label><input type="text" id="jCode" placeholder="案内がなければ空欄" autocomplete="off"></div>
+      <button class="btn btn-primary full" id="jSubmit">登録して始める</button>
+      <p class="hint" id="jErr" style="color:var(--stamp-red)"></p>
+    </div>
+    <button class="text-link" onclick="auth.signOut()">別のアカウントでログインする</button>
+  </div>
+</div>
+
 <div id="pendingScreen" style="display:none;">
   <div class="center-wrap">
     <div class="mark-big">承認<br>待ち</div>
@@ -488,6 +512,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
+const APP_VERSION = '2026.09.26-8';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 const CONFIGURED = !firebaseConfig.apiKey.startsWith('YOUR_');
 const ROOT = 'chokai-kaikei';
 let auth = null, db = null;
@@ -506,6 +531,7 @@ const ROLES = {
   auditor:  { name:'監査', desc:'全件の閲覧と監査チェック' },
   viewer:   { name:'役員', desc:'全件の閲覧のみ（会長など）' },
   payer:    { name:'支払者', desc:'自分の支出の申請と精算の確認' },
+  guest:    { name:'仮登録', desc:'初回の申請が承認されると本登録（申請はすぐにできます）' },
   pending:  { name:'承認待ち', desc:'' },
   removed:  { name:'利用停止', desc:'' }
 };
@@ -526,7 +552,8 @@ let auditFilter = 'todo';
 let settleView = null;         // 精算画面で開いている支払者ID
 let detailId = null;
 let sharedKey = null;
-let importsList = [];          // 町内会共通のClaude APIキー（会計が設定した場合）
+let importsList = [];
+let joinCode = '';          // 町内会共通のClaude APIキー（会計が設定した場合）
 
 /* ---------- ユーティリティ ---------- */
 function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -546,7 +573,8 @@ function fyMonths(fy){ const s=startMonth(); return Array.from({length:12},(_,i)
 function isStaff(){ return me && ['treasurer','auditor','viewer'].includes(me.role); }
 function isT(){ return me && me.role==='treasurer'; }
 function isA(){ return me && me.role==='auditor'; }
-function isP(){ return me && me.role==='payer'; }
+function isP(){ return me && (me.role==='payer' || me.role==='guest'); }
+function isGuest(){ return me && me.role==='guest'; }
 function accById(id){ return accounts.find(a=>a.id===id); }
 function methodById(id){ return methods.find(m=>m.id===id); }
 function payerById(id){ return payers.find(p=>p.id===id); }
@@ -557,7 +585,7 @@ function needsSettle(e){ const m=methodById(e.methodId); return e.type==='expens
 let toastTimer;
 function showToast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove('show'), 2600); }
 function $(id){ return document.getElementById(id); }
-function hideAllRoots(){ ['setupScreen','loginScreen','pendingScreen','publicScreen','mainWrap'].forEach(id=>$(id).style.display='none'); }
+function hideAllRoots(){ ['setupScreen','loginScreen','joinScreen','pendingScreen','publicScreen','mainWrap'].forEach(id=>$(id).style.display='none'); }
 
 /* すべての帳簿データ（会計・監査・役員は年度分＋未精算分、支払者は自分の分） */
 function allEntries(){
@@ -609,6 +637,7 @@ function syncRecipients(force){
 }
 
 /* ---------- 起動 ---------- */
+const JOIN_CODE_FROM_URL = new URLSearchParams(location.search).get('code') || (()=>{ try { return localStorage.getItem('kaikei_joinCode') || ''; } catch(e){ return ''; } })();
 const params = new URLSearchParams(location.search);
 if (!CONFIGURED) { hideAllRoots(); $('setupScreen').style.display='block'; }
 else if (params.get('view')==='public') { openPublic(); }
@@ -639,7 +668,7 @@ function handleInAppBrowser(){
   const url = location.href.replace(/[?&]openExternalBrowser=1/,'');
   const intent = `intent://${location.host}${location.pathname}${location.search}#Intent;scheme=https;package=com.android.chrome;end`;
   $('googleLoginBtn').style.display = 'none';
-  $('loginError').innerHTML = `<b>${esc(app)}の中のブラウザではGoogleログインができません。</b><br>
+  $('loginError').innerHTML = `<b>${esc(app)}の中のブラウザではGoogleログインができません。</b><br>上の「メールでログイン」なら、このまま使えます。<br>Googleでログインしたい場合は、
     ${isAndroid ? `<a href="${esc(intent)}" class="google-btn" style="display:inline-flex;margin:12px 0;text-decoration:none">Chromeで開く</a><br>` : '右上（または右下）の「…」や共有ボタンから<b>「Safariで開く」</b>を選んでください。<br>'}
     うまくいかない場合は、このURLをコピーしてSafari・Chromeに貼り付けてください。<br>
     <input readonly value="${esc(url)}" onclick="this.select()" style="width:100%;margin-top:8px;padding:8px;border:1px solid var(--line);border-radius:6px;font-size:12px">
@@ -653,8 +682,14 @@ function startAuth(){
     'auth/operation-not-allowed':'FirebaseでGoogleログインが有効になっていません',
     'auth/configuration-not-found':'FirebaseでAuthenticationが開始されていません',
     'auth/invalid-api-key':'firebaseConfigのapiKeyが正しくありません',
-    'auth/network-request-failed':'通信に失敗しました。電波の良い場所で再度お試しください'
+    'auth/network-request-failed':'通信に失敗しました。電波の良い場所で再度お試しください',
+    'auth/invalid-email':'メールアドレスの形式が正しくありません',
+    'auth/invalid-action-code':'ログイン用リンクの有効期限が切れているか、すでに使われています。もう一度メールを送ってください',
+    'auth/expired-action-code':'ログイン用リンクの有効期限が切れています。もう一度メールを送ってください',
+    'auth/quota-exceeded':'本日のメール送信上限に達しました。明日もう一度お試しください',
+    'auth/too-many-requests':'短時間に何度も送信されました。しばらく待ってからお試しください'
   };
+  if (auth) auth.languageCode = 'ja';
   const showLoginError = e => {
     console.error(e);
     const msg = LOGIN_ERRORS[e.code] || 'ログインに失敗しました';
@@ -662,6 +697,46 @@ function startAuth(){
     $('loginError').textContent = `エラーコード：${e.code||'unknown'}　${msg}`;
   };
   auth.getRedirectResult().catch(showLoginError);
+  $('verLogin').textContent = `バージョン ${APP_VERSION}`;
+
+  /* ---- メールアドレスだけでログイン（Firebaseのメールリンク認証） ---- */
+  const EMAIL_KEY = 'kaikei_emailForSignIn', CODE_KEY = 'kaikei_joinCode';
+  const lsGet = k => { try { return localStorage.getItem(k); } catch(e){ return null; } };
+  const lsSet = (k,v) => { try { v===null ? localStorage.removeItem(k) : localStorage.setItem(k,v); } catch(e){} };
+  if (JOIN_CODE_FROM_URL) lsSet(CODE_KEY, JOIN_CODE_FROM_URL);
+  $('emailLoginBtn').onclick = async () => {
+    const email = $('emailLoginInput').value.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { $('emailLoginMsg').textContent = 'メールアドレスを正しく入力してください'; return; }
+    const btn = $('emailLoginBtn'); btn.disabled = true; btn.textContent = '送信中…';
+    try {
+      const back = new URL(location.origin + location.pathname);
+      const code = JOIN_CODE_FROM_URL || lsGet(CODE_KEY);
+      if (code) back.searchParams.set('code', code);
+      await auth.sendSignInLinkToEmail(email, { url: back.toString(), handleCodeInApp: true });
+      lsSet(EMAIL_KEY, email);
+      $('emailLoginMsg').innerHTML = `<b style="color:var(--moss)">✓ ${esc(email)} にログイン用のリンクを送りました。</b><br>メールを開いてリンクを押すとログインできます（1時間以内）。届かない場合は迷惑メールフォルダも確認してください。差出人は noreply@${esc(firebaseConfig.authDomain)} です。`;
+      btn.textContent = 'もう一度送る';
+    } catch(e) {
+      if (e.code==='auth/operation-not-allowed') { $('emailLoginMsg').textContent = 'メールでのログインがまだ有効になっていません（会計担当がFirebaseで設定します）'; console.error(e); }
+      else showLoginError(e);
+      btn.textContent = '📧 メールでログイン用リンクを受け取る';
+    } finally { btn.disabled = false; }
+  };
+  // メールのリンクから戻ってきたときにログインを完了する
+  if (auth.isSignInWithEmailLink(location.href)) {
+    (async () => {
+      let email = lsGet(EMAIL_KEY);
+      if (!email) email = prompt('確認のため、ログイン用リンクを受け取ったメールアドレスを入力してください');
+      if (!email) return;
+      try {
+        await auth.signInWithEmailLink(email.trim(), location.href);
+        lsSet(EMAIL_KEY, null);
+      } catch(e) { showLoginError(e); }
+      const u = new URL(location.href);
+      ['apiKey','oobCode','mode','lang','continueUrl','tenantId'].forEach(k=>u.searchParams.delete(k));
+      history.replaceState(null, '', u.pathname + (u.search || ''));
+    })();
+  }
   $('googleLoginBtn').onclick = () => {
     const provider = new firebase.auth.GoogleAuthProvider();
     auth.signInWithPopup(provider).catch(e => {
@@ -687,6 +762,35 @@ function startAuth(){
   });
 }
 
+/* はじめての人の仮登録（利用承認を待たずに申請できる） */
+function showJoinForm(user, mref){
+  return new Promise(resolve => {
+    hideAllRoots(); $('joinScreen').style.display='block';
+    $('jName').value = user.displayName || '';
+    if (!user.displayName) $('jName').placeholder = '例）山田 花子（' + (user.email||'') + '）';
+    $('postList2').innerHTML = POSTS.map(p=>`<option value="${p}">`).join('');
+    if (JOIN_CODE_FROM_URL) { $('jCode').value = JOIN_CODE_FROM_URL; $('jCodeField').style.display='none'; }
+    $('jErr').textContent = '';
+    $('jSubmit').onclick = async () => {
+      const name = $('jName').value.trim(), post = $('jPost').value.trim();
+      if (!name) { $('jErr').textContent = 'お名前を入力してください'; return; }
+      if (!post) { $('jErr').textContent = '役職・班を入力してください（会計が本人確認に使います）'; return; }
+      const btn = $('jSubmit'); btn.disabled = true; btn.textContent = '登録中…';
+      const pid = 'g_' + user.uid;
+      try {
+        await mref.set({ name, email:user.email||'', role:'guest', payerId:pid, joinCode:$('jCode').value.trim(), createdAt:TS() });
+        await R(`payers/${pid}`).set({ name, post, provisional:true, uid:user.uid, email:user.email||'', active:true, order:999, createdAt:TS() });
+        resolve();
+      } catch(e) {
+        console.error(e);
+        $('jErr').textContent = /permission/i.test(String(e.code||e.message)) ? '参加コードが違います。会計から案内されたコードを入力してください' : '登録できませんでした：' + (e.message||e);
+        if (JOIN_CODE_FROM_URL) $('jCodeField').style.display='block';
+        btn.disabled = false; btn.textContent = '登録して始める';
+      }
+    };
+  });
+}
+
 async function enterAs(user){
   const mref = R(`members/${user.uid}`);
   let snap = await mref.get();
@@ -697,12 +801,10 @@ async function enterAs(user){
       await mref.set({ name:user.displayName||'会計', email:user.email||'', role:'treasurer', createdAt:TS() });
       await seedDefaults();
     } else {
-      await mref.set({ name:user.displayName||'', email:user.email||'', role:'pending', requestedAt:TS() });
-      try {
-        const st = (await R('settings').get()).val() || {};
-        if (st.notifyUrl && st.notifyOnMember!==false) notify('member', null, st.notifyUrl);
-      } catch(e){}
+      await showJoinForm(user, mref);
     }
+  } else if (snap.val().role==='pending') {
+    await showJoinForm(user, mref);        // 以前の「承認待ち」の人も仮登録に切り替えて申請できるようにする
   }
   // 自分の権限の変化をリアルタイムで反映
   const h = mref.on('value', s => {
@@ -798,10 +900,12 @@ function attachData(){
   });
   onData(R('accounts'), s => { accounts = toArr(s.val()).sort((a,b)=>(a.order||0)-(b.order||0)); renderAll(); });
   onData(R('methods'),  s => { methods  = toArr(s.val()).sort((a,b)=>(a.order||0)-(b.order||0)); renderAll(); });
-  onData(R('payers'),   s => { payers   = toArr(s.val()).sort((a,b)=>(a.order||0)-(b.order||0) || (a.name||'').localeCompare(b.name||'','ja')); renderAll(); });
+  if (me.role==='guest') onData(R(`payers/${me.payerId}`), s => { payers = s.val() ? [{ id:me.payerId, ...s.val() }] : []; renderAll(); });
+  else onData(R('payers'),   s => { payers   = toArr(s.val()).sort((a,b)=>(a.order||0)-(b.order||0) || (a.name||'').localeCompare(b.name||'','ja')); renderAll(); });
   onData(R('storageTags'), s => { storageTags = toArr(s.val()).map(t=>t.name).sort((a,b)=>a.localeCompare(b,'ja')); });
   onData(R('auditReports'), s => { auditReports = s.val()||{}; renderAll(); });
-  onData(R('secrets/claudeKey'), s => { sharedKey = s.val() || null; });
+  { const ref = R('secrets/claudeKey'); const hk = ref.on('value', s => { sharedKey = s.val() || null; }, () => { sharedKey = null; }); dataListeners.push(()=>ref.off('value', hk)); }
+  if (isT()) onData(R('joinCode'), s => { joinCode = s.val() || ''; if (currentScreen==='settingsScreen') renderSettings(); });
 
   if (isStaff()) {
     onData(R('entries').orderByChild('settleState').equalTo('pending'), s => { pendingMap = objWithIds(s.val()); renderAll(); });
@@ -952,7 +1056,7 @@ function slipHTML(e){
   const acc = accById(e.accountId), m = methodById(e.methodId);
   const inc = e.type==='income';
   const title = e.purpose || e.payee || '（用途未入力）';
-  const sub = [fmtDate(e.date), e.purpose ? e.payee : '', e.payerId ? payerName(e.payerId) : ''].filter(Boolean).map(esc).join('　');
+  const sub = [fmtDate(e.date), e.purpose ? e.payee : '', e.payerId ? payerName(e.payerId) + (payerById(e.payerId)?.provisional ? '（初回）' : '') : ''].filter(Boolean).map(esc).join('　');
   return `<div class="slip ${inc?'income':''}" data-id="${e.id}">
     <div class="slip-row">
       ${e.thumb ? `<img class="slip-photo-thumb" src="${e.thumb}" alt="">` : (e.noReceipt ? `<div class="slip-photo-thumb" style="display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--ink-soft);text-align:center;line-height:1.2">証憑<br>なし</div>` : '')}
@@ -1047,10 +1151,11 @@ function renderPayerHome(el){
   }
   const b = payerBalance(me.payerId);
   const mine = allEntries();
+  const guestNote = isGuest() ? `<div class="notice amber" style="cursor:default"><span class="n-body">仮登録中です<span class="n-sub">${mine.length ? '最初の申請を会計が確認すると本登録になります' : 'さっそくレシートを撮って申請してみましょう。最初の申請の確認時に本登録されます'}</span></span></div>` : '';
   const returned = mine.filter(e=>e.status==='returned');
   const submitted = mine.filter(e=>e.status==='submitted');
   const unconfirmed = settlements.filter(s=>!s.payerConfirmedAt);
-  let html = `<div class="net-box">
+  let html = guestNote + `<div class="net-box">
       <div class="d">${esc(payerLabel(me.payerId))}さんの精算見込み</div>
       <div class="v" style="color:${b.net>=0?'var(--stamp-navy)':'var(--stamp-red)'}">${yen(Math.abs(b.net))}</div>
       <div class="hint" style="margin-top:4px">${b.net>0?'会計から受け取る予定の金額です':b.net<0?'仮払金の残りとして会計へ返す金額です':'現在、精算が必要なものはありません'}${b.waiting.length?`<br>ほかに承認待ち ${b.waiting.length}件（${yen(b.waiting.reduce((s,e)=>s+(Number(e.amount)||0),0))}）`:''}</div>
@@ -1235,7 +1340,7 @@ function renderPayerSelect(){
   sel.disabled = false;
   const cur = editing ? (editing.payerId||'') : sel.value;
   sel.innerHTML = `<option value="">${m&&m.settle?'（選択してください）':'（指定なし：会計が直接支払い）'}</option>` +
-    payers.filter(p=>p.active || p.id===cur).map(p=>`<option value="${p.id}">${esc(payerLabel(p.id))}</option>`).join('');
+    payers.filter(p=>(p.active && !p.provisional) || p.id===cur).map(p=>`<option value="${p.id}">${esc(payerLabel(p.id))}</option>`).join('');
   sel.value = cur;
   $('fPayerHint').textContent = m && m.settle ? '立替・仮払の場合は必ず選んでください。この人の精算待ちに入ります。' : '';
 }
@@ -1523,8 +1628,23 @@ async function renderDetail(id){
   <div class="form-card"><div class="field" style="margin:0"><label>証憑写真</label><div id="detailPhotos" class="detail-photos">${e.photoCount?'<p class="hint">読み込み中…</p>':'<p class="hint">写真はありません</p>'}</div></div></div>`;
 
   // 会計：承認・差戻し
+  const pv = payerById(e.payerId);
+  if (isT() && e.status==='submitted' && pv && pv.provisional) {
+    const others = allEntries().filter(x=>x.payerId===pv.id && x.status==='submitted').length;
+    html += `<div class="audit-box" style="border-color:var(--amber);margin-bottom:10px">
+      <div style="font-weight:700;font-size:13.5px;margin-bottom:4px">🆕 はじめての申請者です</div>
+      <p style="margin:0 0 8px;font-size:13px">${esc(pv.name)}（${esc(pv.post||'役職未記入')}）<br><span class="hint">${esc(pv.email||'')}　申請 ${others}件</span></p>
+      <label style="font-size:12px;color:var(--ink-soft)">支払者名簿での扱い</label>
+      <select id="gTarget" style="width:100%;border:1px solid var(--line);border-radius:8px;padding:9px;font-family:inherit;font-size:14px;background:#fff;margin:4px 0 8px">
+        <option value="">新しく名簿に登録する（${esc(pv.name)}）</option>
+        ${payers.filter(p=>!p.provisional && p.active).map(p=>`<option value="${p.id}" ${normKey(p.name)===normKey(pv.name)?'selected':''}>名簿の「${esc(payerLabel(p.id))}」と同じ人</option>`).join('')}
+      </select>
+      <p class="hint" style="margin:0">承認すると本登録（支払者）になります。${others>1?`ほかの申請${others-1}件もまとめて承認できます。`:''}</p>
+      <button class="text-link" id="gReject" style="font-size:12px;padding:6px 0 0;color:var(--stamp-red)">この人の利用を認めない</button>
+    </div>`;
+  }
   if (isT() && e.status==='submitted') {
-    html += `<div class="btn-row" style="margin-bottom:10px"><button class="btn btn-danger" id="dReturn">差し戻す</button><button class="btn btn-moss" id="dApprove">承認する</button></div>`;
+    html += `<div class="btn-row" style="margin-bottom:10px"><button class="btn btn-danger" id="dReturn">差し戻す</button><button class="btn btn-moss" id="dApprove">${pv&&pv.provisional?'本登録して承認する':'承認する'}</button></div>`;
   }
   // 監査欄
   if (e.status==='approved' && (isStaff())) {
@@ -1548,7 +1668,8 @@ async function renderDetail(id){
   $('detailBack').onclick = () => showScreen(isP() ? 'homeScreen' : 'bookScreen');
   if ($('dEdit')) $('dEdit').onclick = () => openForm(e);
   if ($('dDelete')) $('dDelete').onclick = () => deleteEntry(e);
-  if ($('dApprove')) $('dApprove').onclick = () => approveEntry(e);
+  if ($('dApprove')) $('dApprove').onclick = () => approveEntry(e, $('gTarget') ? $('gTarget').value : null);
+  if ($('gReject')) $('gReject').onclick = () => rejectGuest(e);
   if ($('dReturn')) $('dReturn').onclick = () => returnEntry(e);
   if ($('aOk')) $('aOk').onclick = () => auditEntry(e, 'ok');
   if ($('aIssue')) $('aIssue').onclick = () => auditEntry(e, 'issue');
@@ -1567,16 +1688,60 @@ async function renderDetail(id){
   }
 }
 
-async function approveEntry(e){
+/* 仮登録の人を本登録にする（名簿に新規登録、または既存の名簿の人に統合） */
+async function approveGuest(pv, targetId){
+  const uid = pv.uid;
+  const ups = {};
+  let finalId = pv.id;
+  if (targetId) {
+    const snap = await R('entries').orderByChild('payerId').equalTo(pv.id).get();
+    Object.keys(snap.val()||{}).forEach(id => { ups[`entries/${id}/payerId`] = targetId; });
+    ups[`payers/${pv.id}`] = null;
+    finalId = targetId;
+  } else {
+    ups[`payers/${pv.id}/provisional`] = null;
+    ups[`payers/${pv.id}/order`] = payers.filter(p=>!p.provisional).length;
+  }
+  if (uid) { ups[`members/${uid}/role`] = 'payer'; ups[`members/${uid}/payerId`] = finalId; }
+  await db.ref(ROOT).update(ups);
+  writeLog('本登録', null, `${pv.name}（${pv.post||''}）${targetId?` → 名簿の${payerName(targetId)}に統合`:'を名簿に登録'}`);
+  return finalId;
+}
+async function rejectGuest(e){
+  const pv = payerById(e.payerId); if (!pv) return;
+  if (!confirm(`${pv.name}さん（${pv.email||''}）の利用を認めず、利用停止にしますか？\nこの人の申請は差し戻しになります。`)) return;
+  const ups = {};
+  allEntries().filter(x=>x.payerId===pv.id && x.status==='submitted').forEach(x=>{ ups[`entries/${x.id}/status`]='returned'; ups[`entries/${x.id}/returnReason`]='利用が承認されませんでした。会計担当にお問い合わせください'; });
+  if (pv.uid) ups[`members/${pv.uid}/role`] = 'removed';
+  await db.ref(ROOT).update(ups);
+  writeLog('利用不承認', null, `${pv.name}（${pv.email||''}）`);
+  showToast('利用停止にしました');
+}
+
+async function approveEntry(e, guestTarget){
+  const pv = payerById(e.payerId);
+  if (pv && pv.provisional) {
+    const pid = await approveGuest(pv, guestTarget || null);
+    const rest = allEntries().filter(x=>x.payerId===pv.id && x.status==='submitted' && x.id!==e.id);
+    await approveOne(e);
+    if (rest.length && confirm(`${pv.name}さんを本登録しました。\n同じ人のほかの申請 ${rest.length}件（${yen(rest.reduce((s,x)=>s+(Number(x.amount)||0),0))}）もまとめて承認しますか？`)) {
+      for (const x of rest) await approveOne(x);
+      showToast(`${rest.length+1}件を承認しました`);
+    } else showToast('本登録して承認しました');
+    return;
+  }
+  await approveOne(e);
+  showToast('承認しました');
+  const next = fyEntries().find(x=>x.status==='submitted' && x.id!==e.id);
+  if (next && confirm('次の承認待ちを開きますか？')) openDetail(next.id);
+}
+async function approveOne(e){
   await R(`entries/${e.id}`).update({
     status:'approved', returnReason:null,
     settleState: e.settleState==='settled' ? 'settled' : (needsSettle(e) ? 'pending' : 'none'),
     approvedBy: me.uid, approvedByName: me.name, approvedAt: TS()
   });
   writeLog('承認', e, `${payerName(e.payerId)} ${e.purpose||e.payee||''}`);
-  showToast('承認しました');
-  const next = fyEntries().find(x=>x.status==='submitted' && x.id!==e.id);
-  if (next && confirm('次の承認待ちを開きますか？')) openDetail(next.id);
 }
 async function returnEntry(e){
   const reason = prompt('差し戻す理由を入力してください（支払者に表示されます）', '領収証の宛名を町内会名にしてもらってください');
@@ -1631,7 +1796,7 @@ function renderSettle(){
 
   html += `<div class="panel" style="margin-top:16px"><h3>仮払金を渡す <small>行事の前に現金を預けるとき</small></h3>
     <div class="field"><select id="advPayer" style="width:100%;border:1px solid var(--line);border-radius:8px;padding:10px;font-family:inherit;font-size:14px;background:#fff">
-      <option value="">渡す相手を選ぶ</option>${payers.filter(p=>p.active).map(p=>`<option value="${p.id}">${esc(payerLabel(p.id))}</option>`).join('')}</select></div>
+      <option value="">渡す相手を選ぶ</option>${payers.filter(p=>p.active && !p.provisional).map(p=>`<option value="${p.id}">${esc(payerLabel(p.id))}</option>`).join('')}</select></div>
     <div class="inline-add" style="margin-top:0"><input type="date" id="advDate" value="${localDate()}"><input type="number" id="advAmount" placeholder="金額" inputmode="numeric" class="num"></div>
     <div class="inline-add"><input id="advMemo" placeholder="目的（例：夏祭り買い出し）"><button class="btn btn-navy sm" id="advAdd">記録</button></div>
     <p class="hint">渡した仮払金は、その人の精算時に使った金額と相殺されます。</p></div>`;
@@ -2023,19 +2188,26 @@ function renderSettings(){
     html += `<h2 class="section-title" style="margin-top:20px">支払者名簿</h2><p class="hint" style="margin-top:-4px">立替や仮払をする可能性のある人（役員・班長・防災支隊長など）を登録します。アカウントがない人も、会計が代わりに入力できます。</p>` +
       payers.map(p=>{ const linked = members.find(m=>m.payerId===p.id && m.role!=='removed');
         return `<div class="cat-row ${p.active?'':'inactive'}"><span class="avatar" style="width:28px;height:28px;border-radius:50%;background:var(--tint);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">${esc((p.name||'?').slice(0,1))}</span>
-        <span class="cname">${esc(p.name)}<small>${esc(p.post||'')}${linked?`・📱${esc(linked.email)}`:'・アプリ未利用'}</small></span>
+        <span class="cname">${esc(p.name)}${p.provisional?' <span class="stamp-tag" style="border-color:var(--amber);color:var(--amber)">仮登録</span>':''}<small>${esc(p.post||'')}${linked?`・📱${esc(linked.email)}`:'・アプリ未利用'}</small></span>
         <button class="lnk" data-editp="${p.id}">編集</button><button class="lnk" data-togglep="${p.id}">${p.active?'停止':'再開'}</button></div>`; }).join('') +
       `<div class="inline-add"><input id="newPName" placeholder="氏名"><input id="newPPost" placeholder="役職" list="postList" style="flex:0 0 38%"><button class="btn btn-navy sm" id="addP">追加</button></div>
        <datalist id="postList">${POSTS.map(p=>`<option value="${p}">`).join('')}</datalist>`;
 
     const ms = [...members].sort((a,b)=>(a.role==='pending'?-1:0)-(b.role==='pending'?-1:0));
     html += `<h2 class="section-title" style="margin-top:20px">アプリの利用者と権限</h2><p class="hint" style="margin-top:-4px">Googleでログインした人がここに「承認待ち」で表示されます。権限を選ぶと使えるようになります。支払者には名簿の誰なのかを紐付けてください。</p>` +
-      ms.map(m=>`<div class="cat-row" style="flex-wrap:wrap;${m.role==='pending'?'border-color:var(--stamp-red)':''}">
+      ms.map(m=>`<div class="cat-row" style="flex-wrap:wrap;${m.role==='pending'||m.role==='guest'?'border-color:var(--amber)':''}">
         <span class="cname" style="flex-basis:100%">${esc(m.name)}<small>${esc(m.email)}${m.id===me.uid?'（あなた）':''}</small></span>
         <select data-role="${m.id}" ${m.id===me.uid?'disabled':''}>${Object.entries(ROLES).map(([k,r])=>`<option value="${k}" ${m.role===k?'selected':''}>${r.name}</option>`).join('')}</select>
         <select data-link="${m.id}"><option value="">名簿と紐付けない</option>${payers.map(p=>`<option value="${p.id}" ${m.payerId===p.id?'selected':''}>${esc(payerLabel(p.id))}</option>`).join('')}</select>
       </div>`).join('') +
-      `<p class="hint">会計＝全操作／監査＝全件閲覧と監査チェック／役員＝全件閲覧のみ／支払者＝自分の申請と精算確認。本部役員も会計へ申請する場合は「支払者」にします。</p>`;
+      `<p class="hint">会計＝全操作／監査＝全件閲覧と監査チェック／役員＝全件閲覧のみ／支払者＝自分の申請と精算確認／仮登録＝初めてログインした人（申請はでき、最初の申請を承認すると支払者になります）。</p>
+      <div class="form-card" style="margin-top:10px">
+        <div style="font-weight:700;font-size:13.5px;margin-bottom:6px">参加コードと招待リンク</div>
+        <p class="hint" style="margin-top:0">参加コードを決めておくと、コードを知っている人だけが仮登録できます（知らない人のいたずら申請を防げます）。下の招待リンクを班長さんに送ると、コードの入力なしで登録できます。</p>
+        <div class="inline-add" style="margin-top:0"><input id="jcInput" value="${esc(joinCode)}" placeholder="例）ogawa2026（空欄なら誰でも登録可）" autocomplete="off"><button class="btn btn-navy sm" id="jcSave">保存</button></div>
+        <div class="inline-add"><input readonly id="jcLink" value="${esc(location.origin+location.pathname+'?openExternalBrowser=1'+(joinCode?'&code='+encodeURIComponent(joinCode):''))}"><button class="btn btn-ghost sm" id="jcCopy">コピー</button></div>
+        <p class="hint">${joinCode?'✓ 参加コードが設定されています。コードを知っている人には町内会の共通AIキーも使えるようにしています。':'⚠ 参加コードが未設定のため、Googleアカウントがあれば誰でも仮登録できます（共通AIキーは本登録後に使えます）。'}</p>
+      </div>`;
 
     const trs = members.filter(m=>m.role==='treasurer');
     html += `<h2 class="section-title" style="margin-top:20px">データの取り込み・バックアップ</h2><div class="form-card">
@@ -2052,7 +2224,7 @@ function renderSettings(){
       <p class="hint" style="margin-top:0">支出の申請や利用申請が来たとき、会計担当（${trs.map(m=>esc(m.email)).join('、')||'未登録'}）のGoogleアドレスへ自動でメールを送ります。送信にはGoogle Apps Script（無料）を使います。</p>
       <div class="field"><label>通知用 Apps Script のURL</label><input type="text" id="nUrl" value="${esc(settings.notifyUrl||'')}" placeholder="https://script.google.com/macros/s/…/exec"></div>
       <label class="check-line" style="margin-bottom:6px"><input type="checkbox" id="nEntry" ${settings.notifyOnEntry!==false?'checked':''}> 支出の申請（承認依頼）が届いたとき</label>
-      <label class="check-line" style="margin-bottom:12px"><input type="checkbox" id="nMember" ${settings.notifyOnMember!==false?'checked':''}> 新しい人から利用申請が届いたとき</label>
+      <p class="hint" style="margin:0 0 12px">初めての人の申請メールには「はじめての申請者」と表示されます。</p>
       <div class="btn-row"><button class="btn btn-ghost" id="nTest">テスト送信</button><button class="btn btn-primary" id="nSave">保存して送信先を登録</button></div>
       <p class="hint">会計担当を追加・変更すると、送信先も自動で更新されます。</p></div>`;
     const pub = settings.publicDetail || 'items';
@@ -2081,7 +2253,8 @@ function renderSettings(){
     <div class="field"><input type="password" id="apiKeyInput" placeholder="sk-ant-..." style="width:100%;border:1px solid var(--line);border-radius:8px;padding:11px 12px;font-size:15px"></div>
     <p class="hint" style="margin-top:-6px">${getLocalKey()?`設定済み（${esc(getLocalKey().slice(0,10))}…）`:'未設定'}</p>
     <div class="btn-row"><button class="btn btn-ghost" id="delKey">削除</button><button class="btn btn-primary" id="saveKey">保存</button></div></div>
-    <button class="btn btn-ghost full" style="margin-top:6px" onclick="if(confirm('ログアウトしますか？'))auth.signOut()">ログアウト</button>`;
+    <button class="btn btn-ghost full" style="margin-top:6px" onclick="if(confirm('ログアウトしますか？'))auth.signOut()">ログアウト</button>
+    <p class="hint" style="text-align:center;margin-top:12px">バージョン ${APP_VERSION}</p>`;
   el.innerHTML = html;
   bindSettings();
 }
@@ -2168,7 +2341,14 @@ function bindSettings(){
   $('bkEntries').onclick = async () => { await exportBackupCsv(); R('settings/lastBackupAt').set(TS()); };
   $('bkAccounts').onclick = exportAccountsCsv;
   q('[data-undoimp]').forEach(b => b.onclick = () => undoImport(b.dataset.undoimp));
-  $('nMember').onchange = e => R('settings/notifyOnMember').set(e.target.checked);
+  $('jcSave').onclick = async () => {
+    const v = $('jcInput').value.trim();
+    if (v && v.length < 4) return showToast('参加コードは4文字以上にしてください');
+    await R('joinCode').set(v || null);
+    writeLog('参加コード', null, v ? '参加コードを変更' : '参加コードを解除');
+    showToast(v ? '参加コードを保存しました' : '参加コードを解除しました');
+  };
+  $('jcCopy').onclick = () => navigator.clipboard?.writeText($('jcLink').value).then(()=>showToast('招待リンクをコピーしました')).catch(()=>$('jcLink').select());
   $('nSave').onclick = async () => {
     const url = $('nUrl').value.trim();
     if (url && !/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(url)) return showToast('URLは https://script.google.com/macros/s/…/exec の形です');
@@ -2283,7 +2463,7 @@ function batchMethodOptions(sel, withAuto){
     methods.filter(m=>m.active && m.use!=='income').map(m=>`<option value="${m.id}" ${sel===m.id?'selected':''}>${esc(m.name)}${m.settle?'（要精算）':''}</option>`).join('');
 }
 function batchPayerOptions(sel){
-  return `<option value="">会計が直接支払い</option>` + payers.filter(p=>p.active).map(p=>`<option value="${p.id}" ${sel===p.id?'selected':''}>${esc(payerLabel(p.id))}</option>`).join('');
+  return `<option value="">会計が直接支払い</option>` + payers.filter(p=>(p.active && !p.provisional) || p.id===sel).map(p=>`<option value="${p.id}" ${sel===p.id?'selected':''}>${esc(payerLabel(p.id))}</option>`).join('');
 }
 function renderBatch(){
   const el = $('batchScreen');
