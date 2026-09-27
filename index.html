@@ -489,7 +489,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.09.27-1';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.09.27-2';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 const CONFIGURED = !firebaseConfig.apiKey.startsWith('YOUR_');
 const ROOT = 'chokai-kaikei';
 let auth = null, db = null;
@@ -2027,7 +2027,8 @@ function renderAudit(){
     <div class="btn-row" style="flex-wrap:wrap">
       <button class="btn btn-ghost sm" id="outCsv">出納帳CSV（Excel）</button>
       <button class="btn btn-ghost sm" id="outVouchers">証憑台帳を印刷</button>
-      <button class="btn btn-ghost sm" id="outReport">収支決算書を印刷</button>
+      <button class="btn btn-ghost sm" id="outReport">会計報告（総会書式）</button>
+      <button class="btn btn-ghost sm" id="outBudgetPlan">次年度予算（案）</button>
     </div>
     <p class="hint">証憑台帳は伝票番号順に写真付きで並びます。紙への貼り付け・Excelへの転記の代わりにお使いください。領収証の原本には同じ伝票番号を書いておくと照合が楽です。</p></div>`;
 
@@ -2048,6 +2049,7 @@ function renderAudit(){
   $('outCsv').onclick = exportCsv;
   $('outVouchers').onclick = printVouchers;
   $('outReport').onclick = printReport;
+  $('outBudgetPlan').onclick = printBudgetPlan;
   if ($('auditDone')) $('auditDone').onclick = async () => {
     if (todo.length && !confirm(`未確認の伝票が${todo.length}件あります。それでも完了にしますか？`)) return;
     const comment = prompt('監査の所見（会員向け報告にも表示されます）', '帳簿・証憑を照合した結果、適正に処理されていることを確認しました。');
@@ -2108,29 +2110,52 @@ async function printVouchers(){
 }
 
 /* ---------- 収支決算書 ---------- */
+function nfmt(n){ return Number(n||0).toLocaleString('ja-JP'); }
+function diffClass(n){ return Number(n)<0?'neg':''; }
+function reportDateText(d){ if(!d) return ''; const [y,m,day]=d.split('-'); return `${y}年${Number(m)}月${Number(day)}日`; }
+function splitNames(s){ return String(s||'').split(/[、,，]/).map(x=>x.trim()).filter(Boolean); }
+function majorDetails(ap,type){
+  const out=[];
+  accounts.filter(a=>a.type===type).forEach(a=>{
+    const es=ap.filter(e=>e.accountId===a.id); if(!es.length)return;
+    const map={}; es.forEach(e=>{ const k=(e.purpose||e.payee||'その他').trim(); map[k]=(map[k]||0)+(Number(e.amount)||0); });
+    const items=Object.entries(map).sort((a,b)=>b[1]-a[1]).slice(0,6);
+    if(items.length) out.push({name:a.name,items});
+  }); return out;
+}
+function reportPrint(title, body){
+  const w=window.open('','_blank'); if(!w)return showToast('ポップアップを許可してください');
+  w.document.write(`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>${esc(title)}</title><style>
+  @page{size:A4 portrait;margin:13mm 15mm 12mm} body{font-family:'Yu Mincho','Hiragino Mincho ProN',serif;color:#111;font-size:10.5pt;margin:0} .page{min-height:268mm;position:relative;page-break-after:always}.page:last-child{page-break-after:auto}
+  h1{text-align:center;font-size:19pt;letter-spacing:.25em;margin:3mm 0 1mm} .period{text-align:center;letter-spacing:.25em;margin:0 0 5mm}.unit{text-align:right;margin:-5mm 2mm 0 0;font-size:9pt}.sect{font-size:13pt;margin:4mm 0 0}.asof{text-align:center;margin:-5mm 0 1mm;letter-spacing:.18em}
+  table{border-collapse:collapse;width:100%;table-layout:fixed} th,td{border:1px solid #111;padding:1.3mm 1.5mm;line-height:1.12} th{font-weight:normal}.r{text-align:right}.c{text-align:center}.neg{color:#d00}.total td{border-top:2px solid #111}.annual{width:66%;margin-top:5mm}.detail{margin:5mm 0 0 7mm;width:66%}.detail td{border:none;padding:.6mm 1mm}.detail .u{border-bottom:3px double #111}.signs{margin:5mm 8mm 0 auto;width:47%;font-size:11pt}.signrow{display:grid;grid-template-columns:30mm 1fr 12mm;gap:2mm;line-height:1.45}.stamp{text-align:center}.auditTitle{text-align:center;font-size:17pt;letter-spacing:.25em;margin-top:4mm}.auditText{text-align:center;font-size:12pt}.foot{position:absolute;bottom:0;left:0;right:0;text-align:center}.note{margin:15mm 0 0 12mm}.noprint{position:fixed;top:4px;left:4px;z-index:9}@media print{.noprint{display:none}}
+  </style></head><body><div class="noprint"><button onclick="window.print()">印刷する</button></div>${body}</body></html>`); w.document.close();
+}
 function printReport(){
-  const ap = approvedFY();
-  const opening = Number((settings.opening||{})[curFY])||0;
-  const section = type => {
-    const accs = accounts.filter(a=>a.type===type && (a.active || ap.some(e=>e.accountId===a.id)));
-    let tb=0, ta=0;
-    const rows = accs.map(a=>{ const b=Number((a.budget||{})[curFY])||0; const act=ap.filter(e=>e.accountId===a.id).reduce((s,e)=>s+(Number(e.amount)||0),0); tb+=b; ta+=act;
-      return `<tr><td>${esc(a.name)}</td><td class="r">${yen(b)}</td><td class="r">${yen(act)}</td><td class="r">${yen(b-act)}</td></tr>`; }).join('');
-    return { rows, tb, ta };
-  };
-  const inc = section('income'), exp = section('expense');
-  const report = auditReports[curFY];
-  openPrint(`収支決算書 ${curFY}年度`, `
-    <h1>${curFY}年度　収支決算書</h1><p class="right">${esc(settings.orgName)}<br>${fyRangeLabel(curFY)}</p>
-    <h2>収入の部</h2><table><thead><tr><th>科目</th><th class="r">予算額</th><th class="r">決算額</th><th class="r">差額</th></tr></thead>
-    <tbody><tr><td>前年度繰越金</td><td class="r">${yen(opening)}</td><td class="r">${yen(opening)}</td><td class="r">¥0</td></tr>${inc.rows}</tbody>
-    <tfoot><tr><td>収入合計</td><td class="r">${yen(inc.tb+opening)}</td><td class="r">${yen(inc.ta+opening)}</td><td class="r">${yen(inc.tb-inc.ta)}</td></tr></tfoot></table>
-    <h2>支出の部</h2><table><thead><tr><th>科目</th><th class="r">予算額</th><th class="r">決算額</th><th class="r">差額</th></tr></thead>
-    <tbody>${exp.rows}</tbody><tfoot><tr><td>支出合計</td><td class="r">${yen(exp.tb)}</td><td class="r">${yen(exp.ta)}</td><td class="r">${yen(exp.tb-exp.ta)}</td></tr></tfoot></table>
-    <h2>次年度繰越金</h2><p style="font-size:16px">${yen(opening+inc.ta-exp.ta)}　（収入合計 ${yen(opening+inc.ta)} − 支出合計 ${yen(exp.ta)}）</p>
-    ${report?`<h2>監査報告</h2><p>${esc(report.comment)}</p><p class="right">${fmtDateFull(localDate(new Date(report.at)))}　監査　${esc(report.byName)}</p>`:''}
-    <div class="sign"><div>会計<br><span></span><i>印</i></div><div>監査<br><span>${esc(report?.byName||'')}</span><i>印</i></div></div>
-  `);
+  const ap=approvedFY(), opening=Number((settings.opening||{})[curFY])||0, cfg=(settings.reportConfig||{})[curFY]||{};
+  const rowsFor=type=>{ let b=0,a=0; const rows=accounts.filter(x=>x.type===type&&(x.active||ap.some(e=>e.accountId===x.id))).map(x=>{const bb=Number((x.budget||{})[curFY])||0, aa=ap.filter(e=>e.accountId===x.id).reduce((s,e)=>s+Number(e.amount||0),0);b+=bb;a+=aa;return `<tr><td>${esc(x.name)}</td><td class="r">${nfmt(bb)}</td><td class="r">${nfmt(aa)}</td><td class="r ${diffClass(aa-bb)}">${nfmt(aa-bb)}</td><td>${esc(x.desc||'')}</td></tr>`});return{rows:rows.join(''),b,a};};
+  const inc=rowsFor('income'),exp=rowsFor('expense'),net=inc.a-exp.a,next=opening+net, assets=Number(cfg.cash||0)+Number(cfg.bank||0), mismatch=assets-next;
+  if(mismatch!==0 && !confirm(`資産残高（${yen(assets)}）と帳簿上の次期繰越金（${yen(next)}）が ${yen(Math.abs(mismatch))} 一致していません。\nそれでも出力しますか？`)) return;
+  const d1=majorDetails(ap,'income'), d2=majorDetails(ap,'expense');
+  const detailHtml=(title,ds)=>`<div class="sect">${title}</div>`+ds.map(g=>`<table class="detail"><tr><td colspan="2">◇${esc(g.name)}</td></tr>${g.items.map(([k,v],i)=>`<tr class="${i===g.items.length-1?'u':''}"><td>　${esc(k)}</td><td class="r">${nfmt(v)}</td></tr>`).join('')}</table>`).join('');
+  const tre=splitNames(cfg.treasurers), aud=splitNames(cfg.auditors), reportDate=reportDateText(cfg.reportDate);
+  const page1=`<div class="page"><h1>${curFY}年度　会計報告</h1><div class="period">${fyRangeLabel(curFY)}</div>
+    <div class="sect">資産の部</div><div class="asof">${curFY+1}年${startMonth()===1?'12月31日':'3月31日'}現在</div><div class="unit">（円）</div>
+    <table><tr><th>科目</th><th>残高</th><th>科目</th><th>残高</th></tr><tr><td>現金</td><td class="r">${nfmt(cfg.cash)}</td><td>前期現金預金残高</td><td class="r">${nfmt(opening)}</td></tr><tr><td>${esc(cfg.bankName||'普通預金')}</td><td class="r">${nfmt(cfg.bank)}</td><td></td><td></td></tr><tr><td></td><td></td><td>今期収支差額</td><td class="r">${nfmt(net)}</td></tr><tr class="total"><td class="c">合　計</td><td class="r">${nfmt(assets)}</td><td class="c">合　計</td><td class="r">${nfmt(next)}</td></tr></table>
+    <div class="sect">収入の部</div><div class="asof">${fyRangeLabel(curFY)}</div><div class="unit">（円）</div><table><tr><th>科目</th><th>予算額</th><th>実績額</th><th>予算対比</th><th>摘要</th></tr>${inc.rows}<tr class="total"><td class="c">合　計</td><td class="r">${nfmt(inc.b)}</td><td class="r">${nfmt(inc.a)}</td><td class="r ${diffClass(inc.a-inc.b)}">${nfmt(inc.a-inc.b)}</td><td></td></tr></table>
+    <div class="sect">支出の部</div><div class="asof">${fyRangeLabel(curFY)}</div><div class="unit">（円）</div><table><tr><th>科目</th><th>予算額</th><th>実績額</th><th>予算対比</th><th>摘要</th></tr>${exp.rows}<tr class="total"><td class="c">合　計</td><td class="r">${nfmt(exp.b)}</td><td class="r">${nfmt(exp.a)}</td><td class="r ${diffClass(exp.a-exp.b)}">${nfmt(exp.a-exp.b)}</td><td></td></tr><tr><td>今期収支差額</td><td class="r ${diffClass(inc.b-exp.b)}">${nfmt(inc.b-exp.b)}</td><td class="r">${nfmt(net)}</td><td></td><td></td></tr></table>
+    <table class="annual"><tr><td>年間収支</td><td></td><td></td></tr><tr><td>前期繰越金</td><td class="r">${nfmt(opening)}</td><td></td></tr><tr><td>収入合計</td><td></td><td class="r">${nfmt(inc.a)}</td></tr><tr><td>支出合計</td><td></td><td class="r">${nfmt(exp.a)}</td></tr><tr><td>差引次期繰越金</td><td></td><td class="r">${nfmt(next)}</td></tr></table></div>`;
+  const signRows=[cfg.chair?['会長',cfg.chair]:null,...tre.map(n=>['会計',n])].filter(Boolean).map(([r,n])=>`<div class="signrow"><span>${r}</span><span>${esc(n)}</span><span class="stamp">印</span></div>`).join('');
+  const audRows=aud.map(n=>`<div class="signrow"><span>会計監査</span><span>${esc(n)}</span><span class="stamp">印</span></div>`).join('');
+  const page2=`<div class="page">${detailHtml('主な収入の明細',d1)}${detailHtml('主な支出の明細',d2)}<div class="signs"><div>上記の通り報告します</div><div class="c">${reportDate}</div>${signRows}</div><div class="auditTitle">${curFY}年度　監査報告</div><div class="auditText">${esc(cfg.auditText||'会計監査の結果、収支の差異はありません')}</div><div class="signs"><div class="c">${reportDate}</div>${audRows}</div></div>`;
+  reportPrint(`${curFY}年度 会計報告`,page1+page2);
+}
+function printBudgetPlan(){
+  const nextFY=curFY+1, ap=approvedFY(), opening=Number((settings.opening||{})[curFY])||0;
+  const actual=(a)=>ap.filter(e=>e.accountId===a.id).reduce((s,e)=>s+Number(e.amount||0),0);
+  const make=type=>{let p=0,a=0,n=0;const rows=accounts.filter(x=>x.type===type&&(x.active||actual(x))).map(x=>{const pp=Number((x.budget||{})[curFY])||0,aa=actual(x),nn=Number((x.budget||{})[nextFY])||0;p+=pp;a+=aa;n+=nn;return `<tr><td>${esc(x.name)}</td><td class="r">${nfmt(pp)}</td><td class="r">${nfmt(aa)}</td><td class="r">${nfmt(nn)}</td><td>${esc(x.desc||'')}</td></tr>`});return{rows:rows.join(''),p,a,n};};
+  const inc=make('income'),exp=make('expense'),nextOpening=opening+inc.a-exp.a;
+  reportPrint(`${nextFY}年度 一般会計 予算（案）`,`<div class="page"><h1>${nextFY}年度　一般会計　予算（案）</h1><div class="period">${fyRangeLabel(nextFY)}</div><div class="sect">収入の部</div><div class="unit">（円）</div><table><tr><th>科目</th><th>${String(curFY).slice(2)}年予算</th><th>${String(curFY).slice(2)}年実績</th><th>${String(nextFY).slice(2)}年予算</th><th>摘要</th></tr>${inc.rows}<tr class="total"><td class="c">合計</td><td class="r">${nfmt(inc.p)}</td><td class="r">${nfmt(inc.a)}</td><td class="r">${nfmt(inc.n)}</td><td></td></tr></table><div class="sect">支出の部</div><div class="unit">（円）</div><table><tr><th>科目</th><th>${String(curFY).slice(2)}年予算</th><th>${String(curFY).slice(2)}年実績</th><th>${String(nextFY).slice(2)}年予算</th><th>摘要</th></tr>${exp.rows}<tr class="total"><td class="c">合計</td><td class="r">${nfmt(exp.p)}</td><td class="r">${nfmt(exp.a)}</td><td class="r">${nfmt(exp.n)}</td><td></td></tr><tr><td>収支差額</td><td class="r ${diffClass(inc.p-exp.p)}">${nfmt(inc.p-exp.p)}</td><td class="r">${nfmt(inc.a-exp.a)}</td><td class="r ${diffClass(inc.n-exp.n)}">${nfmt(inc.n-exp.n)}</td><td></td></tr></table><table class="annual"><tr><td>年間収支</td><td></td><td></td></tr><tr><td>前期繰越金</td><td></td><td class="r">${nfmt(nextOpening)}</td></tr><tr><td>収入合計</td><td></td><td class="r">${nfmt(inc.n)}</td></tr><tr><td>支出合計</td><td></td><td class="r">${nfmt(exp.n)}</td></tr><tr><td>次期繰越金</td><td></td><td class="r">${nfmt(nextOpening+inc.n-exp.n)}</td></tr></table><div class="note">＊上記の予算の範囲内での採用を、本日の定期総会で役員会に一任する。</div></div>`);
 }
 
 /* =========================================================
@@ -2147,6 +2172,21 @@ function renderSettings(){
       <div class="field"><label>会計年度の始まり</label><select id="sStart">${Array.from({length:12},(_,i)=>`<option value="${i+1}" ${startMonth()===i+1?'selected':''}>${i+1}月</option>`).join('')}</select></div>
       <div class="field"><label>${curFY}年度の前年度繰越金</label><input type="number" id="sOpening" class="amount-input" value="${opening}" inputmode="numeric"></div>
       <button class="btn btn-primary full" id="sSaveOrg">保存する</button></div>`;
+
+    const rc = (settings.reportConfig||{})[curFY] || {};
+    html += `<h2 class="section-title" style="margin-top:20px">${curFY}年度 決算資料の設定</h2><div class="form-card">
+      <p class="hint" style="margin-top:0">総会資料の「会計報告」「監査報告」を添付書式に合わせて出力するための情報です。収入・支出の金額は承認済み伝票から自動集計します。</p>
+      <div class="field"><label>報告日</label><input type="date" id="rcDate" value="${esc(rc.reportDate||'')}"></div>
+      <div class="field"><label>現金残高</label><input type="number" id="rcCash" class="amount-input" value="${rc.cash??''}" inputmode="numeric"></div>
+      <div class="field"><label>預金口座名（例：普通貯金ＪＡバンク東京）</label><input type="text" id="rcBankName" value="${esc(rc.bankName||'普通預金')}"></div>
+      <div class="field"><label>預金残高</label><input type="number" id="rcBank" class="amount-input" value="${rc.bank??''}" inputmode="numeric"></div>
+      <div class="field"><label>会長</label><input type="text" id="rcChair" value="${esc(rc.chair||'')}"></div>
+      <div class="field"><label>会計（複数の場合は「、」区切り）</label><input type="text" id="rcTreasurers" value="${esc(rc.treasurers||'')}"></div>
+      <div class="field"><label>会計監査（複数の場合は「、」区切り）</label><input type="text" id="rcAuditors" value="${esc(rc.auditors||'')}"></div>
+      <div class="field"><label>監査報告文</label><textarea id="rcAuditText" rows="2">${esc(rc.auditText||'会計監査の結果、収支の差異はありません')}</textarea></div>
+      <button class="btn btn-primary full" id="rcSave">決算資料設定を保存</button>
+      <p class="hint">資産残高と帳簿上の次期繰越金が一致しない場合は、会計報告出力時に警告します。</p>
+    </div>`;
 
     html += `<h2 class="section-title" style="margin-top:20px">科目と${curFY}年度の予算</h2>`;
     ['expense','income'].forEach(t=>{
@@ -2264,6 +2304,12 @@ function bindSettings(){
     await R(`settings/opening/${curFY}`).set(Math.round(Number($('sOpening').value)||0));
     writeLog('設定変更', null, `団体名・年度・${curFY}年度繰越金`);
     showToast('保存しました');
+  };
+  if ($('rcSave')) $('rcSave').onclick = async () => {
+    const cfg = { reportDate:$('rcDate').value, cash:Math.round(Number($('rcCash').value)||0), bankName:$('rcBankName').value.trim()||'普通預金', bank:Math.round(Number($('rcBank').value)||0), chair:$('rcChair').value.trim(), treasurers:$('rcTreasurers').value.trim(), auditors:$('rcAuditors').value.trim(), auditText:$('rcAuditText').value.trim() };
+    await R(`settings/reportConfig/${curFY}`).set(cfg);
+    writeLog('決算資料設定', null, `${curFY}年度 資産残高 ${yen(cfg.cash+cfg.bank)}`);
+    showToast('決算資料設定を保存しました');
   };
   q('[data-budget]').forEach(inp => inp.onchange = async () => {
     const v = inp.value==='' ? null : Math.round(Number(inp.value)||0);
