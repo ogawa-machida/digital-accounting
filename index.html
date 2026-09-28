@@ -274,6 +274,19 @@ table.pub th{font-family:'Shippori Mincho',serif; background:var(--tint);}
 .total-check.ng{background:#F7E3DD; color:var(--stamp-red);}
 .big-photo{position:fixed; inset:0; background:rgba(0,0,0,.85); z-index:80; display:flex; align-items:center; justify-content:center; padding:16px;}
 .big-photo img{max-width:100%; max-height:100%; border-radius:6px;}
+
+
+/* ===== はじめてでも迷わないUI ===== */
+.guide-card{background:linear-gradient(135deg,#fffdf8,#f4eedd);border:1.5px solid var(--line);border-radius:14px;padding:16px;margin:0 0 14px;box-shadow:var(--shadow)}
+.guide-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px}.guide-head h2{font-size:18px}.guide-head p{margin:3px 0 0;font-size:12.5px;color:var(--ink-soft);line-height:1.6}
+.guide-dismiss{border:0;background:transparent;color:var(--ink-soft);font-size:12px;text-decoration:underline;white-space:nowrap}
+.next-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.next-action{border:1px solid var(--line);background:#fff;border-radius:11px;padding:12px;text-align:left;min-height:86px}.next-action strong{display:block;font-size:14px;margin-bottom:4px}.next-action small{display:block;color:var(--ink-soft);font-size:11.5px;line-height:1.45}.next-action.primary{border:2px solid var(--stamp-red);background:#fffaf7}.next-action .stepno{display:inline-flex;width:22px;height:22px;border-radius:50%;align-items:center;justify-content:center;background:var(--stamp-red);color:#fff;font-weight:700;font-size:12px;margin-right:5px}
+.help-strip{display:flex;gap:8px;margin:10px 0 14px}.help-strip button{flex:1;border:1px solid var(--line);background:var(--card);border-radius:9px;padding:9px 7px;font-size:12px;font-weight:700}
+.ui-help-btn{border:1.5px solid var(--line);background:var(--card);border-radius:50%;width:30px;height:30px;font-weight:800;font-size:15px;color:var(--stamp-navy)}
+.help-modal{position:fixed;inset:0;background:rgba(40,35,30,.48);z-index:100;display:none;align-items:flex-end;justify-content:center}.help-modal.open{display:flex}.help-sheet{background:var(--paper);width:min(680px,100%);max-height:88dvh;overflow:auto;border-radius:18px 18px 0 0;padding:18px 16px calc(22px + env(safe-area-inset-bottom));box-shadow:0 -8px 30px rgba(0,0,0,.18)}.help-sheet h2{font-size:20px;margin-bottom:4px}.help-sheet .lead{font-size:13px;color:var(--ink-soft);margin:0 0 14px}.help-flow{display:grid;gap:8px}.help-step{display:flex;gap:10px;align-items:flex-start;background:#fff;border:1px solid var(--line);border-radius:10px;padding:11px}.help-step b{flex:0 0 26px;height:26px;border-radius:50%;background:var(--stamp-navy);color:#fff;display:flex;align-items:center;justify-content:center}.help-step strong{display:block;font-size:13.5px}.help-step span{display:block;font-size:11.5px;color:var(--ink-soft);margin-top:2px;line-height:1.5}.help-close{margin-top:14px}
+.field>label{font-weight:700}.field>.hint{line-height:1.55}.form-card .field{padding-bottom:3px}.form-card input,.form-card select,.form-card textarea{min-height:44px}.btn{min-height:42px}
+@media(max-width:430px){.next-actions{grid-template-columns:1fr}.guide-card{padding:13px}.bottom-nav button{font-size:10px}.bottom-nav svg{width:19px;height:19px}}
+
 </style>
 </head>
 <body>
@@ -353,6 +366,7 @@ table.pub th{font-family:'Shippori Mincho',serif; background:var(--tint);}
     <div class="user-chip">
       <span class="role-badge" id="roleBadge"></span>
       <span id="userName"></span>
+      <button class="ui-help-btn" id="uiHelpBtn" title="使い方" aria-label="使い方">?</button>
       <button class="icon-btn" id="logoutBtn" title="ログアウト" aria-label="ログアウト">⎋</button>
     </div>
   </header>
@@ -476,6 +490,16 @@ table.pub th{font-family:'Shippori Mincho',serif; background:var(--tint);}
   <nav class="bottom-nav" id="bottomNav"></nav>
 </div>
 
+
+<div class="help-modal" id="uiHelpModal" aria-hidden="true">
+  <div class="help-sheet" role="dialog" aria-modal="true" aria-labelledby="uiHelpTitle">
+    <h2 id="uiHelpTitle">この画面で何をすればいい？</h2>
+    <p class="lead" id="uiHelpLead">役割に合わせて、よく使う操作だけを順番に案内します。</p>
+    <div class="help-flow" id="uiHelpFlow"></div>
+    <button class="btn btn-primary full help-close" id="uiHelpClose">閉じる</button>
+  </div>
+</div>
+
 <div class="toast" id="toast" role="status"></div>
 
 <script>
@@ -495,7 +519,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.09.27-2';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.09.28-1';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 const CONFIGURED = !firebaseConfig.apiKey.startsWith('YOUR_');
 const ROOT = 'chokai-kaikei';
 let auth = null, db = null;
@@ -998,6 +1022,9 @@ function updateBadges(){
   if (isA()) set('auditScreen', approvedFY().filter(e=>!e.audit || e.auditStale).length);
 }
 $('fabAdd').onclick = () => openForm(null);
+$('uiHelpBtn').onclick = openUIHelp;
+$('uiHelpClose').onclick = closeUIHelp;
+$('uiHelpModal').onclick = e => { if(e.target===$('uiHelpModal')) closeUIHelp(); };
 
 /* =========================================================
    精算の計算
@@ -1077,6 +1104,46 @@ function bindSlips(container){
 /* =========================================================
    ホーム
    ========================================================= */
+
+function roleGuideHTML(){
+  const hidden = localStorage.getItem('kaikei-guide-hidden')==='1';
+  if(hidden) return `<div class="help-strip"><button data-help="open">？ はじめての方へ</button><button data-help="restore">案内を表示</button></div>`;
+  let title='まずはここから', sub='今日やることを選べば、必要な画面へ移動します。', acts=[];
+  if(isT()) acts=[
+    ['bookScreen','申請を確認する','届いた支出申請を確認・承認します'],
+    ['formScreen','収入・支出を登録','領収証を撮影して登録できます'],
+    ['settleScreen','精算する','立替金や仮払金をまとめて確認します'],
+    ['settingsScreen','年度・予算を設定','最初の設定や決算資料の準備はこちら']
+  ];
+  else if(isA()) acts=[
+    ['auditScreen','監査を始める','伝票と証憑を1件ずつ確認します'],
+    ['bookScreen','出納帳を見る','年間の収入・支出を確認します'],
+    ['grantsScreen','補助金を確認','申請・交付・実績の状況を確認します'],
+    ['settingsScreen','決算資料を確認','会計報告・予算書などを確認します']
+  ];
+  else acts=[
+    ['bookScreen','会計を見る','収入・支出や申請状況を確認します'],
+    ['auditScreen','監査状況を見る','証憑確認の進み具合を確認します'],
+    ['grantsScreen','補助金を見る','申請から実績報告まで確認します'],
+    ['settingsScreen','設定・資料を見る','予算や決算資料はこちらです']
+  ];
+  return `<div class="guide-card"><div class="guide-head"><div><h2>${title}</h2><p>${sub}<br><b>${esc(ROLES[me.role]?.name||'役員')}</b>として使える機能を表示しています。</p></div><button class="guide-dismiss" data-help="hide">案内を隠す</button></div><div class="next-actions">${acts.map((a,i)=>`<button class="next-action ${i===0?'primary':''}" data-guide-go="${a[0]}"><strong><span class="stepno">${i+1}</span>${a[1]}</strong><small>${a[2]}</small></button>`).join('')}</div><div class="help-strip"><button data-help="open">？ 使い方を詳しく見る</button></div></div>`;
+}
+function bindRoleGuide(el){
+  el.querySelectorAll('[data-guide-go]').forEach(b=>b.onclick=()=>{ const id=b.dataset.guideGo; if(id==='formScreen') openForm(null); else showScreen(id); });
+  el.querySelectorAll('[data-help]').forEach(b=>b.onclick=()=>{ const a=b.dataset.help; if(a==='hide'){localStorage.setItem('kaikei-guide-hidden','1');renderCurrent();} else if(a==='restore'){localStorage.removeItem('kaikei-guide-hidden');renderCurrent();} else openUIHelp(); });
+}
+function openUIHelp(){
+  const flow=$('uiHelpFlow'), lead=$('uiHelpLead'); if(!flow) return;
+  let steps=[];
+  if(isT()){ lead.textContent='会計担当は「確認 → 精算 → 監査・決算」の順で進めれば大丈夫です。'; steps=[['申請を確認','ホームの「承認待ち」または出納帳から内容と領収証を確認します。'],['承認・差戻し','問題なければ承認。不明点があればコメントを付けて差し戻します。'],['精算','精算画面で、誰にいくら支払うかを確認して記録します。'],['月中は予算確認','ホームで科目別の予算と実績を確認します。'],['年度末','監査を完了し、設定から決算・予算資料を作成します。'],['補助金','補助金画面で申請額・交付額・対象支出・実績報告を管理します。']]; }
+  else if(isA()){ lead.textContent='監査担当は、会計データを変更せず「証憑と内容が合っているか」を確認します。'; steps=[['監査を開く','下の「監査」を押します。'],['伝票を確認','日付・金額・科目・用途と領収証を照合します。'],['結果を記録','確認済み／指摘ありを選び、必要ならコメントを残します。'],['監査完了','全件確認後、年度の監査報告を確定します。']]; }
+  else { lead.textContent='役員は、会計状況を見ることが中心です。誤ってデータを変更しない権限になっています。'; steps=[['ホーム','残高・収入・支出・予算執行を確認します。'],['出納帳','必要な伝票を検索して詳細を確認します。'],['補助金','申請・交付・執行・実績報告の状況を確認します。'],['設定・資料','総会用の決算・予算資料を確認します。']]; }
+  flow.innerHTML=steps.map((x,i)=>`<div class="help-step"><b>${i+1}</b><div><strong>${x[0]}</strong><span>${x[1]}</span></div></div>`).join('');
+  $('uiHelpModal').classList.add('open'); $('uiHelpModal').setAttribute('aria-hidden','false');
+}
+function closeUIHelp(){ $('uiHelpModal')?.classList.remove('open'); $('uiHelpModal')?.setAttribute('aria-hidden','true'); }
+
 function renderHome(){
   const el = $('homeScreen');
   if (isP()) { renderPayerHome(el); return; }
@@ -1092,7 +1159,7 @@ function renderHome(){
   const audited = ap.filter(e=>e.audit && !e.auditStale).length;
   const report = auditReports[curFY];
 
-  let html = `<div class="summary-strip">
+  let html = roleGuideHTML() + `<div class="summary-strip">
     <div><div class="lbl">前年度繰越</div><div class="val">${yen(opening)}</div></div>
     <div><div class="lbl">収入</div><div class="val" style="color:var(--stamp-navy)">${yen(inc)}</div></div>
     <div><div class="lbl">支出</div><div class="val" style="color:var(--stamp-red)">${yen(exp)}</div></div>
@@ -1111,6 +1178,7 @@ function renderHome(){
   html += `<h2 class="section-title" style="margin-top:18px;">最近の登録</h2>`;
   html += recent.length ? recent.map(slipHTML).join('') : `<div class="empty"><div class="mark-big">記録<br>なし</div>${isT()?'右下の＋から収入・支出を登録しましょう':'まだ記録がありません'}</div>`;
   el.innerHTML = html;
+  bindRoleGuide(el);
   bindSlips(el);
   if ($('homeBatchBtn')) $('homeBatchBtn').onclick = () => openBatch();
   el.querySelectorAll('[data-go]').forEach(b => b.onclick = () => {
@@ -1148,7 +1216,7 @@ function renderPayerHome(el){
   const returned = mine.filter(e=>e.status==='returned');
   const submitted = mine.filter(e=>e.status==='submitted');
   const unconfirmed = settlements.filter(s=>!s.payerConfirmedAt);
-  let html = guestNote + `<div class="net-box">
+  let html = guestNote + roleGuideHTML() + `<div class="net-box">
       <div class="d">${esc(payerLabel(me.payerId))}さんの精算見込み</div>
       <div class="v" style="color:${b.net>=0?'var(--stamp-navy)':'var(--stamp-red)'}">${yen(Math.abs(b.net))}</div>
       <div class="hint" style="margin-top:4px">${b.net>0?'会計から受け取る予定の金額です':b.net<0?'仮払金の残りとして会計へ返す金額です':'現在、精算が必要なものはありません'}${b.waiting.length?`<br>ほかに承認待ち ${b.waiting.length}件（${yen(b.waiting.reduce((s,e)=>s+(Number(e.amount)||0),0))}）`:''}</div>
@@ -1161,6 +1229,7 @@ function renderPayerHome(el){
   const recent = mine.sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0)).slice(0,5);
   html += `<h2 class="section-title">最近の申請</h2>` + (recent.length ? recent.map(slipHTML).join('') : `<div class="empty">まだ申請はありません</div>`);
   el.innerHTML = html;
+  bindRoleGuide(el);
   bindSlips(el);
   $('payerNewBtn').onclick = () => openForm(null);
   $('payerBatchBtn').onclick = () => openBatch();
