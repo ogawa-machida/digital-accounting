@@ -539,7 +539,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.09.28-4';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.09.29-1';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 const CONFIGURED = !firebaseConfig.apiKey.startsWith('YOUR_');
 const ROOT = 'chokai-kaikei';
 let auth = null, db = null;
@@ -2038,9 +2038,22 @@ function renderPayerSettle(el){
   if (p.approved.length) html += `<h2 class="section-title">精算待ち（承認済み）</h2>` + p.approved.map(slipHTML).join('');
   if (p.waiting.length) html += `<h2 class="section-title" style="margin-top:14px">承認待ち・差戻し</h2>` + p.waiting.map(slipHTML).join('');
   if (p.advs.length) html += `<h2 class="section-title" style="margin-top:14px">預かっている仮払金</h2>` + p.advs.map(a=>`<div class="cat-row"><span class="cname">${esc(a.memo||'仮払金')}<small>${fmtDateFull(a.date)}に受け取り</small></span><span class="num">${yen(a.amount)}</span></div>`).join('');
+  const requestable = p.approved.filter(e=>!e.settleRequestedAt);
+  const requested = p.approved.filter(e=>e.settleRequestedAt);
+  if (p.approved.length || p.advs.length) html += `<div class="form-card" style="margin-top:16px"><h3 style="font-size:16px;margin-bottom:6px">会計へ精算を依頼</h3><p class="hint" style="margin-top:0">承認済みの立替分を会計担当へ知らせます。実際の支払い後は、会計が精算を記録すると「受け取りました」ボタンが表示されます。</p>${requested.length?`<p class="hint" style="color:var(--moss)">✓ ${requested.length}件は精算依頼済みです</p>`:''}<button class="btn btn-primary full" id="payerSettleRequest" ${!requestable.length?'disabled':''}>${requestable.length?`${requestable.length}件の精算を依頼する`:'精算依頼済みです'}</button></div>`;
   html += `<h2 class="section-title" style="margin-top:16px">精算の記録</h2>` + settlementHistory(settlements);
   el.innerHTML = html;
   bindSlips(el); bindSettlementCards(el);
+  const reqBtn = $('payerSettleRequest');
+  if (reqBtn) reqBtn.onclick = async () => {
+    const targets = p.approved.filter(e=>!e.settleRequestedAt);
+    if (!targets.length) return showToast('精算依頼済みです');
+    if (!confirm(`${targets.length}件、合計${yen(targets.reduce((a,e)=>a+(Number(e.amount)||0),0))}の精算を会計担当へ依頼しますか？`)) return;
+    reqBtn.disabled = true;
+    const ups = {}; targets.forEach(e=>{ ups[`entries/${e.id}/settleRequestedAt`] = TS(); ups[`entries/${e.id}/settleRequestedBy`] = me.uid; });
+    try { await db.ref(ROOT).update(ups); writeLog('精算依頼', null, `${me.name} ${targets.length}件`); showToast('会計担当へ精算を依頼しました'); }
+    catch(err){ console.error(err); showToast('精算依頼に失敗しました'); reqBtn.disabled=false; }
+  };
 }
 
 /* ---------- 精算書の印刷 ---------- */
@@ -2368,13 +2381,14 @@ function renderSettings(){
       <p class="hint" style="margin-top:0">会員がログインなしで見られるページです。科目別の予算と実績、月別の支出、用途ごとの明細を公開します。支払先・支払者名・写真・メモは公開されません。</p>
       <div class="field"><label>公開する内容</label><select id="pubDetail"><option value="items" ${pub==='items'?'selected':''}>科目別の集計＋用途ごとの明細</option><option value="summary" ${pub==='summary'?'selected':''}>科目別の集計のみ</option></select></div>
       <div class="btn-row"><button class="btn btn-ghost" id="pubStop">${curFY}年度の公開を止める</button><button class="btn btn-primary" id="pubDo">${curFY}年度の報告を更新</button></div>
-      <div class="inline-add"><input readonly value="${esc(publicUrl())}" id="pubUrl"><button class="btn btn-ghost sm" id="pubCopy">コピー</button></div>
+      <a class="btn btn-navy full" href="${esc(publicUrl())}" target="_blank" rel="noopener">会員向けの会計報告を開く</a><p class="hint" style="margin-bottom:0">ログイン不要の公開ページを新しい画面で開きます。</p>
       <p class="hint">公開内容は自動では変わりません。月に一度など、区切りのよいときに「報告を更新」を押してください。回覧板のQRコードにこのURLを載せると便利です。</p></div>`;
   } else {
     html += `<div class="form-card"><p style="margin:0">${esc(me.name)}（${esc(me.email)}）</p><p class="hint">権限：${ROLES[me.role]?.name}　${ROLES[me.role]?.desc}${me.payerId?`<br>支払者名簿：${esc(payerLabel(me.payerId))}`:''}</p></div>
-      <h2 class="section-title" style="margin-top:16px">会員向けの会計報告</h2><div class="form-card"><div class="inline-add" style="margin:0"><input readonly value="${esc(publicUrl())}" id="pubUrl"><button class="btn btn-ghost sm" id="pubCopy">コピー</button></div></div>`;
+      <h2 class="section-title" style="margin-top:16px">会員向けの会計報告</h2><div class="form-card"><a class="btn btn-navy full" href="${esc(publicUrl())}" target="_blank" rel="noopener">会員向けの会計報告を開く</a><p class="hint" style="margin-bottom:0">ログイン不要の公開ページを新しい画面で開きます。</p></div>`;
   }
 
+  if (!isP()) {
   html += `<h2 class="section-title" style="margin-top:20px">AI自動読み取り（Claude APIキー）</h2>`;
   if (isT()) html += `<div class="form-card">
     <div style="font-weight:700;font-size:13.5px;margin-bottom:6px">町内会の共通キー</div>
@@ -2388,8 +2402,9 @@ function renderSettings(){
     <p class="hint" style="margin-top:0">この端末のブラウザ内にだけ保存され、町内会のデータベースには送られません。登録すると共通キーより優先して使われます。</p>
     <div class="field"><input type="password" id="apiKeyInput" placeholder="sk-ant-..." style="width:100%;border:1px solid var(--line);border-radius:8px;padding:11px 12px;font-size:15px"></div>
     <p class="hint" style="margin-top:-6px">${getLocalKey()?`設定済み（${esc(getLocalKey().slice(0,10))}…）`:'未設定'}</p>
-    <div class="btn-row"><button class="btn btn-ghost" id="delKey">削除</button><button class="btn btn-primary" id="saveKey">保存</button></div></div>
-    <button class="btn btn-ghost full" style="margin-top:6px" onclick="if(confirm('ログアウトしますか？'))auth.signOut()">ログアウト</button>
+    <div class="btn-row"><button class="btn btn-ghost" id="delKey">削除</button><button class="btn btn-primary" id="saveKey">保存</button></div></div>`;
+  }
+  html += `<button class="btn btn-ghost full" style="margin-top:16px" onclick="if(confirm('ログアウトしますか？'))auth.signOut()">ログアウト</button>
     <p class="hint" style="text-align:center;margin-top:12px">バージョン ${APP_VERSION}</p>`;
   el.innerHTML = html;
   if (isT()) organizeSettingsForBeginners(el);
@@ -2439,9 +2454,8 @@ function organizeSettingsForBeginners(el){
 
 function bindSettings(){
   const q = s => $('settingsScreen').querySelectorAll(s);
-  if ($('pubCopy')) $('pubCopy').onclick = () => { navigator.clipboard?.writeText(publicUrl()).then(()=>showToast('URLをコピーしました')).catch(()=>{ $('pubUrl').select(); }); };
-  $('saveKey').onclick = () => { const v=$('apiKeyInput').value.trim(); if(!v) return showToast('APIキーを入力してください'); try{localStorage.setItem(API_KEY_STORAGE,v);}catch(e){} showToast('保存しました'); renderSettings(); };
-  $('delKey').onclick = () => { try{localStorage.removeItem(API_KEY_STORAGE);}catch(e){} showToast('削除しました'); renderSettings(); };
+  if ($('saveKey')) $('saveKey').onclick = () => { const v=$('apiKeyInput').value.trim(); if(!v) return showToast('APIキーを入力してください'); try{localStorage.setItem(API_KEY_STORAGE,v);}catch(e){} showToast('保存しました'); renderSettings(); };
+  if ($('delKey')) $('delKey').onclick = () => { try{localStorage.removeItem(API_KEY_STORAGE);}catch(e){} showToast('削除しました'); renderSettings(); };
   if (!isT()) return;
 
   $('saveShared').onclick = async () => {
