@@ -539,7 +539,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.09.29-1';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.09.29-3';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 const CONFIGURED = !firebaseConfig.apiKey.startsWith('YOUR_');
 const ROOT = 'chokai-kaikei';
 let auth = null, db = null;
@@ -556,7 +556,7 @@ const PALETTE = ['#B4432C','#2E5E7C','#7A8450','#9C6B3E','#7D5A8C','#3E7C6B','#B
 const ROLES = {
   treasurer:{ name:'会計', desc:'すべての登録・承認・精算・設定' },
   auditor:  { name:'監査', desc:'全件の閲覧と監査チェック' },
-  viewer:   { name:'役員', desc:'全件の閲覧のみ（会長など）' },
+  viewer:   { name:'役員', desc:'年度会計の閲覧と自分の支払い精算' },
   payer:    { name:'支払者', desc:'自分の支出の申請と精算の確認' },
   guest:    { name:'仮登録', desc:'初回の申請が承認されると本登録（申請はすぐにできます）' },
   pending:  { name:'承認待ち', desc:'' },
@@ -987,9 +987,9 @@ const ICONS = {
 };
 function navItems(){
   if (isT()) return [['homeScreen','home','ホーム'],['bookScreen','book','出納帳'],['settleScreen','settle','精算'],['auditScreen','audit','監査'],['grantsScreen','grant','補助金'],['settingsScreen','settings','設定']];
-  if (isA()) return [['homeScreen','home','ホーム'],['bookScreen','book','出納帳'],['auditScreen','audit','監査'],['grantsScreen','grant','補助金'],['settingsScreen','settings','設定']];
-  if (isP()) return [['homeScreen','home','ホーム'],['bookScreen','book','申請一覧'],['settleScreen','settle','精算'],['settingsScreen','settings','設定']];
-  return [['homeScreen','home','ホーム'],['bookScreen','book','出納帳'],['auditScreen','audit','監査'],['grantsScreen','grant','補助金'],['settingsScreen','settings','設定']];
+  if (isA()) return [['homeScreen','home','ホーム'],['bookScreen','book','出納帳'],['auditScreen','audit','監査'],['grantsScreen','grant','補助金']];
+  if (isP()) return [['homeScreen','home','ホーム'],['bookScreen','book','申請一覧'],['settleScreen','settle','精算']];
+  return [['homeScreen','home','ホーム'],['bookScreen','book','出納帳'],['settleScreen','settle','精算'],['auditScreen','audit','監査'],['grantsScreen','grant','補助金']];
 }
 function buildNav(){
   const nav = $('bottomNav'); nav.innerHTML='';
@@ -1143,14 +1143,19 @@ function roleGuideHTML(){
   else if(isA()) acts=[
     ['auditScreen','監査を始める','伝票と証憑を1件ずつ確認します'],
     ['bookScreen','出納帳を見る','年間の収入・支出を確認します'],
-    ['grantsScreen','補助金を確認','申請・交付・実績の状況を確認します'],
-    ['settingsScreen','決算資料を確認','会計報告・予算書などを確認します']
+    ['homeScreen','年度の進捗を見る','予算執行や監査の進み具合を確認します'],
+    ['grantsScreen','補助金を確認','申請・交付・実績の状況を確認します']
+  ];
+  else if(me && me.role==='viewer') acts=[
+    ['homeScreen','年度会計の進捗を見る','残高・予算執行・監査の進捗を確認します'],
+    ['bookScreen','出納帳を見る','年間の収入・支出を確認します'],
+    ['settleScreen','自分の支払いを精算','立替分の精算依頼と受取確認をします'],
+    ['grantsScreen','補助金を見る','申請から実績報告まで確認します']
   ];
   else acts=[
-    ['bookScreen','会計を見る','収入・支出や申請状況を確認します'],
-    ['auditScreen','監査状況を見る','証憑確認の進み具合を確認します'],
-    ['grantsScreen','補助金を見る','申請から実績報告まで確認します'],
-    ['settingsScreen','設定・資料を見る','予算や決算資料はこちらです']
+    ['bookScreen','申請を確認','自分の支出申請の状況を確認します'],
+    ['settleScreen','精算する','承認済みの立替分を会計へ精算依頼します'],
+    ['formScreen','支出を申請','領収証を撮影して申請できます']
   ];
   return `<div class="guide-card"><div class="guide-head"><div><h2>${title}</h2><p>${sub}<br><b>${esc(ROLES[me.role]?.name||'役員')}</b>として使える機能を表示しています。</p></div><button class="guide-dismiss" data-help="hide">案内を隠す</button></div><div class="next-actions">${acts.map((a,i)=>`<button class="next-action ${i===0?'primary':''}" data-guide-go="${a[0]}"><strong><span class="stepno">${i+1}</span>${a[1]}</strong><small>${a[2]}</small></button>`).join('')}</div><div class="help-strip"><button data-help="open">？ 使い方を詳しく見る</button></div></div>`;
 }
@@ -1163,7 +1168,8 @@ function openUIHelp(){
   let steps=[];
   if(isT()){ lead.textContent='会計担当は「確認 → 精算 → 監査・決算」の順で進めれば大丈夫です。'; steps=[['申請を確認','ホームの「承認待ち」または出納帳から内容と領収証を確認します。'],['承認・差戻し','問題なければ承認。不明点があればコメントを付けて差し戻します。'],['精算','精算画面で、誰にいくら支払うかを確認して記録します。'],['月中は予算確認','ホームで科目別の予算と実績を確認します。'],['年度末','監査を完了し、設定から決算・予算資料を作成します。'],['補助金','補助金画面で申請額・交付額・対象支出・実績報告を管理します。']]; }
   else if(isA()){ lead.textContent='監査担当は、会計データを変更せず「証憑と内容が合っているか」を確認します。'; steps=[['監査を開く','下の「監査」を押します。'],['伝票を確認','日付・金額・科目・用途と領収証を照合します。'],['結果を記録','確認済み／指摘ありを選び、必要ならコメントを残します。'],['監査完了','全件確認後、年度の監査報告を確定します。']]; }
-  else { lead.textContent='役員は、会計状況を見ることが中心です。誤ってデータを変更しない権限になっています。'; steps=[['ホーム','残高・収入・支出・予算執行を確認します。'],['出納帳','必要な伝票を検索して詳細を確認します。'],['補助金','申請・交付・執行・実績報告の状況を確認します。'],['設定・資料','総会用の決算・予算資料を確認します。']]; }
+  else if(me && me.role==='viewer'){ lead.textContent='役員は、年度会計の進捗を確認し、自分の立替分は精算できます。'; steps=[['ホーム','残高・収支・予算執行・監査進捗を確認します。'],['出納帳','年間の収入・支出を確認します。'],['精算','自分の承認済み立替分を会計へ精算依頼し、受取確認をします。'],['補助金','申請・交付・執行・実績報告の状況を確認します。']]; }
+  else { lead.textContent='支払者は、支出申請と自分の精算を行います。'; steps=[['申請','領収証を撮影して支出を申請します。'],['申請一覧','承認待ちや差戻しを確認します。'],['精算','承認済みの立替分を会計へ精算依頼します。'],['受取確認','会計の精算後に受取・返金を確認します。']]; }
   flow.innerHTML=steps.map((x,i)=>`<div class="help-step"><b>${i+1}</b><div><strong>${x[0]}</strong><span>${x[1]}</span></div></div>`).join('');
   $('uiHelpModal').classList.add('open'); $('uiHelpModal').setAttribute('aria-hidden','false');
 }
@@ -1190,6 +1196,22 @@ function renderHome(){
     <div><div class="lbl">支出</div><div class="val" style="color:var(--stamp-red)">${yen(exp)}</div></div>
     <div><div class="lbl">残高</div><div class="val big">${yen(opening+inc-exp)}</div></div>
   </div>`;
+
+  if (me && me.role==='viewer') {
+    const months = fyMonths(curFY); const nowKey = localDate().slice(0,7);
+    const elapsed = Math.max(0, months.findIndex(x=>x.key===nowKey)+1) || (new Date() > new Date(`${curFY+1}-${pad(startMonth()-1||12)}-28`) ? 12 : 0);
+    const expenseBudget = accounts.filter(a=>a.type==='expense').reduce((sum,a)=>sum+(Number((a.budget||{})[curFY])||0),0);
+    const execPct = expenseBudget ? Math.round(exp/expenseBudget*100) : 0;
+    const unsettledMine = me.payerId ? payerBalance(me.payerId).approved.length : 0;
+    html += `<div class="panel"><h3>年度会計の進捗状況 <small>${esc(fyRangeLabel(curFY))}</small></h3>
+      <div class="summary-strip" style="margin:8px 0 0">
+        <div><div class="lbl">年度経過</div><div class="val">${elapsed}/12か月</div></div>
+        <div><div class="lbl">支出予算執行</div><div class="val">${expenseBudget?execPct+'%':'－'}</div></div>
+        <div><div class="lbl">監査確認</div><div class="val">${ap.length?Math.round(audited/ap.length*100):0}%</div></div>
+        <div><div class="lbl">自分の精算待ち</div><div class="val">${me.payerId?unsettledMine+'件':'未紐付け'}</div></div>
+      </div>
+      <p class="hint" style="margin-bottom:0">予算に対してどこまで執行しているか、監査がどこまで進んでいるかを年度途中でも確認できます。</p></div>`;
+  }
 
   if (isT() && submitted.length) html += `<button class="notice amber" data-go="submitted"><span class="n-body">承認待ちの申請<span class="n-sub">支払者から届いた領収証を確認してください</span></span><span class="n-val">${submitted.length}件</span></button>`;
   if (returned.length) html += `<button class="notice" data-go="returned"><span class="n-body">差戻し中<span class="n-sub">支払者の修正待ち</span></span><span class="n-val">${returned.length}件</span></button>`;
@@ -1867,8 +1889,8 @@ async function auditEntry(e, result){
    ========================================================= */
 function renderSettle(){
   const el = $('settleScreen');
-  if (isP()) return renderPayerSettle(el);
-  if (!isT()) { el.innerHTML = '<div class="empty">精算は会計担当が行います</div>'; return; }
+  if (isP() || (me && me.role==='viewer')) return renderPayerSettle(el);
+  if (!isT()) { el.innerHTML = '<div class="empty">精算の記録は会計担当が行います</div>'; return; }
   if (settleView) return renderSettlePerson(el, settleView);
 
   const people = settlePeople();
@@ -1904,14 +1926,14 @@ function settlementHistory(list){
     const name = payerName(s.payerId);
     return `<div class="settle-card" data-sid="${s.id}">
       <div class="s-top">
-        <div><div style="font-weight:700">${esc(s.no||'')} ${isP()?'':esc(name)+'さん'}</div>
+        <div><div style="font-weight:700">${esc(s.no||'')} ${(isP() || (me&&me.role==='viewer'))?'':esc(name)+'さん'}</div>
         <div class="hint" style="margin:2px 0 0">${fmtDateFull(s.date)}・${esc(s.way)}・伝票${Object.keys(s.entryIds||{}).length}件${s.adv?`・仮払 ${yen(s.adv)}相殺`:''}</div></div>
-        <div style="text-align:right"><div class="num" style="font-size:17px">${yen(Math.abs(s.net))}</div><div class="direction">${directionText(s.net, isP()?'あなた':name).replace('あなたさん','あなた')}</div></div>
+        <div style="text-align:right"><div class="num" style="font-size:17px">${yen(Math.abs(s.net))}</div><div class="direction">${directionText(s.net, (isP() || (me&&me.role==='viewer'))?'あなた':name).replace('あなたさん','あなた')}</div></div>
       </div>
       <div class="tags">${s.payerConfirm ? `<span class="stamp-tag" style="border-color:var(--moss);color:var(--moss)">本人確認済 ${fmtTs(s.payerConfirm.at)}</span>` : `<span class="stamp-tag" style="border-color:var(--amber);color:var(--amber)">本人の確認待ち</span>`}</div>
       <div class="btn-row">
         <button class="btn btn-ghost sm" data-act="print">精算書を印刷</button>
-        ${isP() && !s.payerConfirm ? `<button class="btn btn-moss sm" data-act="confirm">${s.net>=0?'受け取りました':'返金しました'}</button>` : ''}
+        ${(isP() || (me&&me.role==='viewer')) && !s.payerConfirm ? `<button class="btn btn-moss sm" data-act="confirm">${s.net>=0?'受け取りました':'返金しました'}</button>` : ''}
         ${isT() && !s.payerConfirm ? `<button class="btn btn-danger sm" data-act="cancel">取り消す</button>` : ''}
       </div>
     </div>`;
@@ -2041,7 +2063,7 @@ function renderPayerSettle(el){
   const requestable = p.approved.filter(e=>!e.settleRequestedAt);
   const requested = p.approved.filter(e=>e.settleRequestedAt);
   if (p.approved.length || p.advs.length) html += `<div class="form-card" style="margin-top:16px"><h3 style="font-size:16px;margin-bottom:6px">会計へ精算を依頼</h3><p class="hint" style="margin-top:0">承認済みの立替分を会計担当へ知らせます。実際の支払い後は、会計が精算を記録すると「受け取りました」ボタンが表示されます。</p>${requested.length?`<p class="hint" style="color:var(--moss)">✓ ${requested.length}件は精算依頼済みです</p>`:''}<button class="btn btn-primary full" id="payerSettleRequest" ${!requestable.length?'disabled':''}>${requestable.length?`${requestable.length}件の精算を依頼する`:'精算依頼済みです'}</button></div>`;
-  html += `<h2 class="section-title" style="margin-top:16px">精算の記録</h2>` + settlementHistory(settlements);
+  html += `<h2 class="section-title" style="margin-top:16px">精算の記録</h2>` + settlementHistory(settlements.filter(s=>s.payerId===me.payerId));
   el.innerHTML = html;
   bindSlips(el); bindSettlementCards(el);
   const reqBtn = $('payerSettleRequest');
@@ -2284,6 +2306,7 @@ function printBudgetPlan(){
 function publicUrl(){ return location.origin + location.pathname + '?view=public'; }
 function renderSettings(){
   const el = $('settingsScreen');
+  if (!isT()) { el.innerHTML = '<div class="empty">設定は会計担当のみ利用できます</div>'; return; }
   let html = `<div class="screen-guide"><b>今やりたいことを選んでください</b><span>設定を全部理解する必要はありません。時期に合ったところだけ開けば大丈夫です。</span></div>
   ${isT()?`<div class="settings-roadmap">
     <button type="button" data-setting-jump="start"><b>①</b>年度初め<br>予算・科目</button>
@@ -2384,11 +2407,16 @@ function renderSettings(){
       <a class="btn btn-navy full" href="${esc(publicUrl())}" target="_blank" rel="noopener">会員向けの会計報告を開く</a><p class="hint" style="margin-bottom:0">ログイン不要の公開ページを新しい画面で開きます。</p>
       <p class="hint">公開内容は自動では変わりません。月に一度など、区切りのよいときに「報告を更新」を押してください。回覧板のQRコードにこのURLを載せると便利です。</p></div>`;
   } else {
-    html += `<div class="form-card"><p style="margin:0">${esc(me.name)}（${esc(me.email)}）</p><p class="hint">権限：${ROLES[me.role]?.name}　${ROLES[me.role]?.desc}${me.payerId?`<br>支払者名簿：${esc(payerLabel(me.payerId))}`:''}</p></div>
-      <h2 class="section-title" style="margin-top:16px">会員向けの会計報告</h2><div class="form-card"><a class="btn btn-navy full" href="${esc(publicUrl())}" target="_blank" rel="noopener">会員向けの会計報告を開く</a><p class="hint" style="margin-bottom:0">ログイン不要の公開ページを新しい画面で開きます。</p></div>`;
+    const roleHelp = isA()
+      ? `<div class="screen-guide"><b>監査担当の設定</b><span>監査担当は設定変更を行いません。監査は下の「監査」から行います。</span></div>`
+      : (me.role==='viewer'
+        ? `<div class="screen-guide"><b>役員の設定</b><span>役員は会計内容の閲覧が中心です。設定変更は会計担当が行います。</span></div>`
+        : `<div class="screen-guide"><b>支払者の設定</b><span>支出の申請と精算確認は、ホーム・申請一覧・精算から行います。</span></div>`);
+    html = roleHelp + `<div class="form-card"><p style="margin:0">${esc(me.name)}（${esc(me.email)}）</p><p class="hint">権限：${ROLES[me.role]?.name}　${ROLES[me.role]?.desc}${me.payerId?`<br>支払者名簿：${esc(payerLabel(me.payerId))}`:''}</p></div>
+      <h2 class="section-title" style="margin-top:16px">会員向けの会計報告</h2><div class="form-card"><a class="btn btn-navy full" href="${esc(publicUrl())}" target="_blank" rel="noopener">会員向けの会計報告を見る</a><p class="hint" style="margin-bottom:0">ログイン不要の公開ページを表示します。</p></div>`;
   }
 
-  if (!isP()) {
+  if (isT()) {
   html += `<h2 class="section-title" style="margin-top:20px">AI自動読み取り（Claude APIキー）</h2>`;
   if (isT()) html += `<div class="form-card">
     <div style="font-weight:700;font-size:13.5px;margin-bottom:6px">町内会の共通キー</div>
