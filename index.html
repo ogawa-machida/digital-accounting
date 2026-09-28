@@ -424,6 +424,11 @@ table.pub th{font-family:'Shippori Mincho',serif; background:var(--tint);}
           <label>科目</label>
           <div class="cat-picker" id="fAccountPicker"></div>
         </div>
+        <div class="field" id="fGrantField" style="display:none">
+          <label>補助金への充当</label>
+          <select id="fGrant"><option value="">補助金に充当しない</option></select>
+          <p class="hint">交付決定済み・執行中の補助金に支出を紐付けます。実績報告の集計に自動反映されます。</p>
+        </div>
         <div class="field">
           <label id="fMethodLabel">支払方法</label>
           <div class="cat-picker" id="fMethodPicker"></div>
@@ -456,6 +461,7 @@ table.pub th{font-family:'Shippori Mincho',serif; background:var(--tint);}
     <section id="detailScreen" class="screen"></section>
     <section id="settleScreen" class="screen"></section>
     <section id="auditScreen" class="screen"></section>
+    <section id="grantsScreen" class="screen"></section>
     <section id="settingsScreen" class="screen"></section>
     <section id="batchScreen" class="screen"></section>
     <section id="budgetImportScreen" class="screen"></section>
@@ -519,6 +525,7 @@ const SETTLE_WAYS = ['現金手渡し','口座振込','その他'];
 let me = null;                 // {uid,name,email,role,payerId}
 let settings = { orgName:'町内会', fiscalStartMonth:4, opening:{}, publicDetail:'items' };
 let accounts = [], methods = [], payers = [], members = [], storageTags = [];
+let grants = [];
 let fyMap = {}, pendingMap = {}, mineMap = {};
 let advances = [], settlements = [], logs = [], auditReports = {};
 let curFY = null;
@@ -887,6 +894,7 @@ function attachData(){
   else onData(R('payers'),   s => { payers   = toArr(s.val()).sort((a,b)=>(a.order||0)-(b.order||0) || (a.name||'').localeCompare(b.name||'','ja')); renderAll(); });
   onData(R('storageTags'), s => { storageTags = toArr(s.val()).map(t=>t.name).sort((a,b)=>a.localeCompare(b,'ja')); });
   onData(R('auditReports'), s => { auditReports = s.val()||{}; renderAll(); });
+  if (isStaff()) onData(R('grants'), s => { grants = toArr(s.val()).sort((a,b)=>(b.fy||0)-(a.fy||0) || (a.name||'').localeCompare(b.name||'','ja')); if(currentScreen==='grantsScreen') renderGrants(); });
   { const ref = R('secrets/claudeKey'); const hk = ref.on('value', s => { sharedKey = s.val() || null; }, () => { sharedKey = null; }); dataListeners.push(()=>ref.off('value', hk)); }
   if (isT()) onData(R('joinCode'), s => { joinCode = s.val() || ''; if (currentScreen==='settingsScreen') renderSettings(); });
 
@@ -925,13 +933,14 @@ const ICONS = {
   book:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3h12l2 2v16H5z"/><line x1="8" y1="9" x2="16" y2="9"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>',
   settle:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h13l-3-3M20 16H7l3 3"/></svg>',
   audit:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/><path d="M8.5 11l2 2 3.5-3.5"/></svg>',
+  grant:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16v12H4z"/><path d="M8 7V5h8v2"/><path d="M8 12h8M12 9v6"/></svg>',
   settings:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>'
 };
 function navItems(){
-  if (isT()) return [['homeScreen','home','ホーム'],['bookScreen','book','出納帳'],['settleScreen','settle','精算'],['auditScreen','audit','監査'],['settingsScreen','settings','設定']];
-  if (isA()) return [['homeScreen','home','ホーム'],['bookScreen','book','出納帳'],['auditScreen','audit','監査'],['settingsScreen','settings','設定']];
+  if (isT()) return [['homeScreen','home','ホーム'],['bookScreen','book','出納帳'],['settleScreen','settle','精算'],['auditScreen','audit','監査'],['grantsScreen','grant','補助金'],['settingsScreen','settings','設定']];
+  if (isA()) return [['homeScreen','home','ホーム'],['bookScreen','book','出納帳'],['auditScreen','audit','監査'],['grantsScreen','grant','補助金'],['settingsScreen','settings','設定']];
   if (isP()) return [['homeScreen','home','ホーム'],['bookScreen','book','申請一覧'],['settleScreen','settle','精算'],['settingsScreen','settings','設定']];
-  return [['homeScreen','home','ホーム'],['bookScreen','book','出納帳'],['auditScreen','audit','監査'],['settingsScreen','settings','設定']];
+  return [['homeScreen','home','ホーム'],['bookScreen','book','出納帳'],['auditScreen','audit','監査'],['grantsScreen','grant','補助金'],['settingsScreen','settings','設定']];
 }
 function buildNav(){
   const nav = $('bottomNav'); nav.innerHTML='';
@@ -944,14 +953,14 @@ function buildNav(){
   if (!navItems().some(n=>n[0]===currentScreen)) currentScreen='homeScreen';
   showScreen(currentScreen);
 }
-const TITLES = { homeScreen:'ホーム', bookScreen:'出納帳', settleScreen:'精算', auditScreen:'監査', settingsScreen:'設定', formScreen:'登録', detailScreen:'伝票', batchScreen:'まとめて読み込み', budgetImportScreen:'予算の取り込み', importScreen:'データ取り込み' };
+const TITLES = { grantsScreen:'補助金', homeScreen:'ホーム', bookScreen:'出納帳', settleScreen:'精算', auditScreen:'監査', settingsScreen:'設定', formScreen:'登録', detailScreen:'伝票', batchScreen:'まとめて読み込み', budgetImportScreen:'予算の取り込み', importScreen:'データ取り込み' };
 function showScreen(id){
   currentScreen = id;
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
   $(id).classList.add('active');
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active', b.dataset.screen===id));
   $('headerTitle').textContent = (id==='bookScreen' && isP()) ? '申請一覧' : TITLES[id];
-  $('fyBar').style.display = ['homeScreen','bookScreen','auditScreen'].includes(id) ? 'flex' : 'none';
+  $('fyBar').style.display = ['homeScreen','bookScreen','auditScreen','grantsScreen'].includes(id) ? 'flex' : 'none';
   $('fabAdd').style.display = ((isT()||(isP()&&me.payerId)) && ['homeScreen','bookScreen'].includes(id)) ? 'flex' : 'none';
   if (id!=='settleScreen') settleView = null;
   renderCurrent();
@@ -971,6 +980,7 @@ function renderCurrent(){
     case 'bookScreen': renderBook(); break;
     case 'settleScreen': renderSettle(); break;
     case 'auditScreen': renderAudit(); break;
+    case 'grantsScreen': renderGrants(); break;
     case 'settingsScreen': { const a=document.activeElement; const typing = a && $('settingsScreen').contains(a) && ['INPUT','TEXTAREA','SELECT'].includes(a.tagName) && a.type!=='checkbox'; if (!typing) renderSettings(); break; }
     case 'detailScreen': if (detailId) renderDetail(detailId); break;
   }
@@ -1257,6 +1267,7 @@ async function openForm(e){
   $('fNoReceiptReason').value = e ? (e.noReceiptReason||'') : '';
   $('fNoReceiptReason').style.display = $('fNoReceipt').checked ? 'block' : 'none';
   $('fExclude').checked = !!(e && e.excludePublic);
+  renderGrantSelect(e ? (e.grantId||'') : '');
   $('fExcludeField').style.display = isT() ? 'block' : 'none';
   $('purposeList').innerHTML = [...new Set(allEntries().map(x=>x.purpose).filter(Boolean))].slice(0,60).map(p=>`<option value="${esc(p)}">`).join('');
   $('fPayer').innerHTML=''; $('fPayer').value='';
@@ -1541,7 +1552,8 @@ $('formSaveBtn').onclick = async () => {
       accountId: formAccount, methodId: formMethod, payerId: payerId || null,
       storageLocation: $('fStorage').value.trim(),
       noReceipt, noReceiptReason: noReceipt ? $('fNoReceiptReason').value.trim() : '',
-      excludePublic: $('fExclude').checked, addressee: formAddressee
+      excludePublic: $('fExclude').checked, addressee: formAddressee,
+      grantId: (formType==='expense' && $('fGrant')) ? ($('fGrant').value||null) : null
     }, formPhotos, photosChanged);
     if (saved.status==='submitted' && (!editing || editing.status!=='submitted')) notifyEntries([saved.id]);
     showToast(isP() ? '申請しました。会計の確認をお待ちください' : '保存しました');
@@ -3274,6 +3286,66 @@ async function renderPublic(years, fy){
   body.innerHTML = html;
   body.querySelectorAll('[data-y]').forEach(b=>b.onclick=()=>renderPublic(years, Number(b.dataset.y)));
 }
+
+/* =========================================================
+   補助金申請・管理
+   ========================================================= */
+const GRANT_STATUS = {planning:'申請準備',applied:'申請済',decided:'交付決定',executing:'執行中',reporting:'実績報告',confirmed:'額確定',completed:'完了'};
+function renderGrantSelect(selected=''){
+  const box=$('fGrantField'), sel=$('fGrant'); if(!box||!sel) return;
+  box.style.display = formType==='expense' && isStaff() ? 'block':'none';
+  const list=grants.filter(g=>Number(g.fy)===Number(fyOf($('fDate').value||localDate())) && !['completed'].includes(g.status));
+  sel.innerHTML='<option value="">補助金に充当しない</option>'+list.map(g=>`<option value="${g.id}">${esc(g.name)}（${esc(GRANT_STATUS[g.status]||g.status||'')}）</option>`).join('');
+  sel.value=selected||'';
+}
+$('fDate').addEventListener('change',()=>renderGrantSelect($('fGrant')?.value||''));
+
+function grantSpent(id){ return approvedFY().filter(e=>e.type==='expense'&&e.grantId===id).reduce((s,e)=>s+(Number(e.amount)||0),0); }
+function renderGrants(){
+  const el=$('grantsScreen'); if(!el) return;
+  const list=grants.filter(g=>Number(g.fy)===Number(curFY));
+  let html=`<div class="panel"><h3>補助金申請・管理 <small>${curFY}年度</small></h3><p class="hint">申請準備から交付決定、支出への充当、実績報告、額確定までを会計データと一緒に管理します。</p>${isT()?'<button class="btn btn-primary full" id="grantNew">＋ 補助金を登録</button>':''}</div>`;
+  if(!list.length) html+=`<div class="empty"><div class="mark-big">補助金</div>まだ登録がありません</div>`;
+  list.forEach(g=>{
+    const spent=grantSpent(g.id), decided=Number(g.decidedAmount)||0, remain=decided-spent;
+    const pct=decided?Math.min(100,spent/decided*100):0;
+    html+=`<div class="panel"><h3>${esc(g.name)} <small>${esc(GRANT_STATUS[g.status]||g.status||'')}</small></h3>
+      <div class="summary-strip"><div><div class="lbl">申請額</div><div class="val">${yen(Number(g.appliedAmount)||0)}</div></div><div><div class="lbl">交付決定</div><div class="val">${yen(decided)}</div></div><div><div class="lbl">対象支出</div><div class="val">${yen(spent)}</div></div><div><div class="lbl">残額</div><div class="val">${yen(remain)}</div></div></div>
+      <div class="bar"><i style="width:${pct}%;background:var(--moss)"></i></div>
+      <p class="hint">${esc(g.provider||'')} ${g.deadline?'／申請期限 '+esc(g.deadline):''}${g.reportDeadline?'／実績報告 '+esc(g.reportDeadline):''}</p>
+      <div class="btn-row"><button class="btn btn-ghost" data-greport="${g.id}">実績・証憑を確認</button>${isT()?`<button class="btn btn-navy" data-gedit="${g.id}">編集</button>`:''}</div></div>`;
+  });
+  el.innerHTML=html;
+  if($('grantNew')) $('grantNew').onclick=()=>editGrant();
+  el.querySelectorAll('[data-gedit]').forEach(b=>b.onclick=()=>editGrant(grants.find(g=>g.id===b.dataset.gedit)));
+  el.querySelectorAll('[data-greport]').forEach(b=>b.onclick=()=>printGrantReport(grants.find(g=>g.id===b.dataset.greport)));
+}
+async function editGrant(g=null){
+  if(!isT()) return;
+  const name=prompt('補助金名',g?.name||'町田市町内会・自治会活動補助金'); if(!name) return;
+  const provider=prompt('交付元',g?.provider||'町田市')||'';
+  const appliedAmount=Number(prompt('申請額（円）',g?.appliedAmount||0))||0;
+  const decidedAmount=Number(prompt('交付決定額（円）',g?.decidedAmount||0))||0;
+  const status=prompt('状態：planning / applied / decided / executing / reporting / confirmed / completed',g?.status||'planning')||'planning';
+  const deadline=prompt('申請期限（YYYY-MM-DD）',g?.deadline||'')||'';
+  const reportDeadline=prompt('実績報告期限（YYYY-MM-DD）',g?.reportDeadline||'')||'';
+  const households=Number(prompt('加入世帯数（算定に使う場合）',g?.households||0))||0;
+  const note=prompt('対象事業・注意事項メモ',g?.note||'')||'';
+  const ref=g?R(`grants/${g.id}`):R('grants').push();
+  await ref.set({...g,name,provider,fy:curFY,appliedAmount,decidedAmount,status,deadline,reportDeadline,households,note,updatedAt:TS(),updatedByName:me.name,createdAt:g?.createdAt||TS()});
+  writeLog(g?'補助金修正':'補助金登録',null,name); showToast('補助金情報を保存しました');
+}
+function printGrantReport(g){
+  if(!g) return;
+  const rows=approvedFY().filter(e=>e.type==='expense'&&e.grantId===g.id).sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+  const total=rows.reduce((s,e)=>s+(Number(e.amount)||0),0);
+  const over10=rows.filter(e=>Number(e.amount)>100000);
+  openPrint(`補助金実績 ${g.name}`,`<h1>${esc(g.name)}　実績管理表</h1><p class="right">${esc(settings.orgName)}／${curFY}年度</p>
+    <table><tbody><tr><th>交付元</th><td>${esc(g.provider||'')}</td><th>状態</th><td>${esc(GRANT_STATUS[g.status]||g.status||'')}</td></tr><tr><th>申請額</th><td>${yen(Number(g.appliedAmount)||0)}</td><th>交付決定額</th><td>${yen(Number(g.decidedAmount)||0)}</td></tr><tr><th>対象支出計</th><td>${yen(total)}</td><th>残額</th><td>${yen((Number(g.decidedAmount)||0)-total)}</td></tr></tbody></table>
+    <h2>補助対象として紐付けた支出</h2><table><thead><tr><th>日付</th><th>伝票</th><th>用途</th><th>支払先</th><th class="r">金額</th><th>証憑</th></tr></thead><tbody>${rows.map(e=>`<tr><td>${esc(e.date)}</td><td>${esc(e.voucherNo||'')}</td><td>${esc(e.purpose||'')}</td><td>${esc(e.payee||'')}</td><td class="r">${yen(e.amount)}</td><td>${e.photoCount?'写真あり':e.noReceipt?'理由あり':'要確認'}</td></tr>`).join('')}</tbody></table>
+    <p>10万円を超える支払い：${over10.length}件　／　実績報告期限：${esc(g.reportDeadline||'未設定')}</p><p>${esc(g.note||'')}</p>`);
+}
+
 </script>
 </body>
 </html>
