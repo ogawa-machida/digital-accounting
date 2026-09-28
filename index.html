@@ -548,7 +548,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.09.29-6';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.09.29-7';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 const CONFIGURED = !firebaseConfig.apiKey.startsWith('YOUR_');
 const ROOT = 'chokai-kaikei';
 let auth = null, db = null;
@@ -683,11 +683,11 @@ function notifyEntries(ids){
   if (!ids.length || settings.notifyOnEntry===false) return;
   notify('entry', { entryIds: ids });
 }
-/* 会計担当の一覧が変わったら、GAS側の送信先を更新する（会計のみ実行可能） */
+/* 会計・役員の一覧が変わったら、GAS側の通知先を更新する（会計のみ実行可能） */
 let lastRecipientKey = '';
 function syncRecipients(force){
   if (!isT() || !settings.notifyUrl || !members.length) return;
-  const key = members.filter(m=>m.role==='treasurer').map(m=>m.email).sort().join(',') + '|' + settings.notifyUrl;
+  const key = members.filter(m=>['treasurer','viewer'].includes(m.role)).map(m=>`${m.role}:${m.email||''}`).sort().join(',') + '|' + settings.notifyUrl;
   if (!force && key===lastRecipientKey) return;
   lastRecipientKey = key;
   notify('register').then(r => { if (force) showToast(r && r.ok ? `送信先を登録しました（${(r.recipients||[]).join('、')}）` : `登録に失敗：${r && r.error || ''}`); });
