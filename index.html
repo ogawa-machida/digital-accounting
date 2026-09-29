@@ -1092,7 +1092,7 @@ function renderHome(){
 
   if (isT() && treasurerActionable.length) html += `<button class="notice amber" data-go="submitted"><span class="n-body">承認待ちの申請<span class="n-sub">支払者から届いた領収証を確認してください</span></span><span class="n-val">${treasurerActionable.length}件</span></button>`;
   if (isViewer() && viewerActionable.length) html += `<button class="notice amber" data-go="submitted"><span class="n-body">会計担当から承認依頼<span class="n-sub">会計担当本人の支出を確認してください</span></span><span class="n-val">${viewerActionable.length}件</span></button>`;
-  if (returned.length) html += `<button class="notice" data-go="returned"><span class="n-body">差戻し中<span class="n-sub">支払者の修正待ち</span></span><span class="n-val">${returned.length}件</span></button>`;
+  if (returned.length) html += `<button class="notice" data-go="returned"><span class="n-body">差戻し中<span class="n-sub">申請者の修正待ち</span></span><span class="n-val">${returned.length}件</span></button>`;
   if (people.length) html += `<button class="notice navy" data-go="settle"><span class="n-body">精算待ち ${people.length}人<span class="n-sub">支払い ${yen(toPay)}／返金受取 ${yen(toBack)}</span></span><span class="n-val">›</span></button>`;
   html += `<button class="notice moss" data-go="audit"><span class="n-body">監査の進み具合<span class="n-sub">${report ? `監査完了（${fmtTs(report.at)} ${esc(report.byName)}）` : `${ap.length}件中 ${audited}件 確認済み`}</span></span><span class="n-val">${ap.length?Math.round(audited/ap.length*100):0}%</span></button>`;
 
