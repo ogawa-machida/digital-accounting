@@ -488,7 +488,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.09.30-1';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.09.30-2';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 const CONFIGURED = !firebaseConfig.apiKey.startsWith('YOUR_');
 const ROOT = 'chokai-kaikei';
 let auth = null, db = null;
@@ -601,16 +601,32 @@ async function notify(action, extra, url){
 }
 function notifyEntries(ids){
   if (!ids.length || settings.notifyOnEntry===false) return;
-  notify('entry', { entryIds: ids });
+  notify('entry', { entryIds: ids }).then(r => {
+    if (!r || !r.ok) {
+      console.warn('承認依頼メールを送信できませんでした', r);
+      showToast(`申請は保存しましたが、メール通知に失敗しました：${r && r.error ? r.error : '不明なエラー'}`);
+    }
+  });
 }
-/* 会計担当の一覧が変わったら、GAS側の送信先を更新する（会計のみ実行可能） */
+/* 会計・役員の一覧が変わったら、GAS側の送信先を更新する（会計のみ実行可能） */
 let lastRecipientKey = '';
 function syncRecipients(force){
   if (!isT() || !settings.notifyUrl || !members.length) return;
-  const key = members.filter(m=>m.role==='treasurer').map(m=>m.email).sort().join(',') + '|' + settings.notifyUrl;
+  const treasurerEmails = members.filter(m=>m.role==='treasurer').map(m=>m.email||'').filter(Boolean).sort();
+  const viewerEmails = members.filter(m=>m.role==='viewer').map(m=>m.email||'').filter(Boolean).sort();
+  const key = treasurerEmails.join(',') + '|' + viewerEmails.join(',') + '|' + settings.notifyUrl;
   if (!force && key===lastRecipientKey) return;
   lastRecipientKey = key;
-  notify('register').then(r => { if (force) showToast(r && r.ok ? `送信先を登録しました（${(r.recipients||[]).join('、')}）` : `登録に失敗：${r && r.error || ''}`); });
+  notify('register').then(r => {
+    if (!force) return;
+    if (r && r.ok) {
+      const ts = r.treasurerRecipients || [];
+      const vs = r.viewerRecipients || [];
+      showToast(`通知先を更新しました（会計${ts.length}名・役員${vs.length}名）`);
+    } else {
+      showToast(`登録に失敗：${r && r.error || ''}`);
+    }
+  });
 }
 
 /* ---------- 起動 ---------- */
