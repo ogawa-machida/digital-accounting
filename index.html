@@ -505,7 +505,7 @@ const PALETTE = ['#B4432C','#2E5E7C','#7A8450','#9C6B3E','#7D5A8C','#3E7C6B','#B
 const ROLES = {
   treasurer:{ name:'会計', desc:'すべての登録・承認・精算・設定' },
   auditor:  { name:'監査', desc:'全件の閲覧と監査チェック' },
-  viewer:   { name:'役員', desc:'全件の閲覧のみ（会長など）' },
+  viewer:   { name:'役員', desc:'全件の閲覧・会計本人申請の承認・自分の支出申請と精算確認' },
   payer:    { name:'支払者', desc:'自分の支出の申請と精算の確認' },
   guest:    { name:'仮登録', desc:'初回の申請が承認されると本登録（申請はすぐにできます）' },
   pending:  { name:'承認待ち', desc:'' },
@@ -601,32 +601,16 @@ async function notify(action, extra, url){
 }
 function notifyEntries(ids){
   if (!ids.length || settings.notifyOnEntry===false) return;
-  notify('entry', { entryIds: ids }).then(r => {
-    if (!r || !r.ok) {
-      console.warn('承認依頼メールを送信できませんでした', r);
-      showToast(`申請は保存しましたが、メール通知に失敗しました：${r && r.error ? r.error : '不明なエラー'}`);
-    }
-  });
+  notify('entry', { entryIds: ids });
 }
-/* 会計・役員の一覧が変わったら、GAS側の送信先を更新する（会計のみ実行可能） */
+/* 会計担当の一覧が変わったら、GAS側の送信先を更新する（会計のみ実行可能） */
 let lastRecipientKey = '';
 function syncRecipients(force){
   if (!isT() || !settings.notifyUrl || !members.length) return;
-  const treasurerEmails = members.filter(m=>m.role==='treasurer').map(m=>m.email||'').filter(Boolean).sort();
-  const viewerEmails = members.filter(m=>m.role==='viewer').map(m=>m.email||'').filter(Boolean).sort();
-  const key = treasurerEmails.join(',') + '|' + viewerEmails.join(',') + '|' + settings.notifyUrl;
+  const key = members.filter(m=>m.role==='treasurer' || m.role==='viewer').map(m=>`${m.role}:${(m.email||'').trim().toLowerCase()}`).sort().join(',') + '|' + settings.notifyUrl;
   if (!force && key===lastRecipientKey) return;
   lastRecipientKey = key;
-  notify('register').then(r => {
-    if (!force) return;
-    if (r && r.ok) {
-      const ts = r.treasurerRecipients || [];
-      const vs = r.viewerRecipients || [];
-      showToast(`通知先を更新しました（会計${ts.length}名・役員${vs.length}名）`);
-    } else {
-      showToast(`登録に失敗：${r && r.error || ''}`);
-    }
-  });
+  notify('register').then(r => { if (force) showToast(r && r.ok ? `送信先を登録しました（${(r.recipients||[]).join('、')}）` : `登録に失敗：${r && r.error || ''}`); });
 }
 
 /* ---------- 起動 ---------- */
@@ -989,14 +973,17 @@ function renderCurrent(){
 function updateBadges(){
   const set = (scr,n) => { const b=document.querySelector(`.nav-btn[data-screen="${scr}"] .dot`); if(!b) return; b.style.display = n ? 'block':'none'; b.textContent = n; };
   if (isT()) {
-    set('bookScreen', allEntries().filter(e=>e.status==='submitted').length);
+    set('bookScreen', allEntries().filter(e=>e.status==='submitted' && e.selfApprovalRequired!==true).length);
     set('settleScreen', settlePeople().filter(p=>p.ready).length);
   }
   if (isP()) {
     set('bookScreen', allEntries().filter(e=>e.status==='returned').length);
     set('settleScreen', settlements.filter(s=>s.payerId===me.payerId && !s.payerConfirm).length);
   }
-  if (isViewer() && me.payerId) set('settleScreen', settlements.filter(s=>s.payerId===me.payerId && !s.payerConfirm).length);
+  if (isViewer()) {
+    set('bookScreen', allEntries().filter(e=>e.status==='submitted' && e.selfApprovalRequired===true && e.createdBy!==me.uid).length);
+    if (me.payerId) set('settleScreen', settlements.filter(s=>s.payerId===me.payerId && !s.payerConfirm).length);
+  }
   if (isA()) set('auditScreen', approvedFY().filter(e=>!e.audit || e.auditStale).length);
 }
 $('fabAdd').onclick = () => openForm(null);
@@ -1087,6 +1074,8 @@ function renderHome(){
   const exp = ap.filter(e=>e.type==='expense').reduce((s,e)=>s+(Number(e.amount)||0),0);
   const opening = Number((settings.opening||{})[curFY])||0;
   const submitted = fyEntries().filter(e=>e.status==='submitted');
+  const treasurerActionable = submitted.filter(e=>e.selfApprovalRequired!==true);
+  const viewerActionable = submitted.filter(e=>e.selfApprovalRequired===true && e.createdBy!==me.uid);
   const returned = fyEntries().filter(e=>e.status==='returned');
   const people = settlePeople().filter(p=>p.ready);
   const toPay = people.filter(p=>p.net>0).reduce((s,p)=>s+p.net,0);
@@ -1101,7 +1090,8 @@ function renderHome(){
     <div><div class="lbl">残高</div><div class="val big">${yen(opening+inc-exp)}</div></div>
   </div>`;
 
-  if (isT() && submitted.length) html += `<button class="notice amber" data-go="submitted"><span class="n-body">承認待ちの申請<span class="n-sub">支払者から届いた領収証を確認してください</span></span><span class="n-val">${submitted.length}件</span></button>`;
+  if (isT() && treasurerActionable.length) html += `<button class="notice amber" data-go="submitted"><span class="n-body">承認待ちの申請<span class="n-sub">支払者から届いた領収証を確認してください</span></span><span class="n-val">${treasurerActionable.length}件</span></button>`;
+  if (isViewer() && viewerActionable.length) html += `<button class="notice amber" data-go="submitted"><span class="n-body">会計担当から承認依頼<span class="n-sub">会計担当本人の支出を確認してください</span></span><span class="n-val">${viewerActionable.length}件</span></button>`;
   if (returned.length) html += `<button class="notice" data-go="returned"><span class="n-body">差戻し中<span class="n-sub">支払者の修正待ち</span></span><span class="n-val">${returned.length}件</span></button>`;
   if (people.length) html += `<button class="notice navy" data-go="settle"><span class="n-body">精算待ち ${people.length}人<span class="n-sub">支払い ${yen(toPay)}／返金受取 ${yen(toBack)}</span></span><span class="n-val">›</span></button>`;
   html += `<button class="notice moss" data-go="audit"><span class="n-body">監査の進み具合<span class="n-sub">${report ? `監査完了（${fmtTs(report.at)} ${esc(report.byName)}）` : `${ap.length}件中 ${audited}件 確認済み`}</span></span><span class="n-val">${ap.length?Math.round(audited/ap.length*100):0}%</span></button>`;
@@ -1627,7 +1617,7 @@ async function renderDetail(id){
 
   // 会計：承認・差戻し
   const pv = payerById(e.payerId);
-  if (isT() && e.status==='submitted' && pv && pv.provisional) {
+  if (isT() && e.status==='submitted' && e.selfApprovalRequired!==true && pv && pv.provisional) {
     const others = allEntries().filter(x=>x.payerId===pv.id && x.status==='submitted').length;
     html += `<div class="audit-box" style="border-color:var(--amber);margin-bottom:10px">
       <div style="font-weight:700;font-size:13.5px;margin-bottom:4px">🆕 はじめての申請者です</div>
@@ -1641,7 +1631,7 @@ async function renderDetail(id){
       <button class="text-link" id="gReject" style="font-size:12px;padding:6px 0 0;color:var(--stamp-red)">この人の利用を認めない</button>
     </div>`;
   }
-  if (isT() && e.status==='submitted') {
+  if (isT() && e.status==='submitted' && e.selfApprovalRequired!==true) {
     html += `<div class="btn-row" style="margin-bottom:10px"><button class="btn btn-danger" id="dReturn">差し戻す</button><button class="btn btn-moss" id="dApprove">${pv&&pv.provisional?'本登録して承認する':'承認する'}</button></div>`;
   }
   if (isViewer() && e.status==='submitted' && e.selfApprovalRequired===true && e.createdBy!==me.uid) {
@@ -2318,6 +2308,7 @@ function bindSettings(){
   };
   q('[data-role]').forEach(s => s.onchange = async () => {
     const m = members.find(x=>x.id===s.dataset.role);
+    const oldRole = m.role;
     const newRole = s.value;
     const ups = {};
     ups[`members/${m.id}/role`] = newRole;
@@ -2332,9 +2323,9 @@ function bindSettings(){
       }
     }
     await db.ref(ROOT).update(ups);
-    writeLog('権限変更', null, `${m.name}：${ROLES[m.role]?.name}→${ROLES[newRole]?.name}`);
+    writeLog('権限変更', null, `${m.name}：${ROLES[oldRole]?.name}→${ROLES[newRole]?.name}`);
     showToast(`${m.name}さんを「${ROLES[newRole].name}」にしました`);
-    if (newRole==='treasurer' || m.role==='treasurer') setTimeout(()=>syncRecipients(), 800);
+    if (['treasurer','viewer'].includes(newRole) || ['treasurer','viewer'].includes(oldRole)) setTimeout(()=>syncRecipients(), 800);
   });
   q('[data-link]').forEach(s => s.onchange = async () => {
     const m = members.find(x=>x.id===s.dataset.link);
