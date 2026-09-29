@@ -304,9 +304,34 @@ table.pub th{font-family:'Shippori Mincho',serif; background:var(--tint);}
       <button class="btn btn-navy full" id="emailLoginBtn" style="margin-top:8px">📧 メールでログイン用リンクを受け取る</button>
       <p class="hint" id="emailLoginMsg" style="text-align:center">Googleアカウントがない方はこちら。パスワードは不要です。</p>
     </div>
-    <button class="text-link" onclick="startReportLogin()">会員向け会計報告を見る・閲覧申請</button>
+    <button class="text-link" onclick="startReportLogin()">会員向け会計報告を見る</button>
     <p id="loginError" style="color:var(--stamp-red);font-size:12px;"></p>
     <p class="hint" style="margin-top:8px" id="verLogin"></p>
+  </div>
+</div>
+
+
+<!-- 会員向け会計報告：閲覧申請 -->
+<div id="reportApplyScreen" style="display:none;">
+  <div class="center-wrap" style="min-height:auto;padding-top:40px">
+    <div class="mark-big">会計<br>報告</div>
+    <h1 style="font-size:22px;">会員向け会計報告</h1>
+    <p>小川自治会の会計報告をご覧いただけます。初めて利用する方は、自治会員であることを確認するため閲覧申請をお願いします。</p>
+    <div class="form-card" style="width:100%;max-width:380px;text-align:left">
+      <h2 class="section-title" style="margin-top:0">はじめて利用する方</h2>
+      <div class="field"><label>支部</label><select id="rBranch"></select></div>
+      <div class="field"><label>班</label><select id="rGroup"></select></div>
+      <div class="field"><label>お名前</label><input type="text" id="rName" placeholder="例）山田 花子"></div>
+      <div class="field"><label>メールアドレス</label><input type="email" id="rEmail" placeholder="例）yamada@example.com" autocomplete="email"></div>
+      <button class="btn btn-primary full" id="rSubmit">閲覧を申請する</button>
+      <p class="hint">入力したメールアドレスに本人確認用のリンクを送ります。リンクを開くと申請が完了し、会計担当の承認待ちになります。</p>
+      <p class="hint" id="rMsg"></p>
+    </div>
+    <div style="width:100%;max-width:380px;margin-top:16px;text-align:center">
+      <p class="hint" style="margin-bottom:6px">すでに承認済みの方</p>
+      <button class="text-link" id="rExisting">ログインして会計報告を見る</button>
+    </div>
+    <button class="text-link" style="margin-top:16px" id="rBack">← 戻る</button>
   </div>
 </div>
 
@@ -505,7 +530,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.09.30-3';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.09.30-4';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 const CONFIGURED = !firebaseConfig.apiKey.startsWith('YOUR_');
 const ROOT = 'chokai-kaikei';
 let auth = null, db = null;
@@ -581,7 +606,7 @@ function needsSettle(e){ const m=methodById(e.methodId); return e.type==='expens
 let toastTimer;
 function showToast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove('show'), 2600); }
 function $(id){ return document.getElementById(id); }
-function hideAllRoots(){ ['setupScreen','loginScreen','joinScreen','profileScreen','pendingScreen','publicScreen','mainWrap'].forEach(id=>$(id).style.display='none'); }
+function hideAllRoots(){ ['setupScreen','loginScreen','reportApplyScreen','joinScreen','profileScreen','pendingScreen','publicScreen','mainWrap'].forEach(id=>$(id).style.display='none'); }
 function fillBranchGroup(branchEl, groupEl, branch, group){
   const branches = Object.keys(BRANCH_GROUPS);
   branchEl.innerHTML = '<option value="">支部を選択</option>' + branches.map(b=>`<option value="${esc(b)}" ${b===branch?'selected':''}>${esc(b)}</option>`).join('');
@@ -589,7 +614,12 @@ function fillBranchGroup(branchEl, groupEl, branch, group){
   branchEl.onchange=()=>{ group=''; refresh(); }; refresh();
 }
 function validAffiliation(branch, group){ return !!(branch && group && (BRANCH_GROUPS[branch]||[]).includes(group)); }
-function startReportLogin(){ try { sessionStorage.setItem('kaikei_reportIntent','1'); } catch(e){} $('emailLoginInput').focus(); showToast('Googleまたはメールでログインしてください'); }
+function startReportLogin(){
+  hideAllRoots(); $('reportApplyScreen').style.display='block';
+  fillBranchGroup($('rBranch'), $('rGroup'), '', '');
+  $('rMsg').textContent='';
+}
+function backToLogin(){ hideAllRoots(); $('loginScreen').style.display='block'; }
 
 /* すべての帳簿データ（会計・監査・役員は年度分＋未精算分、支払者は自分の分） */
 function allEntries(){
@@ -705,6 +735,28 @@ function startAuth(){
   const EMAIL_KEY = 'kaikei_emailForSignIn';
   const lsGet = k => { try { return localStorage.getItem(k); } catch(e){ return null; } };
   const lsSet = (k,v) => { try { v===null ? localStorage.removeItem(k) : localStorage.setItem(k,v); } catch(e){} };
+  const REPORT_DRAFT_KEY = 'kaikei_reportDraft';
+  $('rBack').onclick = backToLogin;
+  $('rExisting').onclick = () => { try { sessionStorage.setItem('kaikei_reportIntent','1'); } catch(e){} backToLogin(); showToast('Googleまたはメールでログインしてください'); };
+  $('rSubmit').onclick = async () => {
+    const branch=$('rBranch').value, group=$('rGroup').value, name=$('rName').value.trim(), email=$('rEmail').value.trim();
+    const msg=$('rMsg');
+    if(!validAffiliation(branch,group)){ msg.textContent='支部と班を選択してください'; return; }
+    if(!name){ msg.textContent='お名前を入力してください'; return; }
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ msg.textContent='メールアドレスを正しく入力してください'; return; }
+    const btn=$('rSubmit'); btn.disabled=true; btn.textContent='本人確認メールを送信中…';
+    try {
+      const draft={branch,group,name,email};
+      lsSet(REPORT_DRAFT_KEY, JSON.stringify(draft));
+      try { sessionStorage.setItem('kaikei_reportIntent','1'); } catch(e){}
+      const back=new URL(location.origin+location.pathname); back.searchParams.set('reportApply','1');
+      await auth.sendSignInLinkToEmail(email,{url:back.toString(),handleCodeInApp:true});
+      lsSet(EMAIL_KEY,email);
+      msg.innerHTML=`<b style="color:var(--moss)">✓ ${esc(email)} に本人確認用のリンクを送りました。</b><br>メールのリンクを開くと閲覧申請が完了します。`;
+      btn.textContent='もう一度送る';
+    } catch(e){ showLoginError(e); msg.textContent=LOGIN_ERRORS[e.code]||'メールを送信できませんでした'; btn.textContent='閲覧を申請する'; }
+    finally { btn.disabled=false; }
+  };
   $('emailLoginBtn').onclick = async () => {
     const email = $('emailLoginInput').value.trim();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { $('emailLoginMsg').textContent = 'メールアドレスを正しく入力してください'; return; }
@@ -811,8 +863,17 @@ async function enterAs(user){
   const mref = R(`members/${user.uid}`);
   let snap = await mref.get();
   if (!snap.exists()) {
+    let reportDraft=null;
+    try { reportDraft=JSON.parse(localStorage.getItem('kaikei_reportDraft')||'null'); } catch(e){}
+    if (reportDraft && reportDraft.email && user.email && reportDraft.email.toLowerCase()===user.email.toLowerCase() && validAffiliation(reportDraft.branch,reportDraft.group)) {
+      await mref.set({name:reportDraft.name,email:user.email||reportDraft.email,post:'',branch:reportDraft.branch,group:reportDraft.group,role:'pending',requestType:'report',createdAt:TS()});
+      try { localStorage.removeItem('kaikei_reportDraft'); sessionStorage.removeItem('kaikei_reportIntent'); } catch(e){}
+      snap = await mref.get();
+    }
     const initSnap = await R('settings/initialized').get();
-    if (!initSnap.val()) {
+    if (snap.exists()) {
+      // 会員向け会計報告の閲覧申請は、メール本人確認後にここで登録済み。
+    } else if (!initSnap.val()) {
       if (!confirm('この会計簿はまだ使われていません。あなたを「会計」担当として初期設定を行いますか？')) { auth.signOut(); return; }
       await mref.set({ name:user.displayName||'会計', email:user.email||'', role:'treasurer', createdAt:TS() });
       await seedDefaults();
