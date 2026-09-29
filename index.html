@@ -530,7 +530,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.09.30-4';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.09.30-5';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 const CONFIGURED = !firebaseConfig.apiKey.startsWith('YOUR_');
 const ROOT = 'chokai-kaikei';
 let auth = null, db = null;
@@ -862,12 +862,37 @@ function ensureAffiliation(user, mref, member){
 async function enterAs(user){
   const mref = R(`members/${user.uid}`);
   let snap = await mref.get();
+  let reportDraft=null;
+  try { reportDraft=JSON.parse(localStorage.getItem(REPORT_DRAFT_KEY)||'null'); } catch(e){}
+
+  // 会計報告の入口から既存アカウントで認証した場合は、既存権限を絶対に上書きしない。
+  // 会計・役員・監査・支払者・承認済み会員は申請不要で、そのまま会計報告を表示する。
+  if (snap.exists() && reportDraft && reportDraft.email && user.email && reportDraft.email.toLowerCase()===user.email.toLowerCase()) {
+    const existing = snap.val() || {};
+    const reportAllowed = ['treasurer','viewer','auditor','payer','report'].includes(existing.role);
+    if (reportAllowed) {
+      try { localStorage.removeItem(REPORT_DRAFT_KEY); sessionStorage.removeItem('kaikei_reportIntent'); } catch(e){}
+      me = {uid:user.uid, ...existing};
+      hideAllRoots();
+      showToast('すでに登録されています。会計報告を表示します');
+      await openPublic();
+      return;
+    }
+    if (existing.role==='pending' && existing.requestType==='report') {
+      try { localStorage.removeItem(REPORT_DRAFT_KEY); sessionStorage.removeItem('kaikei_reportIntent'); } catch(e){}
+      // 既存の閲覧申請を維持し、下の通常処理で承認待ち画面を表示する。
+    } else if (existing.role==='guest') {
+      // 支払者の仮登録中は権限をpending/reportへ上書きしない。会計担当による本登録後に閲覧可能。
+      try { localStorage.removeItem(REPORT_DRAFT_KEY); sessionStorage.removeItem('kaikei_reportIntent'); } catch(e){}
+      hideAllRoots(); $('pendingText').innerHTML = `${esc(existing.name||reportDraft.name)} さんは支払い申請の仮登録中です。<br>会計担当が本登録すると、会計報告も閲覧できるようになります。`; $('pendingScreen').style.display='block';
+      return;
+    }
+  }
+
   if (!snap.exists()) {
-    let reportDraft=null;
-    try { reportDraft=JSON.parse(localStorage.getItem('kaikei_reportDraft')||'null'); } catch(e){}
     if (reportDraft && reportDraft.email && user.email && reportDraft.email.toLowerCase()===user.email.toLowerCase() && validAffiliation(reportDraft.branch,reportDraft.group)) {
       await mref.set({name:reportDraft.name,email:user.email||reportDraft.email,post:'',branch:reportDraft.branch,group:reportDraft.group,role:'pending',requestType:'report',createdAt:TS()});
-      try { localStorage.removeItem('kaikei_reportDraft'); sessionStorage.removeItem('kaikei_reportIntent'); } catch(e){}
+      try { localStorage.removeItem(REPORT_DRAFT_KEY); sessionStorage.removeItem('kaikei_reportIntent'); } catch(e){}
       snap = await mref.get();
     }
     const initSnap = await R('settings/initialized').get();
