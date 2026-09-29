@@ -274,48 +274,6 @@ table.pub th{font-family:'Shippori Mincho',serif; background:var(--tint);}
 .total-check.ng{background:#F7E3DD; color:var(--stamp-red);}
 .big-photo{position:fixed; inset:0; background:rgba(0,0,0,.85); z-index:80; display:flex; align-items:center; justify-content:center; padding:16px;}
 .big-photo img{max-width:100%; max-height:100%; border-radius:6px;}
-
-
-/* ===== はじめてでも迷わないUI ===== */
-.guide-card{background:linear-gradient(135deg,#fffdf8,#f4eedd);border:1.5px solid var(--line);border-radius:14px;padding:16px;margin:0 0 14px;box-shadow:var(--shadow)}
-.guide-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px}.guide-head h2{font-size:18px}.guide-head p{margin:3px 0 0;font-size:12.5px;color:var(--ink-soft);line-height:1.6}
-.guide-dismiss{border:0;background:transparent;color:var(--ink-soft);font-size:12px;text-decoration:underline;white-space:nowrap}
-.next-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.next-action{border:1px solid var(--line);background:#fff;border-radius:11px;padding:12px;text-align:left;min-height:86px}.next-action strong{display:block;font-size:14px;margin-bottom:4px}.next-action small{display:block;color:var(--ink-soft);font-size:11.5px;line-height:1.45}.next-action.primary{border:2px solid var(--stamp-red);background:#fffaf7}.next-action .stepno{display:inline-flex;width:22px;height:22px;border-radius:50%;align-items:center;justify-content:center;background:var(--stamp-red);color:#fff;font-weight:700;font-size:12px;margin-right:5px}
-.help-strip{display:flex;gap:8px;margin:10px 0 14px}.help-strip button{flex:1;border:1px solid var(--line);background:var(--card);border-radius:9px;padding:9px 7px;font-size:12px;font-weight:700}
-.ui-help-btn{border:1.5px solid var(--line);background:var(--card);border-radius:50%;width:30px;height:30px;font-weight:800;font-size:15px;color:var(--stamp-navy)}
-.help-modal{position:fixed;inset:0;background:rgba(40,35,30,.48);z-index:100;display:none;align-items:flex-end;justify-content:center}.help-modal.open{display:flex}.help-sheet{background:var(--paper);width:min(680px,100%);max-height:88dvh;overflow:auto;border-radius:18px 18px 0 0;padding:18px 16px calc(22px + env(safe-area-inset-bottom));box-shadow:0 -8px 30px rgba(0,0,0,.18)}.help-sheet h2{font-size:20px;margin-bottom:4px}.help-sheet .lead{font-size:13px;color:var(--ink-soft);margin:0 0 14px}.help-flow{display:grid;gap:8px}.help-step{display:flex;gap:10px;align-items:flex-start;background:#fff;border:1px solid var(--line);border-radius:10px;padding:11px}.help-step b{flex:0 0 26px;height:26px;border-radius:50%;background:var(--stamp-navy);color:#fff;display:flex;align-items:center;justify-content:center}.help-step strong{display:block;font-size:13.5px}.help-step span{display:block;font-size:11.5px;color:var(--ink-soft);margin-top:2px;line-height:1.5}.help-close{margin-top:14px}
-.field>label{font-weight:700}.field>.hint{line-height:1.55}.form-card .field{padding-bottom:3px}.form-card input,.form-card select,.form-card textarea{min-height:44px}.btn{min-height:42px}
-@media(max-width:430px){.next-actions{grid-template-columns:1fr}.guide-card{padding:13px}.bottom-nav button{font-size:10px}.bottom-nav svg{width:19px;height:19px}}
-
-
-/* 初めての利用者向け：各画面の「今やること」を固定した言葉で案内 */
-.screen-guide{background:#F0F7F4;border:1px solid #C8DDD3;border-left:5px solid var(--moss);border-radius:10px;padding:12px 14px;margin:0 0 14px;line-height:1.55}
-.screen-guide b{display:block;font-size:14px;margin-bottom:3px;color:var(--ink)}
-.screen-guide span{display:block;font-size:12.5px;color:var(--ink-soft)}
-/* 予算執行グラフ */
-.budget-viz{display:grid;grid-template-columns:160px 1fr;gap:18px;align-items:center;margin-top:10px}
-.budget-donut{width:148px;height:148px;border-radius:50%;display:grid;place-items:center;position:relative;background:conic-gradient(var(--stamp-red) 0 var(--pct),#e9e3d8 var(--pct) 100%)}
-.budget-donut:after{content:"";position:absolute;width:104px;height:104px;border-radius:50%;background:var(--paper,#fffdf7)}
-.budget-donut .inside{position:relative;z-index:1;text-align:center;line-height:1.15}
-.budget-donut .inside strong{display:block;font-size:28px}.budget-donut .inside span{font-size:11px;color:var(--muted)}
-.budget-viz-info .bigline{font-size:18px;font-weight:700;margin-bottom:8px}.budget-viz-info p{margin:4px 0;font-size:13px;color:var(--muted)}
-.budget-legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;font-size:12px}.budget-legend b{font-weight:700}
-@media(max-width:520px){.budget-viz{grid-template-columns:1fr;text-align:center}.budget-donut{margin:auto}.budget-viz-info{text-align:left}}
-@media(max-width:520px){.screen-guide{padding:11px 12px}.screen-guide span{font-size:12px}.cat-row{flex-wrap:wrap}.cat-row input.budget{width:100%;order:5}.btn-row{flex-wrap:wrap}.btn-row .btn{min-width:44%}}
-
-/* 設定画面：会計の一年に沿った初心者向け整理 */
-.settings-roadmap{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:10px 0 18px}
-.settings-roadmap button{border:1px solid var(--line);background:var(--card);border-radius:12px;padding:12px 8px;font-size:12px;font-weight:700;line-height:1.35;box-shadow:var(--shadow)}
-.settings-roadmap button b{display:block;font-size:17px;color:var(--stamp-navy);margin-bottom:3px}
-.setting-group{border:1px solid var(--line);border-radius:14px;background:rgba(255,253,248,.65);margin:12px 0;overflow:hidden}
-.setting-group>summary{list-style:none;cursor:pointer;padding:15px 16px;font-weight:700;font-size:16px;background:var(--card);display:flex;align-items:center;gap:10px}
-.setting-group>summary::-webkit-details-marker{display:none}
-.setting-group>summary:after{content:'＋';margin-left:auto;color:var(--ink-soft);font-size:20px}
-.setting-group[open]>summary:after{content:'−'}
-.setting-group .group-help{font-size:12.5px;color:var(--ink-soft);font-weight:400;display:block;margin-top:2px}
-.setting-group-body{padding:2px 14px 16px}
-.setting-group-body>.section-title:first-child{margin-top:14px!important}
-@media(max-width:650px){.settings-roadmap{grid-template-columns:repeat(2,1fr)}.settings-roadmap button{min-height:72px}.setting-group>summary{font-size:15px}}
 </style>
 </head>
 <body>
@@ -357,12 +315,11 @@ table.pub th{font-family:'Shippori Mincho',serif; background:var(--tint);}
   <div class="center-wrap" style="min-height:auto;padding-top:40px">
     <div class="mark-big">はじめ<br>まして</div>
     <h1 style="font-size:20px;">お名前と役職を教えてください</h1>
-    <p>登録するとすぐに、レシートの写真を撮って立替の申請ができます。最初の申請を会計が確認したときに、あわせて本登録されます。</p>
+    <p>お名前と役職・班を登録すると利用申請が送信されます。会計担当が権限を設定すると利用を開始できます。</p>
     <div class="form-card" style="width:100%;max-width:380px;text-align:left">
       <div class="field"><label>お名前</label><input type="text" id="jName" placeholder="例）山田 花子"></div>
       <div class="field"><label>役職・班</label><input type="text" id="jPost" placeholder="例）3班 班長、防災支隊長" list="postList2"><datalist id="postList2"></datalist></div>
-      <div class="field" id="jCodeField"><label>参加コード（会計から案内があった場合）</label><input type="text" id="jCode" placeholder="案内がなければ空欄" autocomplete="off"></div>
-      <button class="btn btn-primary full" id="jSubmit">登録して始める</button>
+      <button class="btn btn-primary full" id="jSubmit">利用申請する</button>
       <p class="hint" id="jErr" style="color:var(--stamp-red)"></p>
     </div>
     <button class="text-link" onclick="auth.signOut()">別のアカウントでログインする</button>
@@ -395,7 +352,6 @@ table.pub th{font-family:'Shippori Mincho',serif; background:var(--tint);}
     <div class="user-chip">
       <span class="role-badge" id="roleBadge"></span>
       <span id="userName"></span>
-      <button class="ui-help-btn" id="uiHelpBtn" title="使い方" aria-label="使い方">?</button>
       <button class="icon-btn" id="logoutBtn" title="ログアウト" aria-label="ログアウト">⎋</button>
     </div>
   </header>
@@ -467,11 +423,6 @@ table.pub th{font-family:'Shippori Mincho',serif; background:var(--tint);}
           <label>科目</label>
           <div class="cat-picker" id="fAccountPicker"></div>
         </div>
-        <div class="field" id="fGrantField" style="display:none">
-          <label>補助金への充当</label>
-          <select id="fGrant"><option value="">補助金に充当しない</option></select>
-          <p class="hint">交付決定済み・執行中の補助金に支出を紐付けます。実績報告の集計に自動反映されます。</p>
-        </div>
         <div class="field">
           <label id="fMethodLabel">支払方法</label>
           <div class="cat-picker" id="fMethodPicker"></div>
@@ -504,7 +455,6 @@ table.pub th{font-family:'Shippori Mincho',serif; background:var(--tint);}
     <section id="detailScreen" class="screen"></section>
     <section id="settleScreen" class="screen"></section>
     <section id="auditScreen" class="screen"></section>
-    <section id="grantsScreen" class="screen"></section>
     <section id="settingsScreen" class="screen"></section>
     <section id="batchScreen" class="screen"></section>
     <section id="budgetImportScreen" class="screen"></section>
@@ -517,16 +467,6 @@ table.pub th{font-family:'Shippori Mincho',serif; background:var(--tint);}
 
   <button class="fab" id="fabAdd" aria-label="新しく登録">＋</button>
   <nav class="bottom-nav" id="bottomNav"></nav>
-</div>
-
-
-<div class="help-modal" id="uiHelpModal" aria-hidden="true">
-  <div class="help-sheet" role="dialog" aria-modal="true" aria-labelledby="uiHelpTitle">
-    <h2 id="uiHelpTitle">この画面で何をすればいい？</h2>
-    <p class="lead" id="uiHelpLead">役割に合わせて、よく使う操作だけを順番に案内します。</p>
-    <div class="help-flow" id="uiHelpFlow"></div>
-    <button class="btn btn-primary full help-close" id="uiHelpClose">閉じる</button>
-  </div>
 </div>
 
 <div class="toast" id="toast" role="status"></div>
@@ -548,7 +488,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.09.29-7';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.09.29-8';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 const CONFIGURED = !firebaseConfig.apiKey.startsWith('YOUR_');
 const ROOT = 'chokai-kaikei';
 let auth = null, db = null;
@@ -565,7 +505,7 @@ const PALETTE = ['#B4432C','#2E5E7C','#7A8450','#9C6B3E','#7D5A8C','#3E7C6B','#B
 const ROLES = {
   treasurer:{ name:'会計', desc:'すべての登録・承認・精算・設定' },
   auditor:  { name:'監査', desc:'全件の閲覧と監査チェック' },
-  viewer:   { name:'役員', desc:'年度会計の閲覧と自分の支払い精算' },
+  viewer:   { name:'役員', desc:'全件の閲覧のみ（会長など）' },
   payer:    { name:'支払者', desc:'自分の支出の申請と精算の確認' },
   guest:    { name:'仮登録', desc:'初回の申請が承認されると本登録（申請はすぐにできます）' },
   pending:  { name:'承認待ち', desc:'' },
@@ -578,7 +518,6 @@ const SETTLE_WAYS = ['現金手渡し','口座振込','その他'];
 let me = null;                 // {uid,name,email,role,payerId}
 let settings = { orgName:'町内会', fiscalStartMonth:4, opening:{}, publicDetail:'items' };
 let accounts = [], methods = [], payers = [], members = [], storageTags = [];
-let grants = [];
 let fyMap = {}, pendingMap = {}, mineMap = {};
 let advances = [], settlements = [], logs = [], auditReports = {};
 let curFY = null;
@@ -590,7 +529,6 @@ let settleView = null;         // 精算画面で開いている支払者ID
 let detailId = null;
 let sharedKey = null;
 let importsList = [];
-let joinCode = '';          // 町内会共通のClaude APIキー（会計が設定した場合）
 
 /* ---------- ユーティリティ ---------- */
 function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -611,26 +549,6 @@ function isStaff(){ return me && ['treasurer','auditor','viewer'].includes(me.ro
 function isT(){ return me && me.role==='treasurer'; }
 function isA(){ return me && me.role==='auditor'; }
 function isP(){ return me && (me.role==='payer' || me.role==='guest'); }
-function canSelfSubmit(){ return me && ['payer','guest','viewer'].includes(me.role); }
-function selfPayerId(){
-  if (!me) return '';
-  if (me.payerId) return me.payerId;
-  const hit = payers.find(p => (p.uid && p.uid===me.uid) || (p.email && me.email && p.email.toLowerCase()===me.email.toLowerCase()));
-  return hit ? hit.id : '';
-}
-async function ensureSelfPayer(){
-  let id=selfPayerId(); if(id) return id;
-  if(!(canSelfSubmit() || isT())) return '';
-  id='u_'+me.uid.replace(/[^a-zA-Z0-9_-]/g,'');
-  const data={name:me.name||me.email||'利用者',email:me.email||'',uid:me.uid,active:true,auto:true,createdAt:TS()};
-  try {
-    await R(`payers/${id}`).update(data);
-    await R(`members/${me.uid}/payerId`).set(id);
-    me.payerId=id;
-    if(!payers.some(p=>p.id===id)) payers.push({id,...data});
-    return id;
-  } catch(err){ console.error(err); showToast('本人情報の準備に失敗しました。会計担当にお問い合わせください'); return ''; }
-}
 function isGuest(){ return me && me.role==='guest'; }
 function accById(id){ return accounts.find(a=>a.id===id); }
 function methodById(id){ return methods.find(m=>m.id===id); }
@@ -683,18 +601,17 @@ function notifyEntries(ids){
   if (!ids.length || settings.notifyOnEntry===false) return;
   notify('entry', { entryIds: ids });
 }
-/* 会計・役員の一覧が変わったら、GAS側の通知先を更新する（会計のみ実行可能） */
+/* 会計担当の一覧が変わったら、GAS側の送信先を更新する（会計のみ実行可能） */
 let lastRecipientKey = '';
 function syncRecipients(force){
   if (!isT() || !settings.notifyUrl || !members.length) return;
-  const key = members.filter(m=>['treasurer','viewer'].includes(m.role)).map(m=>`${m.role}:${m.email||''}`).sort().join(',') + '|' + settings.notifyUrl;
+  const key = members.filter(m=>m.role==='treasurer').map(m=>m.email).sort().join(',') + '|' + settings.notifyUrl;
   if (!force && key===lastRecipientKey) return;
   lastRecipientKey = key;
   notify('register').then(r => { if (force) showToast(r && r.ok ? `送信先を登録しました（${(r.recipients||[]).join('、')}）` : `登録に失敗：${r && r.error || ''}`); });
 }
 
 /* ---------- 起動 ---------- */
-const JOIN_CODE_FROM_URL = new URLSearchParams(location.search).get('code') || (()=>{ try { return localStorage.getItem('kaikei_joinCode') || ''; } catch(e){ return ''; } })();
 const params = new URLSearchParams(location.search);
 if (!CONFIGURED) { hideAllRoots(); $('setupScreen').style.display='block'; }
 else if (params.get('view')==='public') { openPublic(); }
@@ -757,22 +674,19 @@ function startAuth(){
   $('verLogin').textContent = `バージョン ${APP_VERSION}`;
 
   /* ---- メールアドレスだけでログイン（Firebaseのメールリンク認証） ---- */
-  const EMAIL_KEY = 'kaikei_emailForSignIn', CODE_KEY = 'kaikei_joinCode';
+  const EMAIL_KEY = 'kaikei_emailForSignIn';
   const lsGet = k => { try { return localStorage.getItem(k); } catch(e){ return null; } };
   const lsSet = (k,v) => { try { v===null ? localStorage.removeItem(k) : localStorage.setItem(k,v); } catch(e){} };
-  if (JOIN_CODE_FROM_URL) lsSet(CODE_KEY, JOIN_CODE_FROM_URL);
   $('emailLoginBtn').onclick = async () => {
     const email = $('emailLoginInput').value.trim();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { $('emailLoginMsg').textContent = 'メールアドレスを正しく入力してください'; return; }
     const btn = $('emailLoginBtn'); btn.disabled = true; btn.textContent = '送信中…';
     try {
       const back = new URL(location.origin + location.pathname);
-      const code = JOIN_CODE_FROM_URL || lsGet(CODE_KEY);
-      if (code) back.searchParams.set('code', code);
       ['open','screen'].forEach(k => { if (params.get(k)) back.searchParams.set(k, params.get(k)); });
       await auth.sendSignInLinkToEmail(email, { url: back.toString(), handleCodeInApp: true });
       lsSet(EMAIL_KEY, email);
-      $('emailLoginMsg').innerHTML = `<b style="color:var(--moss)">✓ ${esc(email)} にログイン用のリンクを送りました。</b><br>メールを開いてリンクを押すとログインできます。届かない場合は迷惑メールフォルダも確認してください。リンクが無効・期限切れになった場合は、ここからもう一度送信してください。`;
+      $('emailLoginMsg').innerHTML = `<b style="color:var(--moss)">✓ ${esc(email)} にログイン用のリンクを送りました。</b><br>メールを開いてリンクを押すとログインできます（1時間以内）。届かない場合は迷惑メールフォルダも確認してください。差出人は noreply@${esc(firebaseConfig.authDomain)} です。`;
       btn.textContent = 'もう一度送る';
     } catch(e) {
       if (e.code==='auth/operation-not-allowed') { $('emailLoginMsg').textContent = 'メールでのログインがまだ有効になっていません（会計担当がFirebaseで設定します）'; console.error(e); }
@@ -789,15 +703,10 @@ function startAuth(){
       try {
         await auth.signInWithEmailLink(email.trim(), location.href);
         lsSet(EMAIL_KEY, null);
-        // ログイン成功後だけワンタイムコードをURLから除去する。
-        // 失敗時はリンクを残し、メールアドレスの入力間違い等をやり直せるようにする。
-        const u = new URL(location.href);
-        ['apiKey','oobCode','mode','lang','continueUrl','tenantId'].forEach(k=>u.searchParams.delete(k));
-        history.replaceState(null, '', u.pathname + (u.search || ''));
-      } catch(e) {
-        showLoginError(e);
-        $('loginError').innerHTML += '<br>メールアドレスを間違えた場合は、このページを再読み込みするともう一度入力できます。';
-      }
+      } catch(e) { showLoginError(e); }
+      const u = new URL(location.href);
+      ['apiKey','oobCode','mode','lang','continueUrl','tenantId'].forEach(k=>u.searchParams.delete(k));
+      history.replaceState(null, '', u.pathname + (u.search || ''));
     })();
   }
   $('googleLoginBtn').onclick = () => {
@@ -825,30 +734,29 @@ function startAuth(){
   });
 }
 
-/* はじめての人の仮登録（利用承認を待たずに申請できる） */
+/* はじめての人の利用申請（会計担当の承認待ち） */
 function showJoinForm(user, mref){
   return new Promise(resolve => {
     hideAllRoots(); $('joinScreen').style.display='block';
     $('jName').value = user.displayName || '';
     if (!user.displayName) $('jName').placeholder = '例）山田 花子（' + (user.email||'') + '）';
     $('postList2').innerHTML = POSTS.map(p=>`<option value="${p}">`).join('');
-    if (JOIN_CODE_FROM_URL) { $('jCode').value = JOIN_CODE_FROM_URL; $('jCodeField').style.display='none'; }
     $('jErr').textContent = '';
     $('jSubmit').onclick = async () => {
       const name = $('jName').value.trim(), post = $('jPost').value.trim();
       if (!name) { $('jErr').textContent = 'お名前を入力してください'; return; }
-      if (!post) { $('jErr').textContent = '役職・班を入力してください（会計が本人確認に使います）'; return; }
-      const btn = $('jSubmit'); btn.disabled = true; btn.textContent = '登録中…';
-      const pid = 'g_' + user.uid;
+      if (!post) { $('jErr').textContent = '役職・班を入力してください（会計担当が本人確認に使います）'; return; }
+      const btn = $('jSubmit'); btn.disabled = true; btn.textContent = '申請中…';
       try {
-        await mref.set({ name, email:user.email||'', role:'guest', payerId:pid, joinCode:$('jCode').value.trim(), createdAt:TS() });
-        await R(`payers/${pid}`).set({ name, post, provisional:true, uid:user.uid, email:user.email||'', active:true, order:999, createdAt:TS() });
+        await mref.set({ name, email:user.email||'', post, role:'pending', createdAt:TS() });
+        const ns = await R('settings/notifyUrl').get().catch(()=>null);
+        const notifyUrl = ns && ns.val ? ns.val() : '';
+        if (notifyUrl) notify('member', null, notifyUrl);
         resolve();
       } catch(e) {
         console.error(e);
-        $('jErr').textContent = /permission/i.test(String(e.code||e.message)) ? '参加コードが違います。会計から案内されたコードを入力してください' : '登録できませんでした：' + (e.message||e);
-        if (JOIN_CODE_FROM_URL) $('jCodeField').style.display='block';
-        btn.disabled = false; btn.textContent = '登録して始める';
+        $('jErr').textContent = '利用申請を登録できませんでした：' + (e.message||e);
+        btn.disabled = false; btn.textContent = '利用申請する';
       }
     };
   });
@@ -867,7 +775,7 @@ async function enterAs(user){
       await showJoinForm(user, mref);
     }
   } else if (snap.val().role==='pending') {
-    await showJoinForm(user, mref);        // 以前の「承認待ち」の人も仮登録に切り替えて申請できるようにする
+    // すでに利用申請済み。下のリアルタイム監視で承認待ち画面を表示する。
   }
   // 自分の権限の変化をリアルタイムで反映
   const h = mref.on('value', s => {
@@ -972,9 +880,7 @@ function attachData(){
   else onData(R('payers'),   s => { payers   = toArr(s.val()).sort((a,b)=>(a.order||0)-(b.order||0) || (a.name||'').localeCompare(b.name||'','ja')); renderAll(); });
   onData(R('storageTags'), s => { storageTags = toArr(s.val()).map(t=>t.name).sort((a,b)=>a.localeCompare(b,'ja')); });
   onData(R('auditReports'), s => { auditReports = s.val()||{}; renderAll(); });
-  if (isStaff()) onData(R('grants'), s => { grants = toArr(s.val()).sort((a,b)=>(b.fy||0)-(a.fy||0) || (a.name||'').localeCompare(b.name||'','ja')); if(currentScreen==='grantsScreen') renderGrants(); });
   { const ref = R('secrets/claudeKey'); const hk = ref.on('value', s => { sharedKey = s.val() || null; }, () => { sharedKey = null; }); dataListeners.push(()=>ref.off('value', hk)); }
-  if (isT()) onData(R('joinCode'), s => { joinCode = s.val() || ''; if (currentScreen==='settingsScreen') renderSettings(); });
 
   if (isStaff()) {
     onData(R('entries').orderByChild('settleState').equalTo('pending'), s => { pendingMap = objWithIds(s.val()); renderAll(); });
@@ -1011,14 +917,13 @@ const ICONS = {
   book:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3h12l2 2v16H5z"/><line x1="8" y1="9" x2="16" y2="9"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>',
   settle:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h13l-3-3M20 16H7l3 3"/></svg>',
   audit:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/><path d="M8.5 11l2 2 3.5-3.5"/></svg>',
-  grant:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16v12H4z"/><path d="M8 7V5h8v2"/><path d="M8 12h8M12 9v6"/></svg>',
   settings:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>'
 };
 function navItems(){
-  if (isT()) return [['homeScreen','home','ホーム'],['bookScreen','book','出納帳'],['settleScreen','settle','精算'],['auditScreen','audit','監査'],['grantsScreen','grant','補助金'],['settingsScreen','settings','設定']];
-  if (isA()) return [['homeScreen','home','ホーム'],['bookScreen','book','出納帳'],['auditScreen','audit','監査'],['grantsScreen','grant','補助金']];
-  if (isP()) return [['homeScreen','home','ホーム'],['bookScreen','book','申請一覧'],['settleScreen','settle','精算']];
-  return [['homeScreen','home','ホーム'],['bookScreen','book','出納帳'],['settleScreen','settle','精算'],['auditScreen','audit','監査'],['grantsScreen','grant','補助金']];
+  if (isT()) return [['homeScreen','home','ホーム'],['bookScreen','book','出納帳'],['settleScreen','settle','精算'],['auditScreen','audit','監査'],['settingsScreen','settings','設定']];
+  if (isA()) return [['homeScreen','home','ホーム'],['bookScreen','book','出納帳'],['auditScreen','audit','監査'],['settingsScreen','settings','設定']];
+  if (isP()) return [['homeScreen','home','ホーム'],['bookScreen','book','申請一覧'],['settleScreen','settle','精算'],['settingsScreen','settings','設定']];
+  return [['homeScreen','home','ホーム'],['bookScreen','book','出納帳'],['auditScreen','audit','監査'],['settingsScreen','settings','設定']];
 }
 function buildNav(){
   const nav = $('bottomNav'); nav.innerHTML='';
@@ -1031,15 +936,15 @@ function buildNav(){
   if (!navItems().some(n=>n[0]===currentScreen)) currentScreen='homeScreen';
   showScreen(currentScreen);
 }
-const TITLES = { grantsScreen:'補助金', homeScreen:'ホーム', bookScreen:'出納帳', settleScreen:'精算', auditScreen:'監査', settingsScreen:'設定', formScreen:'登録', detailScreen:'伝票', batchScreen:'まとめて読み込み', budgetImportScreen:'予算の取り込み', importScreen:'データ取り込み' };
+const TITLES = { homeScreen:'ホーム', bookScreen:'出納帳', settleScreen:'精算', auditScreen:'監査', settingsScreen:'設定', formScreen:'登録', detailScreen:'伝票', batchScreen:'まとめて読み込み', budgetImportScreen:'予算の取り込み', importScreen:'データ取り込み' };
 function showScreen(id){
   currentScreen = id;
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
   $(id).classList.add('active');
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active', b.dataset.screen===id));
   $('headerTitle').textContent = (id==='bookScreen' && isP()) ? '申請一覧' : TITLES[id];
-  $('fyBar').style.display = ['homeScreen','bookScreen','auditScreen','grantsScreen'].includes(id) ? 'flex' : 'none';
-  $('fabAdd').style.display = ((isT()||canSelfSubmit()) && ['homeScreen','bookScreen'].includes(id)) ? 'flex' : 'none';
+  $('fyBar').style.display = ['homeScreen','bookScreen','auditScreen'].includes(id) ? 'flex' : 'none';
+  $('fabAdd').style.display = ((isT()||(isP()&&me.payerId)) && ['homeScreen','bookScreen'].includes(id)) ? 'flex' : 'none';
   if (id!=='settleScreen') settleView = null;
   renderCurrent();
   window.scrollTo(0,0);
@@ -1058,7 +963,6 @@ function renderCurrent(){
     case 'bookScreen': renderBook(); break;
     case 'settleScreen': renderSettle(); break;
     case 'auditScreen': renderAudit(); break;
-    case 'grantsScreen': renderGrants(); break;
     case 'settingsScreen': { const a=document.activeElement; const typing = a && $('settingsScreen').contains(a) && ['INPUT','TEXTAREA','SELECT'].includes(a.tagName) && a.type!=='checkbox'; if (!typing) renderSettings(); break; }
     case 'detailScreen': if (detailId) renderDetail(detailId); break;
   }
@@ -1076,9 +980,6 @@ function updateBadges(){
   if (isA()) set('auditScreen', approvedFY().filter(e=>!e.audit || e.auditStale).length);
 }
 $('fabAdd').onclick = () => openForm(null);
-$('uiHelpBtn').onclick = openUIHelp;
-$('uiHelpClose').onclick = closeUIHelp;
-$('uiHelpModal').onclick = e => { if(e.target===$('uiHelpModal')) closeUIHelp(); };
 
 /* =========================================================
    精算の計算
@@ -1158,52 +1059,6 @@ function bindSlips(container){
 /* =========================================================
    ホーム
    ========================================================= */
-
-function roleGuideHTML(){
-  const hidden = localStorage.getItem('kaikei-guide-hidden')==='1';
-  if(hidden) return `<div class="help-strip"><button data-help="open">？ はじめての方へ</button><button data-help="restore">案内を表示</button></div>`;
-  let title='まずはここから', sub='今日やることを選べば、必要な画面へ移動します。', acts=[];
-  if(isT()) acts=[
-    ['bookScreen','申請を確認する','届いた支出申請を確認・承認します'],
-    ['formScreen','収入・支出を登録','領収証を撮影して登録できます'],
-    ['settleScreen','精算する','立替金や仮払金をまとめて確認します'],
-    ['settingsScreen','年度・予算を設定','最初の設定や決算資料の準備はこちら']
-  ];
-  else if(isA()) acts=[
-    ['auditScreen','監査を始める','伝票と証憑を1件ずつ確認します'],
-    ['bookScreen','出納帳を見る','年間の収入・支出を確認します'],
-    ['homeScreen','年度の進捗を見る','予算執行や監査の進み具合を確認します'],
-    ['grantsScreen','補助金を確認','申請・交付・実績の状況を確認します']
-  ];
-  else if(me && me.role==='viewer') acts=[
-    ['homeScreen','年度会計の進捗を見る','残高・予算執行・監査の進捗を確認します'],
-    ['bookScreen','出納帳を見る','年間の収入・支出を確認します'],
-    ['settleScreen','自分の支払いを精算','立替分の精算依頼と受取確認をします'],
-    ['grantsScreen','補助金を見る','申請から実績報告まで確認します']
-  ];
-  else acts=[
-    ['bookScreen','申請を確認','自分の支出申請の状況を確認します'],
-    ['settleScreen','精算する','承認済みの立替分を会計へ精算依頼します'],
-    ['formScreen','支出を申請','領収証を撮影して申請できます']
-  ];
-  return `<div class="guide-card"><div class="guide-head"><div><h2>${title}</h2><p>${sub}<br><b>${esc(ROLES[me.role]?.name||'役員')}</b>として使える機能を表示しています。</p></div><button class="guide-dismiss" data-help="hide">案内を隠す</button></div><div class="next-actions">${acts.map((a,i)=>`<button class="next-action ${i===0?'primary':''}" data-guide-go="${a[0]}"><strong><span class="stepno">${i+1}</span>${a[1]}</strong><small>${a[2]}</small></button>`).join('')}</div><div class="help-strip"><button data-help="open">？ 使い方を詳しく見る</button></div></div>`;
-}
-function bindRoleGuide(el){
-  el.querySelectorAll('[data-guide-go]').forEach(b=>b.onclick=()=>{ const id=b.dataset.guideGo; if(id==='formScreen') openForm(null); else showScreen(id); });
-  el.querySelectorAll('[data-help]').forEach(b=>b.onclick=()=>{ const a=b.dataset.help; if(a==='hide'){localStorage.setItem('kaikei-guide-hidden','1');renderCurrent();} else if(a==='restore'){localStorage.removeItem('kaikei-guide-hidden');renderCurrent();} else openUIHelp(); });
-}
-function openUIHelp(){
-  const flow=$('uiHelpFlow'), lead=$('uiHelpLead'); if(!flow) return;
-  let steps=[];
-  if(isT()){ lead.textContent='会計担当は「確認 → 精算 → 監査・決算」の順で進めれば大丈夫です。'; steps=[['申請を確認','ホームの「承認待ち」または出納帳から内容と領収証を確認します。'],['承認・差戻し','問題なければ承認。不明点があればコメントを付けて差し戻します。'],['精算','精算画面で、誰にいくら支払うかを確認して記録します。'],['月中は予算確認','ホームで科目別の予算と実績を確認します。'],['年度末','監査を完了し、設定から決算・予算資料を作成します。'],['補助金','補助金画面で申請額・交付額・対象支出・実績報告を管理します。']]; }
-  else if(isA()){ lead.textContent='監査担当は、会計データを変更せず「証憑と内容が合っているか」を確認します。'; steps=[['監査を開く','下の「監査」を押します。'],['伝票を確認','日付・金額・科目・用途と領収証を照合します。'],['結果を記録','確認済み／指摘ありを選び、必要ならコメントを残します。'],['監査完了','全件確認後、年度の監査報告を確定します。']]; }
-  else if(me && me.role==='viewer'){ lead.textContent='役員は、年度会計の進捗を確認し、自分の立替分は精算できます。'; steps=[['ホーム','残高・収支・予算執行・監査進捗を確認します。'],['出納帳','年間の収入・支出を確認します。'],['精算','自分の承認済み立替分を会計へ精算依頼し、受取確認をします。'],['補助金','申請・交付・執行・実績報告の状況を確認します。']]; }
-  else { lead.textContent='支払者は、支出申請と自分の精算を行います。'; steps=[['申請','領収証を撮影して支出を申請します。'],['申請一覧','承認待ちや差戻しを確認します。'],['精算','承認済みの立替分を会計へ精算依頼します。'],['受取確認','会計の精算後に受取・返金を確認します。']]; }
-  flow.innerHTML=steps.map((x,i)=>`<div class="help-step"><b>${i+1}</b><div><strong>${x[0]}</strong><span>${x[1]}</span></div></div>`).join('');
-  $('uiHelpModal').classList.add('open'); $('uiHelpModal').setAttribute('aria-hidden','false');
-}
-function closeUIHelp(){ $('uiHelpModal')?.classList.remove('open'); $('uiHelpModal')?.setAttribute('aria-hidden','true'); }
-
 function renderHome(){
   const el = $('homeScreen');
   if (isP()) { renderPayerHome(el); return; }
@@ -1219,45 +1074,25 @@ function renderHome(){
   const audited = ap.filter(e=>e.audit && !e.auditStale).length;
   const report = auditReports[curFY];
 
-  let html = roleGuideHTML() + `<div class="summary-strip">
+  let html = `<div class="summary-strip">
     <div><div class="lbl">前年度繰越</div><div class="val">${yen(opening)}</div></div>
     <div><div class="lbl">収入</div><div class="val" style="color:var(--stamp-navy)">${yen(inc)}</div></div>
     <div><div class="lbl">支出</div><div class="val" style="color:var(--stamp-red)">${yen(exp)}</div></div>
     <div><div class="lbl">残高</div><div class="val big">${yen(opening+inc-exp)}</div></div>
   </div>`;
 
-  if (me && me.role==='viewer') {
-    const months = fyMonths(curFY); const nowKey = localDate().slice(0,7);
-    const elapsed = Math.max(0, months.findIndex(x=>x.key===nowKey)+1) || (new Date() > new Date(`${curFY+1}-${pad(startMonth()-1||12)}-28`) ? 12 : 0);
-    const expenseBudget = accounts.filter(a=>a.type==='expense').reduce((sum,a)=>sum+(Number((a.budget||{})[curFY])||0),0);
-    const execPct = expenseBudget ? Math.round(exp/expenseBudget*100) : 0;
-    const myPid=selfPayerId(); const unsettledMine = myPid ? payerBalance(myPid).approved.length : 0;
-    html += `<div class="panel"><h3>年度会計の進捗状況 <small>${esc(fyRangeLabel(curFY))}</small></h3>
-      <div class="summary-strip" style="margin:8px 0 0">
-        <div><div class="lbl">年度経過</div><div class="val">${elapsed}/12か月</div></div>
-        <div><div class="lbl">支出予算執行</div><div class="val">${expenseBudget?execPct+'%':'－'}</div></div>
-        <div><div class="lbl">監査確認</div><div class="val">${ap.length?Math.round(audited/ap.length*100):0}%</div></div>
-        <div><div class="lbl">自分の精算待ち</div><div class="val">${myPid?unsettledMine+'件':'0件'}</div></div>
-      </div>
-      <p class="hint" style="margin-bottom:0">予算に対してどこまで執行しているか、監査がどこまで進んでいるかを年度途中でも確認できます。</p></div>`;
-  }
-
   if (isT() && submitted.length) html += `<button class="notice amber" data-go="submitted"><span class="n-body">承認待ちの申請<span class="n-sub">支払者から届いた領収証を確認してください</span></span><span class="n-val">${submitted.length}件</span></button>`;
-  const treasurerApprovalForViewer = submitted.filter(e=>e.selfApprovalRequired);
-  if (me && me.role==='viewer' && treasurerApprovalForViewer.length) html += `<button class="notice amber" data-go="submitted"><span class="n-body">会計担当の承認待ち<span class="n-sub">会計本人の支出です。領収証と内容を確認してください</span></span><span class="n-val">${treasurerApprovalForViewer.length}件</span></button>`;
   if (returned.length) html += `<button class="notice" data-go="returned"><span class="n-body">差戻し中<span class="n-sub">支払者の修正待ち</span></span><span class="n-val">${returned.length}件</span></button>`;
   if (people.length) html += `<button class="notice navy" data-go="settle"><span class="n-body">精算待ち ${people.length}人<span class="n-sub">支払い ${yen(toPay)}／返金受取 ${yen(toBack)}</span></span><span class="n-val">›</span></button>`;
   html += `<button class="notice moss" data-go="audit"><span class="n-body">監査の進み具合<span class="n-sub">${report ? `監査完了（${fmtTs(report.at)} ${esc(report.byName)}）` : `${ap.length}件中 ${audited}件 確認済み`}</span></span><span class="n-val">${ap.length?Math.round(audited/ap.length*100):0}%</span></button>`;
 
   if (isT()) html += `<button class="btn btn-navy full" id="homeBatchBtn" style="margin:4px 0 12px">📚 レシート・領収証をまとめて読み込む</button>`;
-  html += budgetOverviewChart(ap);
   html += budgetPanel(ap);
 
   const recent = fyEntries().sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0)).slice(0,5);
   html += `<h2 class="section-title" style="margin-top:18px;">最近の登録</h2>`;
   html += recent.length ? recent.map(slipHTML).join('') : `<div class="empty"><div class="mark-big">記録<br>なし</div>${isT()?'右下の＋から収入・支出を登録しましょう':'まだ記録がありません'}</div>`;
   el.innerHTML = html;
-  bindRoleGuide(el);
   bindSlips(el);
   if ($('homeBatchBtn')) $('homeBatchBtn').onclick = () => openBatch();
   el.querySelectorAll('[data-go]').forEach(b => b.onclick = () => {
@@ -1266,25 +1101,6 @@ function renderHome(){
     else if (g==='audit') showScreen('auditScreen');
     else { bookFilter.status = g; showScreen('bookScreen'); }
   });
-}
-
-function budgetOverviewChart(ap){
-  const expAcc=accounts.filter(a=>a.type==='expense' && a.active!==false);
-  const budget=expAcc.reduce((sum,a)=>sum+(Number((a.budget||{})[curFY])||0),0);
-  const actual=ap.filter(e=>e.type==='expense').reduce((sum,e)=>sum+(Number(e.amount)||0),0);
-  if(!budget) return '';
-  const raw=Math.round(actual/budget*100);
-  const pct=Math.max(0,Math.min(100,raw));
-  const remain=budget-actual;
-  const pace = raw>100 ? '予算を超過しています' : raw>=80 ? '予算残額が少なくなっています' : '予算内で執行中です';
-  return `<div class="panel"><h3>年度予算の執行状況 <small>${esc(fyRangeLabel(curFY))}</small></h3>
-    <div class="budget-viz">
-      <div class="budget-donut" style="--pct:${pct}%" role="img" aria-label="支出予算執行率 ${raw}%"><div class="inside"><strong>${raw}%</strong><span>支出予算執行率</span></div></div>
-      <div class="budget-viz-info"><div class="bigline">${yen(actual)} ／ ${yen(budget)}</div>
-        <p>支出実績　${yen(actual)}</p><p>支出予算　${yen(budget)}</p><p>${remain>=0?'予算残額':'予算超過額'}　${yen(Math.abs(remain))}</p>
-        <div class="budget-legend"><span><b>${pace}</b></span></div>
-      </div>
-    </div></div>`;
 }
 
 function budgetPanel(ap){
@@ -1304,16 +1120,18 @@ function budgetPanel(ap){
 }
 
 function renderPayerHome(el){
-  let myPid=selfPayerId();
-  if (!myPid) { el.innerHTML = `<div class="empty">「支出を申請」から始めてください。本人情報は自動で設定されます。</div>`; return; }
-  const b = payerBalance(myPid);
+  if (!me.payerId) {
+    el.innerHTML = `<div class="empty"><div class="mark-big">準備<br>中</div>会計担当があなたを支払者名簿と紐付けると、<br>支出の申請ができるようになります。</div>`;
+    return;
+  }
+  const b = payerBalance(me.payerId);
   const mine = allEntries();
   const guestNote = isGuest() ? `<div class="notice amber" style="cursor:default"><span class="n-body">仮登録中です<span class="n-sub">${mine.length ? '最初の申請を会計が確認すると本登録になります' : 'さっそくレシートを撮って申請してみましょう。最初の申請の確認時に本登録されます'}</span></span></div>` : '';
   const returned = mine.filter(e=>e.status==='returned');
   const submitted = mine.filter(e=>e.status==='submitted');
   const unconfirmed = settlements.filter(s=>!s.payerConfirmedAt);
-  let html = guestNote + roleGuideHTML() + `<div class="net-box">
-      <div class="d">${esc(payerLabel(myPid)||me.name)}さんの精算見込み</div>
+  let html = guestNote + `<div class="net-box">
+      <div class="d">${esc(payerLabel(me.payerId))}さんの精算見込み</div>
       <div class="v" style="color:${b.net>=0?'var(--stamp-navy)':'var(--stamp-red)'}">${yen(Math.abs(b.net))}</div>
       <div class="hint" style="margin-top:4px">${b.net>0?'会計から受け取る予定の金額です':b.net<0?'仮払金の残りとして会計へ返す金額です':'現在、精算が必要なものはありません'}${b.waiting.length?`<br>ほかに承認待ち ${b.waiting.length}件（${yen(b.waiting.reduce((s,e)=>s+(Number(e.amount)||0),0))}）`:''}</div>
     </div>`;
@@ -1325,7 +1143,6 @@ function renderPayerHome(el){
   const recent = mine.sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0)).slice(0,5);
   html += `<h2 class="section-title">最近の申請</h2>` + (recent.length ? recent.map(slipHTML).join('') : `<div class="empty">まだ申請はありません</div>`);
   el.innerHTML = html;
-  bindRoleGuide(el);
   bindSlips(el);
   $('payerNewBtn').onclick = () => openForm(null);
   $('payerBatchBtn').onclick = () => openBatch();
@@ -1413,28 +1230,25 @@ let photosChanged = false;
 let formAccount = '', formMethod = '', formAddressee = '';
 
 async function openForm(e){
-  // 会計担当も個人で立替払いできる。本人用の精算IDは内部で自動準備する。
-  if (canSelfSubmit() || isT()) { const pid=await ensureSelfPayer(); if(!pid && !isT()) return; }
+  if (isP() && !me.payerId) { showToast('支払者名簿との紐付けが済んでいません'); return; }
   editing = e || null;
   formType = e ? e.type : 'expense';
   formAccount = e ? e.accountId : '';
   formMethod = e ? e.methodId : '';
   formAddressee = e ? (e.addressee||'') : '';
   formPhotos = []; photosChanged = false;
-  $('formTitle').textContent = e ? `${e.voucherNo||''} を修正` : ((canSelfSubmit()&&!isT()) ? '支出を申請' : '収入・支出を登録');
-  const formCard=$('formScreen')?.querySelector('.form-card'); if(formCard && !formCard.querySelector('.screen-guide')) formCard.insertAdjacentHTML('afterbegin', `<div class="screen-guide"><b>上から順に入力すれば完了します</b><span>${(canSelfSubmit()&&!isT())?'①領収証を撮る → ②金額などを確認 → ③申請する':'①収入/支出を選ぶ → ②領収証を撮る → ③内容を確認 → ④登録する'}</span></div>`);
+  $('formTitle').textContent = e ? `${e.voucherNo||''} を修正` : (isP() ? '支出を申請' : '収入・支出を登録');
   $('fTypeField').style.display = (isT() && !e) ? 'block' : 'none';
   $('fDate').value = e ? e.date : localDate();
   $('fAmount').value = e ? e.amount : '';
   $('fPayee').value = e ? (e.payee||'') : '';
   $('fPurpose').value = e ? (e.purpose||'') : '';
   $('fMemo').value = e ? (e.memo||'') : '';
-  $('fStorage').value = e ? (e.storageLocation||'') : ((canSelfSubmit()&&!isT()) ? '自分で保管中（精算時に会計へ渡す）' : '');
+  $('fStorage').value = e ? (e.storageLocation||'') : (isP() ? '自分で保管中（精算時に会計へ渡す）' : '');
   $('fNoReceipt').checked = !!(e && e.noReceipt);
   $('fNoReceiptReason').value = e ? (e.noReceiptReason||'') : '';
   $('fNoReceiptReason').style.display = $('fNoReceipt').checked ? 'block' : 'none';
   $('fExclude').checked = !!(e && e.excludePublic);
-  renderGrantSelect(e ? (e.grantId||'') : '');
   $('fExcludeField').style.display = isT() ? 'block' : 'none';
   $('purposeList').innerHTML = [...new Set(allEntries().map(x=>x.purpose).filter(Boolean))].slice(0,60).map(p=>`<option value="${esc(p)}">`).join('');
   $('fPayer').innerHTML=''; $('fPayer').value='';
@@ -1492,18 +1306,16 @@ function renderMethodPicker(){
 function renderPayerSelect(){
   const sel = $('fPayer');
   const m = methodById(formMethod);
-  if (canSelfSubmit() && !isT()) {
-    const pid=selfPayerId();
-    sel.innerHTML = `<option value="${pid}">${esc(payerLabel(pid)||me.name||'自分')}</option>`;
+  if (isP()) {
+    sel.innerHTML = `<option value="${me.payerId}">${esc(payerLabel(me.payerId))}</option>`;
     sel.disabled = true;
     $('fPayerHint').textContent = '';
     return;
   }
   sel.disabled = false;
   const cur = editing ? (editing.payerId||'') : sel.value;
-  const myPid = selfPayerId();
   sel.innerHTML = `<option value="">${m&&m.settle?'（選択してください）':'（指定なし：会計が直接支払い）'}</option>` +
-    payers.filter(p=>(p.active && !p.provisional) || p.id===cur).map(p=>`<option value="${p.id}">${esc(p.id===myPid ? `自分（${payerLabel(p.id)||me.name}）` : payerLabel(p.id))}</option>`).join('');
+    payers.filter(p=>(p.active && !p.provisional) || p.id===cur).map(p=>`<option value="${p.id}">${esc(payerLabel(p.id))}</option>`).join('');
   sel.value = cur;
   $('fPayerHint').textContent = m && m.settle ? '立替・仮払の場合は必ず選んでください。この人の精算待ちに入ります。' : '';
 }
@@ -1676,17 +1488,13 @@ async function persistEntry(prev, f, photos, photosChanged){
   let thumb = p.thumb || null;
   if (photosChanged) thumb = photos[0] ? await compressImage(photos[0], 160, 0.6) : null;
   const settle = f.type==='expense' && !!(m && m.settle);
-  const treasurerOwnExpense = isT() && f.type==='expense' && !!f.payerId && f.payerId===selfPayerId();
-  // 会計本人の支出は自己承認させず、役員の承認待ちにする。
-  const status = isT() ? ((p.status==='submitted' || treasurerOwnExpense) ? 'submitted' : 'approved') : 'submitted';
+  const status = isT() ? (p.status==='submitted' ? 'submitted' : 'approved') : 'submitted';
   const data = {
     ...p, ...f,
     fy, voucherNo, payerId: f.payerId || null, addressee: f.addressee || '',
     excludePublic: isT() ? !!f.excludePublic : !!p.excludePublic,
     thumb, photoCount: photosChanged ? photos.length : (p.photoCount||0),
     status, returnReason: null,
-    selfApprovalRequired: treasurerOwnExpense ? true : (p.selfApprovalRequired||false),
-    createdByRole: p.createdByRole || (me.role||''),
     settleState: p.settleState==='settled' ? 'settled' : (settle ? 'pending' : 'none'),
     auditStale: p.audit ? true : false,
     createdBy: p.createdBy || me.uid, createdByName: p.createdByName || me.name,
@@ -1698,14 +1506,14 @@ async function persistEntry(prev, f, photos, photosChanged){
   if (photosChanged) await R(`photos/${ref.key}`).set(photos.length ? photos : null);
   const st = data.storageLocation;
   if (st && !storageTags.includes(st)) { storageTags.push(st); R('storageTags').push().set({name:st}).catch(()=>{}); }
-  writeLog(prev ? '修正' : ((data.status==='submitted') ? '申請' : '登録'), data, prev ? diffText(prev, data) : `${data.purpose||data.payee}${f._via?`（${f._via}）`:''}`);
+  writeLog(prev ? '修正' : (isP() ? '申請' : '登録'), data, prev ? diffText(prev, data) : `${data.purpose||data.payee}${f._via?`（${f._via}）`:''}`);
   return { ...data, id: ref.key };
 }
 
 $('formSaveBtn').onclick = async () => {
   const date = $('fDate').value;
   const amount = Math.round(Number($('fAmount').value)||0);
-  const payerId = (canSelfSubmit()&&!isT()) ? selfPayerId() : (formType==='expense' ? $('fPayer').value : '');
+  const payerId = isP() ? me.payerId : (formType==='expense' ? $('fPayer').value : '');
   const m = methodById(formMethod);
   const noReceipt = formType==='expense' && $('fNoReceipt').checked;
   if (!date) return showToast('日付を入力してください');
@@ -1725,11 +1533,10 @@ $('formSaveBtn').onclick = async () => {
       accountId: formAccount, methodId: formMethod, payerId: payerId || null,
       storageLocation: $('fStorage').value.trim(),
       noReceipt, noReceiptReason: noReceipt ? $('fNoReceiptReason').value.trim() : '',
-      excludePublic: $('fExclude').checked, addressee: formAddressee,
-      grantId: (formType==='expense' && $('fGrant')) ? ($('fGrant').value||null) : null
+      excludePublic: $('fExclude').checked, addressee: formAddressee
     }, formPhotos, photosChanged);
     if (saved.status==='submitted' && (!editing || editing.status!=='submitted')) notifyEntries([saved.id]);
-    showToast(saved.status==='submitted' ? (saved.selfApprovalRequired ? '申請しました。役員の承認をお待ちください' : '申請しました。会計の確認をお待ちください') : '保存しました');
+    showToast(isP() ? '申請しました。会計の確認をお待ちください' : '保存しました');
     openDetail(saved.id, saved);
   } catch(e) {
     console.error(e); showToast('保存に失敗しました（権限を確認してください）');
@@ -1765,7 +1572,7 @@ async function renderDetail(id){
   const inc = e.type==='income';
   const stl = e.settlementId ? settlements.find(s=>s.id===e.settlementId) : null;
   const canEditT = isT();
-  const canEditP = canSelfSubmit() && !isT() && e.createdBy===me.uid && e.status!=='approved';
+  const canEditP = isP() && e.status!=='approved';
   const keepAudit = $('auditComment') ? $('auditComment').value : '';
 
   let html = `<button class="text-link" id="detailBack" style="padding-left:0">‹ 一覧へ戻る</button>
@@ -1795,23 +1602,24 @@ async function renderDetail(id){
 
   <div class="form-card"><div class="field" style="margin:0"><label>証憑写真</label><div id="detailPhotos" class="detail-photos">${e.photoCount?'<p class="hint">読み込み中…</p>':'<p class="hint">写真はありません</p>'}</div></div></div>`;
 
-  // 会計：承認・差戻し（初回利用者も本人情報で自動登録）
+  // 会計：承認・差戻し
   const pv = payerById(e.payerId);
   if (isT() && e.status==='submitted' && pv && pv.provisional) {
     const others = allEntries().filter(x=>x.payerId===pv.id && x.status==='submitted').length;
     html += `<div class="audit-box" style="border-color:var(--amber);margin-bottom:10px">
       <div style="font-weight:700;font-size:13.5px;margin-bottom:4px">🆕 はじめての申請者です</div>
-      <p style="margin:0 0 8px;font-size:13px">${esc(pv.name)}${pv.post?`（${esc(pv.post)}）`:''}<br><span class="hint">${esc(pv.email||'')}　申請 ${others}件</span></p>
-      <p class="hint" style="margin:0">承認すると、このログイン利用者本人の精算情報として自動登録されます。${others>1?`ほかの申請${others-1}件も同じ本人の申請として扱われます。`:''}</p>
+      <p style="margin:0 0 8px;font-size:13px">${esc(pv.name)}（${esc(pv.post||'役職未記入')}）<br><span class="hint">${esc(pv.email||'')}　申請 ${others}件</span></p>
+      <label style="font-size:12px;color:var(--ink-soft)">支払者名簿での扱い</label>
+      <select id="gTarget" style="width:100%;border:1px solid var(--line);border-radius:8px;padding:9px;font-family:inherit;font-size:14px;background:#fff;margin:4px 0 8px">
+        <option value="">新しく名簿に登録する（${esc(pv.name)}）</option>
+        ${payers.filter(p=>!p.provisional && p.active).map(p=>`<option value="${p.id}" ${normKey(p.name)===normKey(pv.name)?'selected':''}>名簿の「${esc(payerLabel(p.id))}」と同じ人</option>`).join('')}
+      </select>
+      <p class="hint" style="margin:0">承認すると本登録（支払者）になります。${others>1?`ほかの申請${others-1}件もまとめて承認できます。`:''}</p>
       <button class="text-link" id="gReject" style="font-size:12px;padding:6px 0 0;color:var(--stamp-red)">この人の利用を認めない</button>
     </div>`;
   }
-  const viewerCanApproveTreasurer = me && me.role==='viewer' && e.status==='submitted' && !!e.selfApprovalRequired && e.createdBy!==me.uid;
-  const treasurerCanApprove = isT() && e.status==='submitted' && !e.selfApprovalRequired;
-  if (treasurerCanApprove || viewerCanApproveTreasurer) {
-    html += `${viewerCanApproveTreasurer?'<div class="screen-guide"><b>会計担当本人の支出です</b><span>自己承認を防ぐため、役員が内容と領収証を確認して承認します。</span></div>':''}<div class="btn-row" style="margin-bottom:10px"><button class="btn btn-danger" id="dReturn">差し戻す</button><button class="btn btn-moss" id="dApprove">${pv&&pv.provisional?'利用を承認する':'承認する'}</button></div>`;
-  } else if (isT() && e.status==='submitted' && e.selfApprovalRequired) {
-    html += `<div class="screen-guide"><b>役員の承認待ちです</b><span>会計担当本人の支出は自己承認できません。役員が確認すると精算へ進みます。</span></div>`;
+  if (isT() && e.status==='submitted') {
+    html += `<div class="btn-row" style="margin-bottom:10px"><button class="btn btn-danger" id="dReturn">差し戻す</button><button class="btn btn-moss" id="dApprove">${pv&&pv.provisional?'本登録して承認する':'承認する'}</button></div>`;
   }
   // 監査欄
   if (e.status==='approved' && (isStaff())) {
@@ -1827,15 +1635,15 @@ async function renderDetail(id){
     </div>`;
   }
   if (canEditT || canEditP) {
-    html += `<div class="btn-row"><button class="btn btn-ghost" id="dEdit">${canSelfSubmit()&&e.status==='returned'?'修正して再申請':'修正する'}</button></div>
-      <div class="btn-row"><button class="btn btn-danger" id="dDelete">${canSelfSubmit()&&!isT()?'申請を取り下げる':'この伝票を削除'}</button></div>`;
+    html += `<div class="btn-row"><button class="btn btn-ghost" id="dEdit">${isP()&&e.status==='returned'?'修正して再申請':'修正する'}</button></div>
+      <div class="btn-row"><button class="btn btn-danger" id="dDelete">${isP()?'申請を取り下げる':'この伝票を削除'}</button></div>`;
   }
   el.innerHTML = html;
 
   $('detailBack').onclick = () => showScreen(isP() ? 'homeScreen' : 'bookScreen');
   if ($('dEdit')) $('dEdit').onclick = () => openForm(e);
   if ($('dDelete')) $('dDelete').onclick = () => deleteEntry(e);
-  if ($('dApprove')) $('dApprove').onclick = () => approveEntry(e, null);
+  if ($('dApprove')) $('dApprove').onclick = () => approveEntry(e, $('gTarget') ? $('gTarget').value : null);
   if ($('gReject')) $('gReject').onclick = () => rejectGuest(e);
   if ($('dReturn')) $('dReturn').onclick = () => returnEntry(e);
   if ($('aOk')) $('aOk').onclick = () => auditEntry(e, 'ok');
@@ -1855,15 +1663,24 @@ async function renderDetail(id){
   }
 }
 
-/* 初回利用者を本人情報のまま本登録する */
-async function approveGuest(pv){
-  const uid=pv.uid; const ups={};
-  ups[`payers/${pv.id}/provisional`]=null;
-  ups[`payers/${pv.id}/auto`]=true;
-  if(uid){ ups[`members/${uid}/role`]='payer'; ups[`members/${uid}/payerId`]=pv.id; }
+/* 仮登録の人を本登録にする（名簿に新規登録、または既存の名簿の人に統合） */
+async function approveGuest(pv, targetId){
+  const uid = pv.uid;
+  const ups = {};
+  let finalId = pv.id;
+  if (targetId) {
+    const snap = await R('entries').orderByChild('payerId').equalTo(pv.id).get();
+    Object.keys(snap.val()||{}).forEach(id => { ups[`entries/${id}/payerId`] = targetId; });
+    ups[`payers/${pv.id}`] = null;
+    finalId = targetId;
+  } else {
+    ups[`payers/${pv.id}/provisional`] = null;
+    ups[`payers/${pv.id}/order`] = payers.filter(p=>!p.provisional).length;
+  }
+  if (uid) { ups[`members/${uid}/role`] = 'payer'; ups[`members/${uid}/payerId`] = finalId; }
   await db.ref(ROOT).update(ups);
-  writeLog('本登録', null, `${pv.name}を利用者本人として登録`);
-  return pv.id;
+  writeLog('本登録', null, `${pv.name}（${pv.post||''}）${targetId?` → 名簿の${payerName(targetId)}に統合`:'を名簿に登録'}`);
+  return finalId;
 }
 async function rejectGuest(e){
   const pv = payerById(e.payerId); if (!pv) return;
@@ -1935,12 +1752,12 @@ async function auditEntry(e, result){
    ========================================================= */
 function renderSettle(){
   const el = $('settleScreen');
-  if (isP() || (me && me.role==='viewer')) return renderPayerSettle(el);
-  if (!isT()) { el.innerHTML = '<div class="empty">精算の記録は会計担当が行います</div>'; return; }
+  if (isP()) return renderPayerSettle(el);
+  if (!isT()) { el.innerHTML = '<div class="empty">精算は会計担当が行います</div>'; return; }
   if (settleView) return renderSettlePerson(el, settleView);
 
   const people = settlePeople();
-  let html = `<div class="screen-guide"><b>精算は3ステップです</b><span>①相手を選ぶ → ②対象の支出を確認 → ③支払った（または返金を受けた）記録を残す</span></div><p class="hint" style="margin-top:0">個人が立て替えたお金と、事前に渡した仮払金をまとめて精算します。金額を確認してから記録してください。</p>`;
+  let html = `<p class="hint" style="margin-top:0">支払った人ごとに、たまった立替と仮払金を相殺して一度に精算できます。会う日に合わせて、承認済みの分をまとめて清算してください。</p>`;
   html += `<h2 class="section-title">精算待ち</h2>`;
   html += people.length ? people.map(p=>{
     const py = payerById(p.pid) || {name:'（不明）'};
@@ -1972,14 +1789,14 @@ function settlementHistory(list){
     const name = payerName(s.payerId);
     return `<div class="settle-card" data-sid="${s.id}">
       <div class="s-top">
-        <div><div style="font-weight:700">${esc(s.no||'')} ${(isP() || (me&&me.role==='viewer'))?'':esc(name)+'さん'}</div>
+        <div><div style="font-weight:700">${esc(s.no||'')} ${isP()?'':esc(name)+'さん'}</div>
         <div class="hint" style="margin:2px 0 0">${fmtDateFull(s.date)}・${esc(s.way)}・伝票${Object.keys(s.entryIds||{}).length}件${s.adv?`・仮払 ${yen(s.adv)}相殺`:''}</div></div>
-        <div style="text-align:right"><div class="num" style="font-size:17px">${yen(Math.abs(s.net))}</div><div class="direction">${directionText(s.net, (isP() || (me&&me.role==='viewer'))?'あなた':name).replace('あなたさん','あなた')}</div></div>
+        <div style="text-align:right"><div class="num" style="font-size:17px">${yen(Math.abs(s.net))}</div><div class="direction">${directionText(s.net, isP()?'あなた':name).replace('あなたさん','あなた')}</div></div>
       </div>
       <div class="tags">${s.payerConfirm ? `<span class="stamp-tag" style="border-color:var(--moss);color:var(--moss)">本人確認済 ${fmtTs(s.payerConfirm.at)}</span>` : `<span class="stamp-tag" style="border-color:var(--amber);color:var(--amber)">本人の確認待ち</span>`}</div>
       <div class="btn-row">
         <button class="btn btn-ghost sm" data-act="print">精算書を印刷</button>
-        ${((isP() || (me&&me.role==='viewer')) || (isT() && s.payerId===selfPayerId())) && !s.payerConfirm ? `<button class="btn btn-moss sm" data-act="confirm">${s.net>=0?'受け取りました':'返金しました'}</button>` : ''}
+        ${isP() && !s.payerConfirm ? `<button class="btn btn-moss sm" data-act="confirm">${s.net>=0?'受け取りました':'返金しました'}</button>` : ''}
         ${isT() && !s.payerConfirm ? `<button class="btn btn-danger sm" data-act="cancel">取り消す</button>` : ''}
       </div>
     </div>`;
@@ -2099,30 +1916,16 @@ async function confirmSettlement(s){
 }
 
 function renderPayerSettle(el){
-  const myPid=selfPayerId();
-  if (!myPid) { el.innerHTML = '<div class="empty">まだ精算対象の支出はありません。支出を申請すると本人情報が自動で設定されます。</div>'; return; }
-  const p = payerBalance(myPid);
+  if (!me.payerId) { el.innerHTML = '<div class="empty">支払者名簿との紐付け後に使えます</div>'; return; }
+  const p = payerBalance(me.payerId);
   let html = `<div class="net-box"><div class="d">${p.ready ? directionText(p.net,'あなた').replace('あなたさん','あなた') : '精算待ちはありません'}</div><div class="v">${yen(Math.abs(p.net))}</div>
     <div class="hint">会計と会うときに、この画面を見せ合って確認できます</div></div>`;
   if (p.approved.length) html += `<h2 class="section-title">精算待ち（承認済み）</h2>` + p.approved.map(slipHTML).join('');
   if (p.waiting.length) html += `<h2 class="section-title" style="margin-top:14px">承認待ち・差戻し</h2>` + p.waiting.map(slipHTML).join('');
   if (p.advs.length) html += `<h2 class="section-title" style="margin-top:14px">預かっている仮払金</h2>` + p.advs.map(a=>`<div class="cat-row"><span class="cname">${esc(a.memo||'仮払金')}<small>${fmtDateFull(a.date)}に受け取り</small></span><span class="num">${yen(a.amount)}</span></div>`).join('');
-  const requestable = p.approved.filter(e=>!e.settleRequestedAt);
-  const requested = p.approved.filter(e=>e.settleRequestedAt);
-  if (p.approved.length || p.advs.length) html += `<div class="form-card" style="margin-top:16px"><h3 style="font-size:16px;margin-bottom:6px">会計へ精算を依頼</h3><p class="hint" style="margin-top:0">承認済みの立替分を会計担当へ知らせます。実際の支払い後は、会計が精算を記録すると「受け取りました」ボタンが表示されます。</p>${requested.length?`<p class="hint" style="color:var(--moss)">✓ ${requested.length}件は精算依頼済みです</p>`:''}<button class="btn btn-primary full" id="payerSettleRequest" ${!requestable.length?'disabled':''}>${requestable.length?`${requestable.length}件の精算を依頼する`:'精算依頼済みです'}</button></div>`;
-  html += `<h2 class="section-title" style="margin-top:16px">精算の記録</h2>` + settlementHistory(settlements.filter(s=>s.payerId===myPid));
+  html += `<h2 class="section-title" style="margin-top:16px">精算の記録</h2>` + settlementHistory(settlements);
   el.innerHTML = html;
   bindSlips(el); bindSettlementCards(el);
-  const reqBtn = $('payerSettleRequest');
-  if (reqBtn) reqBtn.onclick = async () => {
-    const targets = p.approved.filter(e=>!e.settleRequestedAt);
-    if (!targets.length) return showToast('精算依頼済みです');
-    if (!confirm(`${targets.length}件、合計${yen(targets.reduce((a,e)=>a+(Number(e.amount)||0),0))}の精算を会計担当へ依頼しますか？`)) return;
-    reqBtn.disabled = true;
-    const ups = {}; targets.forEach(e=>{ ups[`entries/${e.id}/settleRequestedAt`] = TS(); ups[`entries/${e.id}/settleRequestedBy`] = me.uid; });
-    try { await db.ref(ROOT).update(ups); writeLog('精算依頼', null, `${me.name} ${targets.length}件`); showToast('会計担当へ精算を依頼しました'); }
-    catch(err){ console.error(err); showToast('精算依頼に失敗しました'); reqBtn.disabled=false; }
-  };
 }
 
 /* ---------- 精算書の印刷 ---------- */
@@ -2201,7 +2004,7 @@ function renderAudit(){
   const pct = ap.length ? Math.round((ok.length+issue.length)/ap.length*100) : 0;
   const report = auditReports[curFY];
 
-  let html = `<div class="screen-guide"><b>監査で確認すること</b><span>領収証と、日付・金額・科目・用途が合っているかを確認します。会計データを変更する必要はありません。</span></div><div class="panel"><div class="progress-ring"><span class="pct">${pct}%</span>
+  let html = `<div class="panel"><div class="progress-ring"><span class="pct">${pct}%</span>
       <div style="flex:1"><div class="bar"><i style="width:${pct}%;background:var(--stamp-navy)"></i></div>
       <div class="hint">承認済み ${ap.length}件　確認済み ${ok.length}件　指摘 ${issue.length}件　未確認 ${todo.length}件</div></div></div>
       ${report ? `<p style="margin:10px 0 0;font-size:13px;color:var(--moss);font-weight:700">✓ ${curFY}年度の監査完了（${fmtTs(report.at)} ${esc(report.byName)}）</p>${report.comment?`<p class="hint">${esc(report.comment)}</p>`:''}` : ''}
@@ -2216,8 +2019,7 @@ function renderAudit(){
     <div class="btn-row" style="flex-wrap:wrap">
       <button class="btn btn-ghost sm" id="outCsv">出納帳CSV（Excel）</button>
       <button class="btn btn-ghost sm" id="outVouchers">証憑台帳を印刷</button>
-      <button class="btn btn-ghost sm" id="outReport">会計報告（総会書式）</button>
-      <button class="btn btn-ghost sm" id="outBudgetPlan">次年度予算（案）</button>
+      <button class="btn btn-ghost sm" id="outReport">収支決算書を印刷</button>
     </div>
     <p class="hint">証憑台帳は伝票番号順に写真付きで並びます。紙への貼り付け・Excelへの転記の代わりにお使いください。領収証の原本には同じ伝票番号を書いておくと照合が楽です。</p></div>`;
 
@@ -2238,7 +2040,6 @@ function renderAudit(){
   $('outCsv').onclick = exportCsv;
   $('outVouchers').onclick = printVouchers;
   $('outReport').onclick = printReport;
-  $('outBudgetPlan').onclick = printBudgetPlan;
   if ($('auditDone')) $('auditDone').onclick = async () => {
     if (todo.length && !confirm(`未確認の伝票が${todo.length}件あります。それでも完了にしますか？`)) return;
     const comment = prompt('監査の所見（会員向け報告にも表示されます）', '帳簿・証憑を照合した結果、適正に処理されていることを確認しました。');
@@ -2299,52 +2100,29 @@ async function printVouchers(){
 }
 
 /* ---------- 収支決算書 ---------- */
-function nfmt(n){ return Number(n||0).toLocaleString('ja-JP'); }
-function diffClass(n){ return Number(n)<0?'neg':''; }
-function reportDateText(d){ if(!d) return ''; const [y,m,day]=d.split('-'); return `${y}年${Number(m)}月${Number(day)}日`; }
-function splitNames(s){ return String(s||'').split(/[、,，]/).map(x=>x.trim()).filter(Boolean); }
-function majorDetails(ap,type){
-  const out=[];
-  accounts.filter(a=>a.type===type).forEach(a=>{
-    const es=ap.filter(e=>e.accountId===a.id); if(!es.length)return;
-    const map={}; es.forEach(e=>{ const k=(e.purpose||e.payee||'その他').trim(); map[k]=(map[k]||0)+(Number(e.amount)||0); });
-    const items=Object.entries(map).sort((a,b)=>b[1]-a[1]).slice(0,6);
-    if(items.length) out.push({name:a.name,items});
-  }); return out;
-}
-function reportPrint(title, body){
-  const w=window.open('','_blank'); if(!w)return showToast('ポップアップを許可してください');
-  w.document.write(`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>${esc(title)}</title><style>
-  @page{size:A4 portrait;margin:13mm 15mm 12mm} body{font-family:'Yu Mincho','Hiragino Mincho ProN',serif;color:#111;font-size:10.5pt;margin:0} .page{min-height:268mm;position:relative;page-break-after:always}.page:last-child{page-break-after:auto}
-  h1{text-align:center;font-size:19pt;letter-spacing:.25em;margin:3mm 0 1mm} .period{text-align:center;letter-spacing:.25em;margin:0 0 5mm}.unit{text-align:right;margin:-5mm 2mm 0 0;font-size:9pt}.sect{font-size:13pt;margin:4mm 0 0}.asof{text-align:center;margin:-5mm 0 1mm;letter-spacing:.18em}
-  table{border-collapse:collapse;width:100%;table-layout:fixed} th,td{border:1px solid #111;padding:1.3mm 1.5mm;line-height:1.12} th{font-weight:normal}.r{text-align:right}.c{text-align:center}.neg{color:#d00}.total td{border-top:2px solid #111}.annual{width:66%;margin-top:5mm}.detail{margin:5mm 0 0 7mm;width:66%}.detail td{border:none;padding:.6mm 1mm}.detail .u{border-bottom:3px double #111}.signs{margin:5mm 8mm 0 auto;width:47%;font-size:11pt}.signrow{display:grid;grid-template-columns:30mm 1fr 12mm;gap:2mm;line-height:1.45}.stamp{text-align:center}.auditTitle{text-align:center;font-size:17pt;letter-spacing:.25em;margin-top:4mm}.auditText{text-align:center;font-size:12pt}.foot{position:absolute;bottom:0;left:0;right:0;text-align:center}.note{margin:15mm 0 0 12mm}.noprint{position:fixed;top:4px;left:4px;z-index:9}@media print{.noprint{display:none}}
-  </style></head><body><div class="noprint"><button onclick="window.print()">印刷する</button></div>${body}</body></html>`); w.document.close();
-}
 function printReport(){
-  const ap=approvedFY(), opening=Number((settings.opening||{})[curFY])||0, cfg=(settings.reportConfig||{})[curFY]||{};
-  const rowsFor=type=>{ let b=0,a=0; const rows=accounts.filter(x=>x.type===type&&(x.active||ap.some(e=>e.accountId===x.id))).map(x=>{const bb=Number((x.budget||{})[curFY])||0, aa=ap.filter(e=>e.accountId===x.id).reduce((s,e)=>s+Number(e.amount||0),0);b+=bb;a+=aa;return `<tr><td>${esc(x.name)}</td><td class="r">${nfmt(bb)}</td><td class="r">${nfmt(aa)}</td><td class="r ${diffClass(aa-bb)}">${nfmt(aa-bb)}</td><td>${esc(x.desc||'')}</td></tr>`});return{rows:rows.join(''),b,a};};
-  const inc=rowsFor('income'),exp=rowsFor('expense'),net=inc.a-exp.a,next=opening+net, assets=Number(cfg.cash||0)+Number(cfg.bank||0), mismatch=assets-next;
-  if(mismatch!==0 && !confirm(`資産残高（${yen(assets)}）と帳簿上の次期繰越金（${yen(next)}）が ${yen(Math.abs(mismatch))} 一致していません。\nそれでも出力しますか？`)) return;
-  const d1=majorDetails(ap,'income'), d2=majorDetails(ap,'expense');
-  const detailHtml=(title,ds)=>`<div class="sect">${title}</div>`+ds.map(g=>`<table class="detail"><tr><td colspan="2">◇${esc(g.name)}</td></tr>${g.items.map(([k,v],i)=>`<tr class="${i===g.items.length-1?'u':''}"><td>　${esc(k)}</td><td class="r">${nfmt(v)}</td></tr>`).join('')}</table>`).join('');
-  const tre=splitNames(cfg.treasurers), aud=splitNames(cfg.auditors), reportDate=reportDateText(cfg.reportDate);
-  const page1=`<div class="page"><h1>${curFY}年度　会計報告</h1><div class="period">${fyRangeLabel(curFY)}</div>
-    <div class="sect">資産の部</div><div class="asof">${curFY+1}年${startMonth()===1?'12月31日':'3月31日'}現在</div><div class="unit">（円）</div>
-    <table><tr><th>科目</th><th>残高</th><th>科目</th><th>残高</th></tr><tr><td>現金</td><td class="r">${nfmt(cfg.cash)}</td><td>前期現金預金残高</td><td class="r">${nfmt(opening)}</td></tr><tr><td>${esc(cfg.bankName||'普通預金')}</td><td class="r">${nfmt(cfg.bank)}</td><td></td><td></td></tr><tr><td></td><td></td><td>今期収支差額</td><td class="r">${nfmt(net)}</td></tr><tr class="total"><td class="c">合　計</td><td class="r">${nfmt(assets)}</td><td class="c">合　計</td><td class="r">${nfmt(next)}</td></tr></table>
-    <div class="sect">収入の部</div><div class="asof">${fyRangeLabel(curFY)}</div><div class="unit">（円）</div><table><tr><th>科目</th><th>予算額</th><th>実績額</th><th>予算対比</th><th>摘要</th></tr>${inc.rows}<tr class="total"><td class="c">合　計</td><td class="r">${nfmt(inc.b)}</td><td class="r">${nfmt(inc.a)}</td><td class="r ${diffClass(inc.a-inc.b)}">${nfmt(inc.a-inc.b)}</td><td></td></tr></table>
-    <div class="sect">支出の部</div><div class="asof">${fyRangeLabel(curFY)}</div><div class="unit">（円）</div><table><tr><th>科目</th><th>予算額</th><th>実績額</th><th>予算対比</th><th>摘要</th></tr>${exp.rows}<tr class="total"><td class="c">合　計</td><td class="r">${nfmt(exp.b)}</td><td class="r">${nfmt(exp.a)}</td><td class="r ${diffClass(exp.a-exp.b)}">${nfmt(exp.a-exp.b)}</td><td></td></tr><tr><td>今期収支差額</td><td class="r ${diffClass(inc.b-exp.b)}">${nfmt(inc.b-exp.b)}</td><td class="r">${nfmt(net)}</td><td></td><td></td></tr></table>
-    <table class="annual"><tr><td>年間収支</td><td></td><td></td></tr><tr><td>前期繰越金</td><td class="r">${nfmt(opening)}</td><td></td></tr><tr><td>収入合計</td><td></td><td class="r">${nfmt(inc.a)}</td></tr><tr><td>支出合計</td><td></td><td class="r">${nfmt(exp.a)}</td></tr><tr><td>差引次期繰越金</td><td></td><td class="r">${nfmt(next)}</td></tr></table></div>`;
-  const signRows=[cfg.chair?['会長',cfg.chair]:null,...tre.map(n=>['会計',n])].filter(Boolean).map(([r,n])=>`<div class="signrow"><span>${r}</span><span>${esc(n)}</span><span class="stamp">印</span></div>`).join('');
-  const audRows=aud.map(n=>`<div class="signrow"><span>会計監査</span><span>${esc(n)}</span><span class="stamp">印</span></div>`).join('');
-  const page2=`<div class="page">${detailHtml('主な収入の明細',d1)}${detailHtml('主な支出の明細',d2)}<div class="signs"><div>上記の通り報告します</div><div class="c">${reportDate}</div>${signRows}</div><div class="auditTitle">${curFY}年度　監査報告</div><div class="auditText">${esc(cfg.auditText||'会計監査の結果、収支の差異はありません')}</div><div class="signs"><div class="c">${reportDate}</div>${audRows}</div></div>`;
-  reportPrint(`${curFY}年度 会計報告`,page1+page2);
-}
-function printBudgetPlan(){
-  const nextFY=curFY+1, ap=approvedFY(), opening=Number((settings.opening||{})[curFY])||0;
-  const actual=(a)=>ap.filter(e=>e.accountId===a.id).reduce((s,e)=>s+Number(e.amount||0),0);
-  const make=type=>{let p=0,a=0,n=0;const rows=accounts.filter(x=>x.type===type&&(x.active||actual(x))).map(x=>{const pp=Number((x.budget||{})[curFY])||0,aa=actual(x),nn=Number((x.budget||{})[nextFY])||0;p+=pp;a+=aa;n+=nn;return `<tr><td>${esc(x.name)}</td><td class="r">${nfmt(pp)}</td><td class="r">${nfmt(aa)}</td><td class="r">${nfmt(nn)}</td><td>${esc(x.desc||'')}</td></tr>`});return{rows:rows.join(''),p,a,n};};
-  const inc=make('income'),exp=make('expense'),nextOpening=opening+inc.a-exp.a;
-  reportPrint(`${nextFY}年度 一般会計 予算（案）`,`<div class="page"><h1>${nextFY}年度　一般会計　予算（案）</h1><div class="period">${fyRangeLabel(nextFY)}</div><div class="sect">収入の部</div><div class="unit">（円）</div><table><tr><th>科目</th><th>${String(curFY).slice(2)}年予算</th><th>${String(curFY).slice(2)}年実績</th><th>${String(nextFY).slice(2)}年予算</th><th>摘要</th></tr>${inc.rows}<tr class="total"><td class="c">合計</td><td class="r">${nfmt(inc.p)}</td><td class="r">${nfmt(inc.a)}</td><td class="r">${nfmt(inc.n)}</td><td></td></tr></table><div class="sect">支出の部</div><div class="unit">（円）</div><table><tr><th>科目</th><th>${String(curFY).slice(2)}年予算</th><th>${String(curFY).slice(2)}年実績</th><th>${String(nextFY).slice(2)}年予算</th><th>摘要</th></tr>${exp.rows}<tr class="total"><td class="c">合計</td><td class="r">${nfmt(exp.p)}</td><td class="r">${nfmt(exp.a)}</td><td class="r">${nfmt(exp.n)}</td><td></td></tr><tr><td>収支差額</td><td class="r ${diffClass(inc.p-exp.p)}">${nfmt(inc.p-exp.p)}</td><td class="r">${nfmt(inc.a-exp.a)}</td><td class="r ${diffClass(inc.n-exp.n)}">${nfmt(inc.n-exp.n)}</td><td></td></tr></table><table class="annual"><tr><td>年間収支</td><td></td><td></td></tr><tr><td>前期繰越金</td><td></td><td class="r">${nfmt(nextOpening)}</td></tr><tr><td>収入合計</td><td></td><td class="r">${nfmt(inc.n)}</td></tr><tr><td>支出合計</td><td></td><td class="r">${nfmt(exp.n)}</td></tr><tr><td>次期繰越金</td><td></td><td class="r">${nfmt(nextOpening+inc.n-exp.n)}</td></tr></table><div class="note">＊上記の予算の範囲内での採用を、本日の定期総会で役員会に一任する。</div></div>`);
+  const ap = approvedFY();
+  const opening = Number((settings.opening||{})[curFY])||0;
+  const section = type => {
+    const accs = accounts.filter(a=>a.type===type && (a.active || ap.some(e=>e.accountId===a.id)));
+    let tb=0, ta=0;
+    const rows = accs.map(a=>{ const b=Number((a.budget||{})[curFY])||0; const act=ap.filter(e=>e.accountId===a.id).reduce((s,e)=>s+(Number(e.amount)||0),0); tb+=b; ta+=act;
+      return `<tr><td>${esc(a.name)}</td><td class="r">${yen(b)}</td><td class="r">${yen(act)}</td><td class="r">${yen(b-act)}</td></tr>`; }).join('');
+    return { rows, tb, ta };
+  };
+  const inc = section('income'), exp = section('expense');
+  const report = auditReports[curFY];
+  openPrint(`収支決算書 ${curFY}年度`, `
+    <h1>${curFY}年度　収支決算書</h1><p class="right">${esc(settings.orgName)}<br>${fyRangeLabel(curFY)}</p>
+    <h2>収入の部</h2><table><thead><tr><th>科目</th><th class="r">予算額</th><th class="r">決算額</th><th class="r">差額</th></tr></thead>
+    <tbody><tr><td>前年度繰越金</td><td class="r">${yen(opening)}</td><td class="r">${yen(opening)}</td><td class="r">¥0</td></tr>${inc.rows}</tbody>
+    <tfoot><tr><td>収入合計</td><td class="r">${yen(inc.tb+opening)}</td><td class="r">${yen(inc.ta+opening)}</td><td class="r">${yen(inc.tb-inc.ta)}</td></tr></tfoot></table>
+    <h2>支出の部</h2><table><thead><tr><th>科目</th><th class="r">予算額</th><th class="r">決算額</th><th class="r">差額</th></tr></thead>
+    <tbody>${exp.rows}</tbody><tfoot><tr><td>支出合計</td><td class="r">${yen(exp.tb)}</td><td class="r">${yen(exp.ta)}</td><td class="r">${yen(exp.tb-exp.ta)}</td></tr></tfoot></table>
+    <h2>次年度繰越金</h2><p style="font-size:16px">${yen(opening+inc.ta-exp.ta)}　（収入合計 ${yen(opening+inc.ta)} − 支出合計 ${yen(exp.ta)}）</p>
+    ${report?`<h2>監査報告</h2><p>${esc(report.comment)}</p><p class="right">${fmtDateFull(localDate(new Date(report.at)))}　監査　${esc(report.byName)}</p>`:''}
+    <div class="sign"><div>会計<br><span></span><i>印</i></div><div>監査<br><span>${esc(report?.byName||'')}</span><i>印</i></div></div>
+  `);
 }
 
 /* =========================================================
@@ -2353,14 +2131,7 @@ function printBudgetPlan(){
 function publicUrl(){ return location.origin + location.pathname + '?view=public'; }
 function renderSettings(){
   const el = $('settingsScreen');
-  if (!isT()) { el.innerHTML = '<div class="empty">設定は会計担当のみ利用できます</div>'; return; }
-  let html = `<div class="screen-guide"><b>今やりたいことを選んでください</b><span>設定を全部理解する必要はありません。時期に合ったところだけ開けば大丈夫です。</span></div>
-  ${isT()?`<div class="settings-roadmap">
-    <button type="button" data-setting-jump="start"><b>①</b>年度初め<br>予算・科目</button>
-    <button type="button" data-setting-jump="normal"><b>②</b>普段の設定<br>支払・公開</button>
-    <button type="button" data-setting-jump="end"><b>③</b>年度末<br>決算・バックアップ</button>
-    <button type="button" data-setting-jump="handover"><b>④</b>担当交代<br>利用者・引継ぎ</button>
-  </div>`:''}`;
+  let html = '';
   if (isT()) {
     const opening = Number((settings.opening||{})[curFY])||0;
     html += `<h2 class="section-title">団体の情報</h2><div class="form-card">
@@ -2368,21 +2139,6 @@ function renderSettings(){
       <div class="field"><label>会計年度の始まり</label><select id="sStart">${Array.from({length:12},(_,i)=>`<option value="${i+1}" ${startMonth()===i+1?'selected':''}>${i+1}月</option>`).join('')}</select></div>
       <div class="field"><label>${curFY}年度の前年度繰越金</label><input type="number" id="sOpening" class="amount-input" value="${opening}" inputmode="numeric"></div>
       <button class="btn btn-primary full" id="sSaveOrg">保存する</button></div>`;
-
-    const rc = (settings.reportConfig||{})[curFY] || {};
-    html += `<h2 class="section-title" style="margin-top:20px">${curFY}年度 決算資料の設定</h2><div class="form-card">
-      <p class="hint" style="margin-top:0">総会資料の「会計報告」「監査報告」を添付書式に合わせて出力するための情報です。収入・支出の金額は承認済み伝票から自動集計します。</p>
-      <div class="field"><label>報告日</label><input type="date" id="rcDate" value="${esc(rc.reportDate||'')}"></div>
-      <div class="field"><label>現金残高</label><input type="number" id="rcCash" class="amount-input" value="${rc.cash??''}" inputmode="numeric"></div>
-      <div class="field"><label>預金口座名（例：普通貯金ＪＡバンク東京）</label><input type="text" id="rcBankName" value="${esc(rc.bankName||'普通預金')}"></div>
-      <div class="field"><label>預金残高</label><input type="number" id="rcBank" class="amount-input" value="${rc.bank??''}" inputmode="numeric"></div>
-      <div class="field"><label>会長</label><input type="text" id="rcChair" value="${esc(rc.chair||'')}"></div>
-      <div class="field"><label>会計（複数の場合は「、」区切り）</label><input type="text" id="rcTreasurers" value="${esc(rc.treasurers||'')}"></div>
-      <div class="field"><label>会計監査（複数の場合は「、」区切り）</label><input type="text" id="rcAuditors" value="${esc(rc.auditors||'')}"></div>
-      <div class="field"><label>監査報告文</label><textarea id="rcAuditText" rows="2">${esc(rc.auditText||'会計監査の結果、収支の差異はありません')}</textarea></div>
-      <button class="btn btn-primary full" id="rcSave">決算資料設定を保存</button>
-      <p class="hint">資産残高と帳簿上の次期繰越金が一致しない場合は、会計報告出力時に警告します。</p>
-    </div>`;
 
     html += `<h2 class="section-title" style="margin-top:20px">科目と${curFY}年度の予算</h2>`;
     ['expense','income'].forEach(t=>{
@@ -2404,22 +2160,22 @@ function renderSettings(){
       `<div class="inline-add"><input id="newMName" placeholder="例）PayPay（町内会アカウント）"><select id="newMUse" style="flex:0 0 76px"><option value="expense">支出</option><option value="income">収入</option></select></div>
        <div class="inline-add"><label class="check-line" style="flex:1"><input type="checkbox" id="newMSettle"> 個人のお金で払う（要精算）</label><button class="btn btn-navy sm" id="addM">追加</button></div>`;
 
-    // 支払者情報はログイン利用者から自動生成するため、名簿の手動管理UIは設けない。
+    html += `<h2 class="section-title" style="margin-top:20px">支払者名簿</h2><p class="hint" style="margin-top:-4px">立替や仮払をする可能性のある人（役員・班長・防災支隊長など）を登録します。アカウントがない人も、会計が代わりに入力できます。</p>` +
+      payers.map(p=>{ const linked = members.find(m=>m.payerId===p.id && m.role!=='removed');
+        return `<div class="cat-row ${p.active?'':'inactive'}"><span class="avatar" style="width:28px;height:28px;border-radius:50%;background:var(--tint);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">${esc((p.name||'?').slice(0,1))}</span>
+        <span class="cname">${esc(p.name)}${p.provisional?' <span class="stamp-tag" style="border-color:var(--amber);color:var(--amber)">仮登録</span>':''}<small>${esc(p.post||'')}${linked?`・📱${esc(linked.email)}`:'・アプリ未利用'}</small></span>
+        <button class="lnk" data-editp="${p.id}">編集</button><button class="lnk" data-togglep="${p.id}">${p.active?'停止':'再開'}</button></div>`; }).join('') +
+      `<div class="inline-add"><input id="newPName" placeholder="氏名"><input id="newPPost" placeholder="役職" list="postList" style="flex:0 0 38%"><button class="btn btn-navy sm" id="addP">追加</button></div>
+       <datalist id="postList">${POSTS.map(p=>`<option value="${p}">`).join('')}</datalist>`;
 
     const ms = [...members].sort((a,b)=>(a.role==='pending'?-1:0)-(b.role==='pending'?-1:0));
-    html += `<h2 class="section-title" id="membersSection" style="margin-top:20px;scroll-margin-top:70px">アプリの利用者と権限</h2><p class="hint" style="margin-top:-4px">ログインした人を一覧で管理します。監査・役員などの権限だけをここで変更します。支出申請・精算に必要な本人情報は自動で設定されるため、別の名簿との紐付けは不要です。</p>` +
+    html += `<h2 class="section-title" id="membersSection" style="margin-top:20px;scroll-margin-top:70px">アプリの利用者と権限</h2><p class="hint" style="margin-top:-4px">ログインして名前・役職を登録した人は「仮登録」で表示されます。最初の申請を承認すると支払者になります。監査・役員にする人はここで権限を変更してください。</p>` +
       ms.map(m=>`<div class="cat-row" style="flex-wrap:wrap;${m.role==='pending'||m.role==='guest'?'border-color:var(--amber)':''}">
         <span class="cname" style="flex-basis:100%">${esc(m.name)}<small>${esc(m.email)}${m.id===me.uid?'（あなた）':''}</small></span>
         <select data-role="${m.id}" ${m.id===me.uid?'disabled':''}>${Object.entries(ROLES).map(([k,r])=>`<option value="${k}" ${m.role===k?'selected':''}>${r.name}</option>`).join('')}</select>
+        <select data-link="${m.id}"><option value="">名簿と紐付けない</option>${payers.map(p=>`<option value="${p.id}" ${m.payerId===p.id?'selected':''}>${esc(payerLabel(p.id))}</option>`).join('')}</select>
       </div>`).join('') +
-      `<p class="hint">会計＝全操作／監査＝全件閲覧と監査チェック／役員＝全件閲覧のみ／支払者＝自分の申請と精算確認／仮登録＝初めてログインした人（申請はでき、最初の申請を承認すると支払者になります）。</p>
-      <div class="form-card" style="margin-top:10px">
-        <div style="font-weight:700;font-size:13.5px;margin-bottom:6px">参加コードと招待リンク</div>
-        <p class="hint" style="margin-top:0">参加コードを決めておくと、コードを知っている人だけが仮登録できます（知らない人のいたずら申請を防げます）。下の招待リンクを班長さんに送ると、コードの入力なしで登録できます。</p>
-        <div class="inline-add" style="margin-top:0"><input id="jcInput" value="${esc(joinCode)}" placeholder="例）ogawa2026（空欄なら誰でも登録可）" autocomplete="off"><button class="btn btn-navy sm" id="jcSave">保存</button></div>
-        <div class="inline-add"><input readonly id="jcLink" value="${esc(location.origin+location.pathname+'?openExternalBrowser=1'+(joinCode?'&code='+encodeURIComponent(joinCode):''))}"><button class="btn btn-ghost sm" id="jcCopy">コピー</button></div>
-        <p class="hint">${joinCode?'✓ 参加コードが設定されています。コードを知っている人には町内会の共通AIキーも使えるようにしています。':'⚠ 参加コードが未設定のため、Googleアカウントがあれば誰でも仮登録できます（共通AIキーは本登録後に使えます）。'}</p>
-      </div>`;
+      `<p class="hint">会計＝全操作／監査＝全件閲覧と監査チェック／役員＝全件閲覧／支払者＝自分の申請と精算確認／利用申請中＝初めてログインし、会計担当の権限設定を待っている人。</p>`;
 
     const trs = members.filter(m=>m.role==='treasurer');
     html += `<h2 class="section-title" style="margin-top:20px">データの取り込み・バックアップ</h2><div class="form-card">
@@ -2429,7 +2185,7 @@ function renderSettings(){
       ${importsList.length?`<div style="margin-top:12px;font-size:12.5px;font-weight:700">取り込みの履歴</div>`+importsList.slice(0,10).map(x=>`<div class="cat-row"><span class="cname">${esc(x.fileName)}<small>${fmtTs(x.at)}・${esc(x.byName)}・${x.count}件（${asList(x.fys).map(y=>y+'年度').join('、')}）</small></span><button class="lnk" data-undoimp="${x.id}" style="color:var(--stamp-red)">取り消す</button></div>`).join(''):''}
       <div style="font-weight:700;font-size:13.5px;margin:16px 0 6px">バックアップ（CSVで書き出し）</div>
       <p class="hint" style="margin-top:0">伝票のCSVは全年度・全状態を含み、このアプリにそのまま取り込み直せる形式です。領収証の写真は含まれません（データベースに保存されています）。</p>
-      <div class="btn-row"><button class="btn btn-ghost" id="bkEntries">伝票（全年度）</button><button class="btn btn-ghost" id="bkAccounts">科目・予算・利用者情報</button></div>
+      <div class="btn-row"><button class="btn btn-ghost" id="bkEntries">伝票（全年度）</button><button class="btn btn-ghost" id="bkAccounts">科目・予算・名簿</button></div>
       ${settings.lastBackupAt?`<p class="hint">前回のバックアップ：${fmtTs(settings.lastBackupAt)}</p>`:''}
     </div>`;
     html += `<h2 class="section-title" style="margin-top:20px">承認依頼のメール通知</h2><div class="form-card">
@@ -2444,19 +2200,13 @@ function renderSettings(){
       <p class="hint" style="margin-top:0">会員がログインなしで見られるページです。科目別の予算と実績、月別の支出、用途ごとの明細を公開します。支払先・支払者名・写真・メモは公開されません。</p>
       <div class="field"><label>公開する内容</label><select id="pubDetail"><option value="items" ${pub==='items'?'selected':''}>科目別の集計＋用途ごとの明細</option><option value="summary" ${pub==='summary'?'selected':''}>科目別の集計のみ</option></select></div>
       <div class="btn-row"><button class="btn btn-ghost" id="pubStop">${curFY}年度の公開を止める</button><button class="btn btn-primary" id="pubDo">${curFY}年度の報告を更新</button></div>
-      <a class="btn btn-navy full" href="${esc(publicUrl())}" target="_blank" rel="noopener">会員向けの会計報告を開く</a><p class="hint" style="margin-bottom:0">ログイン不要の公開ページを新しい画面で開きます。</p>
+      <div class="inline-add"><input readonly value="${esc(publicUrl())}" id="pubUrl"><button class="btn btn-ghost sm" id="pubCopy">コピー</button></div>
       <p class="hint">公開内容は自動では変わりません。月に一度など、区切りのよいときに「報告を更新」を押してください。回覧板のQRコードにこのURLを載せると便利です。</p></div>`;
   } else {
-    const roleHelp = isA()
-      ? `<div class="screen-guide"><b>監査担当の設定</b><span>監査担当は設定変更を行いません。監査は下の「監査」から行います。</span></div>`
-      : (me.role==='viewer'
-        ? `<div class="screen-guide"><b>役員の設定</b><span>役員は会計内容の閲覧が中心です。設定変更は会計担当が行います。</span></div>`
-        : `<div class="screen-guide"><b>支払者の設定</b><span>支出の申請と精算確認は、ホーム・申請一覧・精算から行います。</span></div>`);
-    html = roleHelp + `<div class="form-card"><p style="margin:0">${esc(me.name)}（${esc(me.email)}）</p><p class="hint">権限：${ROLES[me.role]?.name}　${ROLES[me.role]?.desc}</p></div>
-      <h2 class="section-title" style="margin-top:16px">会員向けの会計報告</h2><div class="form-card"><a class="btn btn-navy full" href="${esc(publicUrl())}" target="_blank" rel="noopener">会員向けの会計報告を見る</a><p class="hint" style="margin-bottom:0">ログイン不要の公開ページを表示します。</p></div>`;
+    html += `<div class="form-card"><p style="margin:0">${esc(me.name)}（${esc(me.email)}）</p><p class="hint">権限：${ROLES[me.role]?.name}　${ROLES[me.role]?.desc}${me.payerId?`<br>支払者名簿：${esc(payerLabel(me.payerId))}`:''}</p></div>
+      <h2 class="section-title" style="margin-top:16px">会員向けの会計報告</h2><div class="form-card"><div class="inline-add" style="margin:0"><input readonly value="${esc(publicUrl())}" id="pubUrl"><button class="btn btn-ghost sm" id="pubCopy">コピー</button></div></div>`;
   }
 
-  if (isT()) {
   html += `<h2 class="section-title" style="margin-top:20px">AI自動読み取り（Claude APIキー）</h2>`;
   if (isT()) html += `<div class="form-card">
     <div style="font-weight:700;font-size:13.5px;margin-bottom:6px">町内会の共通キー</div>
@@ -2470,59 +2220,18 @@ function renderSettings(){
     <p class="hint" style="margin-top:0">この端末のブラウザ内にだけ保存され、町内会のデータベースには送られません。登録すると共通キーより優先して使われます。</p>
     <div class="field"><input type="password" id="apiKeyInput" placeholder="sk-ant-..." style="width:100%;border:1px solid var(--line);border-radius:8px;padding:11px 12px;font-size:15px"></div>
     <p class="hint" style="margin-top:-6px">${getLocalKey()?`設定済み（${esc(getLocalKey().slice(0,10))}…）`:'未設定'}</p>
-    <div class="btn-row"><button class="btn btn-ghost" id="delKey">削除</button><button class="btn btn-primary" id="saveKey">保存</button></div></div>`;
-  }
-  html += `<button class="btn btn-ghost full" style="margin-top:16px" onclick="if(confirm('ログアウトしますか？'))auth.signOut()">ログアウト</button>
+    <div class="btn-row"><button class="btn btn-ghost" id="delKey">削除</button><button class="btn btn-primary" id="saveKey">保存</button></div></div>
+    <button class="btn btn-ghost full" style="margin-top:6px" onclick="if(confirm('ログアウトしますか？'))auth.signOut()">ログアウト</button>
     <p class="hint" style="text-align:center;margin-top:12px">バージョン ${APP_VERSION}</p>`;
   el.innerHTML = html;
-  if (isT()) organizeSettingsForBeginners(el);
   bindSettings();
-}
-
-function organizeSettingsForBeginners(el){
-  const map = {
-    '団体の情報':'start',
-    [`科目と${curFY}年度の予算`]:'start',
-    '支払方法':'normal',
-    '会員向けの会計報告':'normal',
-    '承認依頼のメール通知':'normal',
-    'AI自動読み取り（Claude APIキー）':'normal',
-    [`${curFY}年度 決算資料の設定`]:'end',
-    'データの取り込み・バックアップ':'end',
-    'アプリの利用者と権限':'handover'
-  };
-  const info={
-    start:['① 年度初めにすること','新年度の繰越金・科目・予算を確認します。'],
-    normal:['② 普段は触らない設定','支払方法、公開、通知、AIなど。必要になった時だけ変更します。'],
-    end:['③ 年度末にすること','残高を確認し、決算資料とバックアップを作ります。'],
-    handover:['④ 担当者・引継ぎ','支払者、役員の権限、参加方法を管理します。']
-  };
-  const groups={};
-  Object.entries(info).forEach(([k,v])=>{
-    const d=document.createElement('details'); d.className='setting-group'; d.dataset.settingGroup=k;
-    if(k==='start') d.open=true;
-    d.innerHTML=`<summary><span>${v[0]}<small class="group-help">${v[1]}</small></span></summary><div class="setting-group-body"></div>`;
-    groups[k]=d;
-  });
-  const headings=[...el.querySelectorAll(':scope > h2.section-title')];
-  headings.forEach(h=>{
-    const key=map[h.textContent.trim()]; if(!key) return;
-    const body=groups[key].querySelector('.setting-group-body');
-    let n=h; const move=[];
-    while(n && (n===h || !(n.matches && n.matches('h2.section-title')))){ const next=n.nextSibling; move.push(n); n=next; }
-    move.forEach(x=>body.appendChild(x));
-  });
-  const road=el.querySelector('.settings-roadmap');
-  if(road){ Object.values(groups).forEach(g=>road.after(g)); }
-  el.querySelectorAll('[data-setting-jump]').forEach(b=>b.onclick=()=>{
-    const g=groups[b.dataset.settingJump]; if(!g)return; g.open=true; g.scrollIntoView({behavior:'smooth',block:'start'});
-  });
 }
 
 function bindSettings(){
   const q = s => $('settingsScreen').querySelectorAll(s);
-  if ($('saveKey')) $('saveKey').onclick = () => { const v=$('apiKeyInput').value.trim(); if(!v) return showToast('APIキーを入力してください'); try{localStorage.setItem(API_KEY_STORAGE,v);}catch(e){} showToast('保存しました'); renderSettings(); };
-  if ($('delKey')) $('delKey').onclick = () => { try{localStorage.removeItem(API_KEY_STORAGE);}catch(e){} showToast('削除しました'); renderSettings(); };
+  if ($('pubCopy')) $('pubCopy').onclick = () => { navigator.clipboard?.writeText(publicUrl()).then(()=>showToast('URLをコピーしました')).catch(()=>{ $('pubUrl').select(); }); };
+  $('saveKey').onclick = () => { const v=$('apiKeyInput').value.trim(); if(!v) return showToast('APIキーを入力してください'); try{localStorage.setItem(API_KEY_STORAGE,v);}catch(e){} showToast('保存しました'); renderSettings(); };
+  $('delKey').onclick = () => { try{localStorage.removeItem(API_KEY_STORAGE);}catch(e){} showToast('削除しました'); renderSettings(); };
   if (!isT()) return;
 
   $('saveShared').onclick = async () => {
@@ -2540,12 +2249,6 @@ function bindSettings(){
     await R(`settings/opening/${curFY}`).set(Math.round(Number($('sOpening').value)||0));
     writeLog('設定変更', null, `団体名・年度・${curFY}年度繰越金`);
     showToast('保存しました');
-  };
-  if ($('rcSave')) $('rcSave').onclick = async () => {
-    const cfg = { reportDate:$('rcDate').value, cash:Math.round(Number($('rcCash').value)||0), bankName:$('rcBankName').value.trim()||'普通預金', bank:Math.round(Number($('rcBank').value)||0), chair:$('rcChair').value.trim(), treasurers:$('rcTreasurers').value.trim(), auditors:$('rcAuditors').value.trim(), auditText:$('rcAuditText').value.trim() };
-    await R(`settings/reportConfig/${curFY}`).set(cfg);
-    writeLog('決算資料設定', null, `${curFY}年度 資産残高 ${yen(cfg.cash+cfg.bank)}`);
-    showToast('決算資料設定を保存しました');
   };
   q('[data-budget]').forEach(inp => inp.onchange = async () => {
     const v = inp.value==='' ? null : Math.round(Number(inp.value)||0);
@@ -2575,17 +2278,30 @@ function bindSettings(){
     await R('methods').push().set({ name, use:$('newMUse').value, settle:$('newMSettle').checked, active:true, order:methods.length });
     document.activeElement.blur(); showToast('支払方法を追加しました'); renderSettings();
   };
+  q('[data-editp]').forEach(b => b.onclick = () => {
+    const p=payerById(b.dataset.editp);
+    const n=prompt('氏名', p.name); if(n===null) return;
+    const post=prompt('役職（例：3班 班長、防災支隊長）', p.post||''); if(post===null) return;
+    R(`payers/${p.id}`).update({ name:n.trim()||p.name, post:post.trim() });
+  });
+  q('[data-togglep]').forEach(b => b.onclick = () => { const p=payerById(b.dataset.togglep); R(`payers/${p.id}/active`).set(!p.active); });
+  $('addP').onclick = async () => {
+    const name=$('newPName').value.trim(); if(!name) return showToast('氏名を入力してください');
+    await R('payers').push().set({ name, post:$('newPPost').value.trim(), active:true, createdAt:TS() });
+    $('newPName').value=''; $('newPPost').value=''; document.activeElement.blur(); showToast('名簿に追加しました'); renderSettings();
+  };
   q('[data-role]').forEach(s => s.onchange = async () => {
     const m = members.find(x=>x.id===s.dataset.role);
     await R(`members/${m.id}/role`).set(s.value);
-    if (['viewer','payer','guest'].includes(s.value) && !m.payerId) {
-      const pid='u_'+m.id.replace(/[^a-zA-Z0-9_-]/g,'');
-      await R(`payers/${pid}`).update({name:m.name||m.email||'利用者',email:m.email||'',uid:m.id,active:true,auto:true,createdAt:TS()});
-      await R(`members/${m.id}/payerId`).set(pid);
-    }
     writeLog('権限変更', null, `${m.name}：${ROLES[m.role]?.name}→${ROLES[s.value]?.name}`);
     showToast(`${m.name}さんを「${ROLES[s.value].name}」にしました`);
     if (s.value==='treasurer' || m.role==='treasurer') setTimeout(()=>syncRecipients(), 800);
+  });
+  q('[data-link]').forEach(s => s.onchange = async () => {
+    const m = members.find(x=>x.id===s.dataset.link);
+    await R(`members/${m.id}/payerId`).set(s.value || null);
+    writeLog('名簿紐付け', null, `${m.name} → ${payerLabel(s.value)||'なし'}`);
+    showToast('紐付けを保存しました');
   });
   $('pubDetail').onchange = () => R('settings/publicDetail').set($('pubDetail').value);
   $('nEntry').onchange = e => R('settings/notifyOnEntry').set(e.target.checked);
@@ -2593,14 +2309,6 @@ function bindSettings(){
   $('bkEntries').onclick = async () => { await exportBackupCsv(); R('settings/lastBackupAt').set(TS()); };
   $('bkAccounts').onclick = exportAccountsCsv;
   q('[data-undoimp]').forEach(b => b.onclick = () => undoImport(b.dataset.undoimp));
-  $('jcSave').onclick = async () => {
-    const v = $('jcInput').value.trim();
-    if (v && v.length < 4) return showToast('参加コードは4文字以上にしてください');
-    await R('joinCode').set(v || null);
-    writeLog('参加コード', null, v ? '参加コードを変更' : '参加コードを解除');
-    showToast(v ? '参加コードを保存しました' : '参加コードを解除しました');
-  };
-  $('jcCopy').onclick = () => navigator.clipboard?.writeText($('jcLink').value).then(()=>showToast('招待リンクをコピーしました')).catch(()=>$('jcLink').select());
   $('nSave').onclick = async () => {
     const url = $('nUrl').value.trim();
     if (url && !/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(url)) return showToast('URLは https://script.google.com/macros/s/…/exec の形です');
@@ -2703,9 +2411,9 @@ let batchRunning = 0;
 const batchCommon = { methodId:'', payerId:'', purpose:'', storageLocation:'' };
 
 function openBatch(){
-  if (canSelfSubmit() && !isT() && !selfPayerId()) return showToast('本人情報を準備してから利用してください');
+  if (isP() && !me.payerId) return showToast('支払者名簿との紐付けが済んでいません');
   batchItems = batchItems.filter(i=>i.state!=='saved');
-  if (canSelfSubmit()&&!isT()) batchCommon.payerId = selfPayerId();
+  if (isP()) batchCommon.payerId = me.payerId;
   if (!batchCommon.storageLocation) batchCommon.storageLocation = isP() ? '自分で保管中（精算時に会計へ渡す）' : '';
   showScreen('batchScreen');
   renderBatch();
@@ -3093,13 +2801,13 @@ function exportAccountsCsv(){
   years.length && rows.push(['繰越','前年度繰越金','','', ...years.map(y=>(settings.opening||{})[y] ?? '')]);
   accounts.forEach(a=>rows.push([a.type==='income'?'収入':'支出', a.name, a.desc||'', a.active?'使用中':'停止', ...years.map(y=>(a.budget||{})[y] ?? '')]));
   rows.push([]);
-  rows.push(['精算者情報（自動管理）']); rows.push(['氏名','役職','状態']);
+  rows.push(['支払者名簿']); rows.push(['氏名','役職','状態']);
   payers.forEach(p=>rows.push([p.name, p.post||'', p.active?'使用中':'停止']));
   rows.push([]);
   rows.push(['支払方法']); rows.push(['名前','用途','精算']);
   methods.forEach(m=>rows.push([m.name, m.use==='income'?'収入':m.use==='both'?'共通':'支出', m.settle?'要精算':'不要']));
   downloadText(csvText(rows), `会計簿バックアップ_科目予算_${settings.orgName}_${localDate()}.csv`);
-  showToast('科目・予算などを書き出しました');
+  showToast('科目・予算・名簿を書き出しました');
 }
 
 /* ---------- 取り込み ---------- */
@@ -3497,72 +3205,6 @@ async function renderPublic(years, fy){
   body.innerHTML = html;
   body.querySelectorAll('[data-y]').forEach(b=>b.onclick=()=>renderPublic(years, Number(b.dataset.y)));
 }
-
-/* =========================================================
-   補助金申請・管理
-   ========================================================= */
-const GRANT_STATUS = {planning:'申請準備',applied:'申請済',decided:'交付決定',executing:'執行中',reporting:'実績報告',confirmed:'額確定',completed:'完了'};
-function renderGrantSelect(selected=''){
-  const box=$('fGrantField'), sel=$('fGrant'); if(!box||!sel) return;
-  box.style.display = formType==='expense' && isStaff() ? 'block':'none';
-  const list=grants.filter(g=>Number(g.fy)===Number(fyOf($('fDate').value||localDate())) && !['completed'].includes(g.status));
-  sel.innerHTML='<option value="">補助金に充当しない</option>'+list.map(g=>`<option value="${g.id}">${esc(g.name)}（${esc(GRANT_STATUS[g.status]||g.status||'')}）</option>`).join('');
-  sel.value=selected||'';
-}
-$('fDate').addEventListener('change',()=>renderGrantSelect($('fGrant')?.value||''));
-
-function grantSpent(id){ return approvedFY().filter(e=>e.type==='expense'&&e.grantId===id).reduce((s,e)=>s+(Number(e.amount)||0),0); }
-function renderGrants(){
-  const el=$('grantsScreen'); if(!el) return;
-  const list=grants.filter(g=>Number(g.fy)===Number(curFY));
-  let html=`<div class="screen-guide"><b>補助金は申請から実績報告までここで管理します</b><span>①登録 → ②交付決定額を更新 → ③支出を紐付け → ④実績・証憑を確認、の順です。</span></div><div class="panel"><h3>補助金申請・管理 <small>${curFY}年度</small></h3><p class="hint">申請準備から交付決定、支出への充当、実績報告、額確定までを会計データと一緒に管理します。</p>${isT()?'<button class="btn btn-primary full" id="grantNew">＋ 補助金を登録</button>':''}</div>`;
-  if(!list.length) html+=`<div class="empty"><div class="mark-big">補助金</div>まだ登録がありません</div>`;
-  list.forEach(g=>{
-    const spent=grantSpent(g.id), decided=Number(g.decidedAmount)||0, remain=decided-spent;
-    const pct=decided?Math.min(100,spent/decided*100):0;
-    html+=`<div class="panel"><h3>${esc(g.name)} <small>${esc(GRANT_STATUS[g.status]||g.status||'')}</small></h3>
-      <div class="summary-strip"><div><div class="lbl">申請額</div><div class="val">${yen(Number(g.appliedAmount)||0)}</div></div><div><div class="lbl">交付決定</div><div class="val">${yen(decided)}</div></div><div><div class="lbl">対象支出</div><div class="val">${yen(spent)}</div></div><div><div class="lbl">残額</div><div class="val">${yen(remain)}</div></div></div>
-      <div class="bar"><i style="width:${pct}%;background:var(--moss)"></i></div>
-      <p class="hint">${esc(g.provider||'')} ${g.deadline?'／申請期限 '+esc(g.deadline):''}${g.reportDeadline?'／実績報告 '+esc(g.reportDeadline):''}</p>
-      <div class="btn-row"><button class="btn btn-ghost" data-greport="${g.id}">実績・証憑を確認</button>${isT()?`<button class="btn btn-navy" data-gedit="${g.id}">編集</button>`:''}</div></div>`;
-  });
-  el.innerHTML=html;
-  if($('grantNew')) $('grantNew').onclick=()=>editGrant();
-  el.querySelectorAll('[data-gedit]').forEach(b=>b.onclick=()=>editGrant(grants.find(g=>g.id===b.dataset.gedit)));
-  el.querySelectorAll('[data-greport]').forEach(b=>b.onclick=()=>printGrantReport(grants.find(g=>g.id===b.dataset.greport)));
-}
-async function editGrant(g=null){
-  if(!isT()) return;
-  const name=prompt('① 補助金の名前を入力してください',g?.name||'町田市町内会・自治会活動補助金'); if(!name) return;
-  const provider=prompt('② どこから交付される補助金ですか？',g?.provider||'町田市')||'';
-  const appliedAmount=Number(prompt('③ 申請する金額を入力してください（円）',g?.appliedAmount||0))||0;
-  const decidedAmount=Number(prompt('④ 交付決定額を入力してください（まだ決まっていなければ0円）',g?.decidedAmount||0))||0;
-  const labels=['申請準備中','申請済み','交付決定','事業実施中','実績報告中','額確定','完了'];
-  const keys=['planning','applied','decided','executing','reporting','confirmed','completed'];
-  const cur=Math.max(0,keys.indexOf(g?.status||'planning'));
-  const ans=prompt('⑤ 現在の状態を番号で選んでください\n1 申請準備中\n2 申請済み\n3 交付決定\n4 事業実施中\n5 実績報告中\n6 額確定\n7 完了',String(cur+1));
-  if(ans===null) return;
-  const idx=Math.min(6,Math.max(0,(Number(ans)||1)-1)), status=keys[idx];
-  const deadline=prompt('⑥ 申請期限（分からなければ空欄でOK）',g?.deadline||'')||'';
-  const reportDeadline=prompt('⑦ 実績報告期限（分からなければ空欄でOK）',g?.reportDeadline||'')||'';
-  const households=Number(prompt('⑧ 加入世帯数（算定に使わない場合は0）',g?.households||0))||0;
-  const note=prompt('⑨ 対象事業や注意事項があれば入力してください',g?.note||'')||'';
-  if(!confirm(`${name}\n状態：${labels[idx]}\n申請額：${yen(appliedAmount)}\n交付決定額：${yen(decidedAmount)}\n\nこの内容で保存しますか？`)) return;
-  const ref=g?R(`grants/${g.id}`):R('grants').push();
-  await ref.set({...g,name,provider,fy:curFY,appliedAmount,decidedAmount,status,deadline,reportDeadline,households,note,updatedAt:TS(),updatedByName:me.name,createdAt:g?.createdAt||TS()});
-  writeLog(g?'補助金修正':'補助金登録',null,name); showToast('補助金情報を保存しました');
-}
-function printGrantReport(g){
-  if(!g) return;
-  const rows=approvedFY().filter(e=>e.type==='expense'&&e.grantId===g.id).sort((a,b)=>(a.date||'').localeCompare(b.date||''));
-  const total=rows.reduce((s,e)=>s+(Number(e.amount)||0),0);
-  const over10=rows.filter(e=>Number(e.amount)>100000);
-  openPrint(`補助金実績 ${g.name}`,`<h1>${esc(g.name)}　実績管理表</h1><p class="right">${esc(settings.orgName)}／${curFY}年度</p>
-    <table><tbody><tr><th>交付元</th><td>${esc(g.provider||'')}</td><th>状態</th><td>${esc(GRANT_STATUS[g.status]||g.status||'')}</td></tr><tr><th>申請額</th><td>${yen(Number(g.appliedAmount)||0)}</td><th>交付決定額</th><td>${yen(Number(g.decidedAmount)||0)}</td></tr><tr><th>対象支出計</th><td>${yen(total)}</td><th>残額</th><td>${yen((Number(g.decidedAmount)||0)-total)}</td></tr></tbody></table>
-    <h2>補助対象として紐付けた支出</h2><table><thead><tr><th>日付</th><th>伝票</th><th>用途</th><th>支払先</th><th class="r">金額</th><th>証憑</th></tr></thead><tbody>${rows.map(e=>`<tr><td>${esc(e.date)}</td><td>${esc(e.voucherNo||'')}</td><td>${esc(e.purpose||'')}</td><td>${esc(e.payee||'')}</td><td class="r">${yen(e.amount)}</td><td>${e.photoCount?'写真あり':e.noReceipt?'理由あり':'要確認'}</td></tr>`).join('')}</tbody></table>
-    <p>10万円を超える支払い：${over10.length}件　／　実績報告期限：${esc(g.reportDeadline||'未設定')}</p><p>${esc(g.note||'')}</p>`);
-}
-
 </script>
 </body>
 </html>
