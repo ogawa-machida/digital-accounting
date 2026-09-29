@@ -530,7 +530,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.09.30-5';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.09.30-6';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 const CONFIGURED = !firebaseConfig.apiKey.startsWith('YOUR_');
 const ROOT = 'chokai-kaikei';
 let auth = null, db = null;
@@ -2325,6 +2325,11 @@ function renderSettings(){
         <span class="cname" style="flex-basis:100%">${esc(m.name)}<small>${esc(m.email)}${m.branch?`・${esc(m.branch)} ${esc(m.group||'')}`:''}${m.requestType==='report'?'・会計報告閲覧申請':''}${m.id===me.uid?'（あなた）':''}</small></span>
         <select data-role="${m.id}" ${m.id===me.uid?'disabled':''}>${Object.entries(ROLES).map(([k,r])=>`<option value="${k}" ${m.role===k?'selected':''}>${r.name}</option>`).join('')}</select>
         <select data-link="${m.id}"><option value="">名簿と紐付けない</option>${payers.map(p=>`<option value="${p.id}" ${m.payerId===p.id?'selected':''}>${esc(payerLabel(p.id))}</option>`).join('')}</select>
+        <div class="inline-add" style="flex-basis:100%;margin:4px 0 0">
+          <select data-mbranch="${m.id}" style="flex:1"></select><select data-mgroup="${m.id}" style="flex:1"></select>
+          <button class="btn btn-ghost sm" data-saveaff="${m.id}">所属を保存</button>
+          ${m.id===me.uid?'':`<button class="btn btn-ghost sm" data-delmember="${m.id}" style="color:var(--stamp-red);border-color:var(--stamp-red)">削除</button>`}
+        </div>
       </div>`).join('') +
       `<p class="hint">会計＝全操作／監査＝全件閲覧と監査チェック／役員＝全件閲覧／支払者＝自分の申請と精算確認／利用申請中＝初めてログインし、会計担当の権限設定を待っている人。</p>`;
 
@@ -2385,6 +2390,30 @@ function bindSettings(){
   $('saveKey').onclick = () => { const v=$('apiKeyInput').value.trim(); if(!v) return showToast('APIキーを入力してください'); try{localStorage.setItem(API_KEY_STORAGE,v);}catch(e){} showToast('保存しました'); renderSettings(); };
   $('delKey').onclick = () => { try{localStorage.removeItem(API_KEY_STORAGE);}catch(e){} showToast('削除しました'); renderSettings(); };
   if (!isT()) return;
+
+  // 利用者ごとの所属（支部・班）は、会計側でも連動プルダウンから変更できる。
+  q('[data-mbranch]').forEach(branchEl => {
+    const id=branchEl.dataset.mbranch, m=members.find(x=>x.id===id), groupEl=$('settingsScreen').querySelector(`[data-mgroup="${id}"]`);
+    if(m && groupEl) fillBranchGroup(branchEl, groupEl, m.branch||'', m.group||'');
+  });
+  q('[data-saveaff]').forEach(b => b.onclick = async () => {
+    const m=members.find(x=>x.id===b.dataset.saveaff); if(!m) return;
+    const branchEl=$('settingsScreen').querySelector(`[data-mbranch="${m.id}"]`), groupEl=$('settingsScreen').querySelector(`[data-mgroup="${m.id}"]`);
+    const branch=branchEl?.value||'', group=groupEl?.value||'';
+    if(!validAffiliation(branch,group)) return showToast('支部と班を選択してください');
+    const ups={}; ups[`members/${m.id}/branch`]=branch; ups[`members/${m.id}/group`]=group; ups[`members/${m.id}/updatedAt`]=TS();
+    if(m.payerId){ ups[`payers/${m.payerId}/branch`]=branch; ups[`payers/${m.payerId}/group`]=group; }
+    await db.ref(ROOT).update(ups);
+    writeLog('所属変更', null, `${m.name}：${branch} ${group}`); showToast(`${m.name}さんの所属を変更しました`);
+  });
+  q('[data-delmember]').forEach(b => b.onclick = async () => {
+    const m=members.find(x=>x.id===b.dataset.delmember); if(!m || m.id===me.uid) return;
+    const linked=m.payerId?`\n\n支払者名簿や過去の伝票・精算履歴は削除せず残します。`:'';
+    if(!confirm(`${m.name}さん（${m.email||''}）のアプリ登録を削除しますか？\n\n削除すると、このユーザーは現在の権限では利用できなくなります。${linked}\n再度利用する場合は、改めて申請・登録が必要です。`)) return;
+    await R(`members/${m.id}`).remove();
+    writeLog('利用者削除', null, `${m.name}（${m.email||''}）`); showToast(`${m.name}さんの登録を削除しました`);
+    if(['treasurer','viewer'].includes(m.role)) setTimeout(()=>syncRecipients(),800);
+  });
 
   $('saveShared').onclick = async () => {
     const v = $('sharedKeyInput').value.trim(); if (!v) return showToast('APIキーを入力してください');
