@@ -921,9 +921,10 @@ const ICONS = {
 };
 function navItems(){
   if (isT()) return [['homeScreen','home','ホーム'],['bookScreen','book','出納帳'],['settleScreen','settle','精算'],['auditScreen','audit','監査'],['settingsScreen','settings','設定']];
-  if (isA()) return [['homeScreen','home','ホーム'],['bookScreen','book','出納帳'],['auditScreen','audit','監査'],['settingsScreen','settings','設定']];
-  if (isP()) return [['homeScreen','home','ホーム'],['bookScreen','book','申請一覧'],['settleScreen','settle','精算'],['settingsScreen','settings','設定']];
-  return [['homeScreen','home','ホーム'],['bookScreen','book','出納帳'],['auditScreen','audit','監査'],['settingsScreen','settings','設定']];
+  if (isA()) return [['auditScreen','audit','監査']];
+  if (isP()) return [['homeScreen','home','ホーム'],['bookScreen','book','申請一覧'],['settleScreen','settle','精算']];
+  // 役員（viewer）は全件閲覧と会計本人申請の承認に必要な画面だけ表示
+  return [['homeScreen','home','ホーム'],['bookScreen','book','出納帳']];
 }
 function buildNav(){
   const nav = $('bottomNav'); nav.innerHTML='';
@@ -933,7 +934,7 @@ function buildNav(){
     b.onclick = () => showScreen(scr);
     nav.appendChild(b);
   });
-  if (!navItems().some(n=>n[0]===currentScreen)) currentScreen='homeScreen';
+  if (!navItems().some(n=>n[0]===currentScreen)) currentScreen=navItems()[0][0];
   showScreen(currentScreen);
 }
 const TITLES = { homeScreen:'ホーム', bookScreen:'出納帳', settleScreen:'精算', auditScreen:'監査', settingsScreen:'設定', formScreen:'登録', detailScreen:'伝票', batchScreen:'まとめて読み込み', budgetImportScreen:'予算の取り込み', importScreen:'データ取り込み' };
@@ -975,7 +976,7 @@ function updateBadges(){
   }
   if (isP()) {
     set('bookScreen', allEntries().filter(e=>e.status==='returned').length);
-    set('settleScreen', settlements.filter(s=>!s.payerConfirmedAt).length);
+    set('settleScreen', settlements.filter(s=>s.payerId===me.payerId && !s.payerConfirm).length);
   }
   if (isA()) set('auditScreen', approvedFY().filter(e=>!e.audit || e.auditStale).length);
 }
@@ -1129,7 +1130,7 @@ function renderPayerHome(el){
   const guestNote = isGuest() ? `<div class="notice amber" style="cursor:default"><span class="n-body">仮登録中です<span class="n-sub">${mine.length ? '最初の申請を会計が確認すると本登録になります' : 'さっそくレシートを撮って申請してみましょう。最初の申請の確認時に本登録されます'}</span></span></div>` : '';
   const returned = mine.filter(e=>e.status==='returned');
   const submitted = mine.filter(e=>e.status==='submitted');
-  const unconfirmed = settlements.filter(s=>!s.payerConfirmedAt);
+  const unconfirmed = settlements.filter(s=>s.payerId===me.payerId && !s.payerConfirm);
   let html = guestNote + `<div class="net-box">
       <div class="d">${esc(payerLabel(me.payerId))}さんの精算見込み</div>
       <div class="v" style="color:${b.net>=0?'var(--stamp-navy)':'var(--stamp-red)'}">${yen(Math.abs(b.net))}</div>
