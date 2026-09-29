@@ -274,6 +274,14 @@ table.pub th{font-family:'Shippori Mincho',serif; background:var(--tint);}
 .total-check.ng{background:#F7E3DD; color:var(--stamp-red);}
 .big-photo{position:fixed; inset:0; background:rgba(0,0,0,.85); z-index:80; display:flex; align-items:center; justify-content:center; padding:16px;}
 .big-photo img{max-width:100%; max-height:100%; border-radius:6px;}
+
+.settings-task-grid{display:grid;grid-template-columns:1fr;gap:8px}
+.settings-task-btn{width:100%;border:1px solid var(--line);background:#fff;border-radius:12px;padding:12px;display:flex;align-items:center;gap:11px;text-align:left;font-family:inherit;color:var(--ink);cursor:pointer}
+.settings-task-btn:active{background:var(--tint)}
+.settings-task-icon{font-size:22px;width:30px;text-align:center}
+.settings-task-btn span:nth-child(2){flex:1;min-width:0}.settings-task-btn b{display:block;font-size:14px}.settings-task-btn small{display:block;color:var(--ink-soft);font-size:11.5px;margin-top:2px;font-weight:400}
+.settings-task-arrow{font-size:24px;color:var(--ink-soft)}
+.settings-task-panel>.section-title:first-child{margin-top:4px!important}
 </style>
 </head>
 <body>
@@ -324,7 +332,7 @@ table.pub th{font-family:'Shippori Mincho',serif; background:var(--tint);}
       <div class="field"><label>お名前</label><input type="text" id="rName" placeholder="例）山田 花子"></div>
       <div class="field"><label>メールアドレス</label><input type="email" id="rEmail" placeholder="例）yamada@example.com" autocomplete="email"></div>
       <button class="btn btn-primary full" id="rSubmit">閲覧を申請する</button>
-      <p class="hint">入力したメールアドレスに本人確認用のリンクを送ります。リンクを開くと申請が完了し、会計担当の承認待ちになります。</p>
+      <p class="hint">入力したメールアドレスに本人確認用のリンクを送ります。メールが届くまで少し時間がかかる場合がありますので、しばらくお待ちください。届かない場合は迷惑メールフォルダもご確認ください。リンクを開くと申請が完了し、会計担当の承認待ちになります。</p>
       <p class="hint" id="rMsg"></p>
     </div>
     <div style="width:100%;max-width:380px;margin-top:16px;text-align:center">
@@ -342,7 +350,7 @@ table.pub th{font-family:'Shippori Mincho',serif; background:var(--tint);}
     <h1 style="font-size:20px;">利用申請</h1>
     <p>自治会員であることを確認するため、所属とお名前を登録してください。会計報告の閲覧は会計担当の承認後に利用できます。</p>
     <div class="form-card" style="width:100%;max-width:380px;text-align:left">
-      <div class="field"><label>利用目的</label><select id="jPurpose"><option value="report">会計報告を閲覧する</option><option value="payer">支払い申請・精算も利用する</option></select></div>
+      <div class="field"><label>利用目的</label><select id="jPurpose"><option value="report" selected>会計報告を閲覧する</option><option value="payer">支払い申請・精算も利用する</option></select></div>
       <div class="field"><label>支部</label><select id="jBranch"></select></div>
       <div class="field"><label>班</label><select id="jGroup"></select></div>
       <div class="field"><label>お名前</label><input type="text" id="jName" placeholder="例）山田 花子"></div>
@@ -530,7 +538,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.09.30-6';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.09.30-8';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 const CONFIGURED = !firebaseConfig.apiKey.startsWith('YOUR_');
 const ROOT = 'chokai-kaikei';
 let auth = null, db = null;
@@ -752,7 +760,7 @@ function startAuth(){
       const back=new URL(location.origin+location.pathname); back.searchParams.set('reportApply','1');
       await auth.sendSignInLinkToEmail(email,{url:back.toString(),handleCodeInApp:true});
       lsSet(EMAIL_KEY,email);
-      msg.innerHTML=`<b style="color:var(--moss)">✓ ${esc(email)} に本人確認用のリンクを送りました。</b><br>メールのリンクを開くと閲覧申請が完了します。`;
+      msg.innerHTML=`<b style="color:var(--moss)">✓ ${esc(email)} に本人確認用のリンクを送りました。</b><br>メールが届くまで少し時間がかかる場合があります。しばらくお待ちください。<br>届かない場合は迷惑メールフォルダもご確認ください。<br>メールのリンクを開くと閲覧申請が完了します。`;
       btn.textContent='もう一度送る';
     } catch(e){ showLoginError(e); msg.textContent=LOGIN_ERRORS[e.code]||'メールを送信できませんでした'; btn.textContent='閲覧を申請する'; }
     finally { btn.disabled=false; }
@@ -2380,7 +2388,40 @@ function renderSettings(){
     <button class="btn btn-ghost full" style="margin-top:6px" onclick="if(confirm('ログアウトしますか？'))auth.signOut()">ログアウト</button>
     <p class="hint" style="text-align:center;margin-top:12px">バージョン ${APP_VERSION}</p>`;
   el.innerHTML = html;
+  if (isT()) organizeTreasurerSettings();
   bindSettings();
+}
+
+/* 会計の設定画面は「設定項目の羅列」ではなく、やりたいことから選ぶ入口にする。 */
+function organizeTreasurerSettings(){
+  const root=$('settingsScreen'); if(!root) return;
+  const defs=[
+    {id:'people', icon:'👥', title:'利用者・名簿', sub:'権限、支部・班、支払者名簿', heads:['支払者名簿','アプリの利用者と権限']},
+    {id:'money', icon:'💰', title:'会計の基本設定', sub:'団体情報、科目・予算、支払方法', heads:['団体の情報',`科目と${curFY}年度の予算`,'支払方法']},
+    {id:'report', icon:'📊', title:'会員向け会計報告', sub:'公開内容の設定・報告の更新', heads:['会員向けの会計報告']},
+    {id:'data', icon:'💾', title:'データ管理', sub:'Excel取込、バックアップ', heads:['データの取り込み・バックアップ']},
+    {id:'notice', icon:'✉️', title:'メール通知', sub:'承認依頼の通知設定・テスト', heads:['承認依頼のメール通知']},
+    {id:'ai', icon:'✨', title:'AI読み取り', sub:'Claude APIキーの設定', heads:['AI自動読み取り（Claude APIキー）']}
+  ];
+  const heads=[...root.querySelectorAll(':scope > h2.section-title')];
+  const groups={};
+  defs.forEach(d=>{ const box=document.createElement('div'); box.className='settings-task-panel'; box.dataset.settingsPanel=d.id; box.style.display='none'; groups[d.id]=box; });
+  heads.forEach((h,i)=>{
+    const title=h.textContent.trim(); const def=defs.find(d=>d.heads.includes(title)); if(!def) return;
+    const box=groups[def.id]; root.insertBefore(box,h);
+    let n=h, stop=heads[i+1]||null;
+    while(n && n!==stop){ const next=n.nextSibling; box.appendChild(n); n=next; }
+  });
+  const menu=document.createElement('div'); menu.id='settingsTaskMenu';
+  menu.innerHTML=`<div class="form-card" style="padding:14px"><div style="font-weight:800;font-size:16px;margin-bottom:4px">何を設定しますか？</div><p class="hint" style="margin:0 0 10px">変更したい内容を選んでください。</p><div class="settings-task-grid">${defs.map(d=>`<button type="button" class="settings-task-btn" data-settings-open="${d.id}"><span class="settings-task-icon">${d.icon}</span><span><b>${d.title}</b><small>${d.sub}</small></span><span class="settings-task-arrow">›</span></button>`).join('')}</div></div>`;
+  root.insertBefore(menu,root.firstChild);
+  const back=document.createElement('button'); back.type='button'; back.className='btn btn-ghost full'; back.id='settingsMenuBack'; back.textContent='← 設定メニューに戻る'; back.style.cssText='display:none;margin:0 0 12px';
+  menu.after(back);
+  const open=id=>{ menu.style.display='none'; back.style.display='block'; Object.values(groups).forEach(x=>x.style.display=x.dataset.settingsPanel===id?'block':'none'); window.scrollTo({top:0,behavior:'smooth'}); };
+  root.querySelectorAll('[data-settings-open]').forEach(b=>b.onclick=()=>open(b.dataset.settingsOpen));
+  back.onclick=()=>{ Object.values(groups).forEach(x=>x.style.display='none'); back.style.display='none'; menu.style.display='block'; window.scrollTo({top:0,behavior:'smooth'}); };
+  // メール等から利用者設定へ直接来た場合は、そのカテゴリを開く。
+  if(location.search.includes('screen=settings')) open('people');
 }
 
 function bindSettings(){
