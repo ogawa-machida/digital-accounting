@@ -47,5 +47,6 @@ jobs:
       - name: Redeploy existing web app
         working-directory: gas
         run: |
-          clasp update-deployment "${{ secrets.GAS_DEPLOYMENT_ID }}" \
+          clasp deploy \
+            --deploymentId "${{ secrets.GAS_DEPLOYMENT_ID }}" \
             --description "GitHub ${GITHUB_SHA}"
