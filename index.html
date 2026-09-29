@@ -315,11 +315,11 @@ table.pub th{font-family:'Shippori Mincho',serif; background:var(--tint);}
   <div class="center-wrap" style="min-height:auto;padding-top:40px">
     <div class="mark-big">はじめ<br>まして</div>
     <h1 style="font-size:20px;">お名前と役職を教えてください</h1>
-    <p>お名前と役職・班を登録すると利用申請が送信されます。会計担当が権限を設定すると利用を開始できます。</p>
+    <p>お名前と役職・班を登録すると、すぐに支払い申請を始められます。最初の支払い申請を会計担当が承認すると、あわせて本登録されます。</p>
     <div class="form-card" style="width:100%;max-width:380px;text-align:left">
       <div class="field"><label>お名前</label><input type="text" id="jName" placeholder="例）山田 花子"></div>
       <div class="field"><label>役職・班</label><input type="text" id="jPost" placeholder="例）3班 班長、防災支隊長" list="postList2"><datalist id="postList2"></datalist></div>
-      <button class="btn btn-primary full" id="jSubmit">利用申請する</button>
+      <button class="btn btn-primary full" id="jSubmit">登録して始める</button>
       <p class="hint" id="jErr" style="color:var(--stamp-red)"></p>
     </div>
     <button class="text-link" onclick="auth.signOut()">別のアカウントでログインする</button>
@@ -488,7 +488,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.09.29-8';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.09.29-9';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 const CONFIGURED = !firebaseConfig.apiKey.startsWith('YOUR_');
 const ROOT = 'chokai-kaikei';
 let auth = null, db = null;
@@ -734,7 +734,7 @@ function startAuth(){
   });
 }
 
-/* はじめての人の利用申請（会計担当の承認待ち） */
+/* はじめての人の仮登録（参加コードなし。最初の支払い申請と同時に本登録を承認） */
 function showJoinForm(user, mref){
   return new Promise(resolve => {
     hideAllRoots(); $('joinScreen').style.display='block';
@@ -745,18 +745,17 @@ function showJoinForm(user, mref){
     $('jSubmit').onclick = async () => {
       const name = $('jName').value.trim(), post = $('jPost').value.trim();
       if (!name) { $('jErr').textContent = 'お名前を入力してください'; return; }
-      if (!post) { $('jErr').textContent = '役職・班を入力してください（会計担当が本人確認に使います）'; return; }
-      const btn = $('jSubmit'); btn.disabled = true; btn.textContent = '申請中…';
+      if (!post) { $('jErr').textContent = '役職・班を入力してください（最初の申請時に会計担当が本人確認に使います）'; return; }
+      const btn = $('jSubmit'); btn.disabled = true; btn.textContent = '登録中…';
+      const pid = 'g_' + user.uid;
       try {
-        await mref.set({ name, email:user.email||'', post, role:'pending', createdAt:TS() });
-        const ns = await R('settings/notifyUrl').get().catch(()=>null);
-        const notifyUrl = ns && ns.val ? ns.val() : '';
-        if (notifyUrl) notify('member', null, notifyUrl);
+        await mref.set({ name, email:user.email||'', post, role:'guest', payerId:pid, createdAt:TS() });
+        await R(`payers/${pid}`).set({ name, post, provisional:true, uid:user.uid, email:user.email||'', active:true, order:999, createdAt:TS() });
         resolve();
       } catch(e) {
         console.error(e);
-        $('jErr').textContent = '利用申請を登録できませんでした：' + (e.message||e);
-        btn.disabled = false; btn.textContent = '利用申請する';
+        $('jErr').textContent = '登録できませんでした：' + (e.message||e);
+        btn.disabled = false; btn.textContent = '登録して始める';
       }
     };
   });
@@ -775,7 +774,8 @@ async function enterAs(user){
       await showJoinForm(user, mref);
     }
   } else if (snap.val().role==='pending') {
-    // すでに利用申請済み。下のリアルタイム監視で承認待ち画面を表示する。
+    // 旧版で承認待ちになっていた人も、参加コードなしの仮登録へ移行できる。
+    await showJoinForm(user, mref);
   }
   // 自分の権限の変化をリアルタイムで反映
   const h = mref.on('value', s => {
