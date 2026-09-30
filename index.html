@@ -596,7 +596,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.01-21';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.01-22';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -777,6 +777,12 @@ async function notify(action, extra, url){
 function notifyEntries(ids){
   if (!ids.length || settings.notifyOnEntry===false) return;
   notify('entry', { entryIds: ids });
+}
+function notifyCashFeeReturn(entryId){
+  if (!entryId || settings.notifyOnEntry===false) return;
+  notify('cashFeeReturn', { entryId }).then(r => {
+    if (r && r.ok===false) console.warn('現金会費の差戻しメール通知に失敗', r.error||'');
+  });
 }
 /* 会計担当の一覧が変わったら、GAS側の送信先を更新する（会計のみ実行可能） */
 let lastRecipientKey = '';
@@ -1488,6 +1494,7 @@ async function saveCashFeeReturn(e){
   try{
     await R(`entries/${e.id}`).update({status:'returned',returnReason:reason,cashFeeActualAmount:actual,cashFeeCheckedBy:me.uid,cashFeeCheckedByName:me.name,cashFeeCheckedAt:TS(),updatedAt:TS(),updatedByName:me.name});
     writeLog('現金会費差戻し',e,`申告 ${yen(declared)}／実際 ${yen(actual)}／差額 ${diff>=0?'+':''}${yen(diff)}／${reason}`);
+    notifyCashFeeReturn(e.id);
     showToast('班長へ差し戻しました'); openDetail(e.id);
   }catch(err){console.error(err);showToast('差し戻せませんでした（Firebase権限を確認してください）');} finally{if(btn) btn.disabled=false;}
 }
@@ -1496,7 +1503,7 @@ function confirmCashFee(e){ openCashFeeForm('confirm',e); }
 async function saveCashFeeConfirmation(e){
   if(!isT()||!e.cashFeeRequest) return; const actual=Math.round(Number($('cfActual')?.value)||0); if(actual<=0) return showToast('確認した金額を入力してください'); const declared=Number(e.cashFeeDeclaredAmount||e.amount)||0, diff=actual-declared; const btn=$('cfSubmit'); btn.disabled=true;
   try{
-    if(diff!==0){ const reason=`現金確認で差額があります。申告 ${yen(declared)}／実際 ${yen(actual)}／差額 ${diff>=0?'+':''}${yen(diff)}`; await R(`entries/${e.id}`).update({status:'returned',returnReason:reason,cashFeeActualAmount:actual,cashFeeCheckedBy:me.uid,cashFeeCheckedByName:me.name,cashFeeCheckedAt:TS(),updatedAt:TS(),updatedByName:me.name}); writeLog('現金会費差戻し',e,reason); showToast('差額ありとして班長へ差し戻しました'); openDetail(e.id); return; }
+    if(diff!==0){ const reason=`現金確認で差額があります。申告 ${yen(declared)}／実際 ${yen(actual)}／差額 ${diff>=0?'+':''}${yen(diff)}`; await R(`entries/${e.id}`).update({status:'returned',returnReason:reason,cashFeeActualAmount:actual,cashFeeCheckedBy:me.uid,cashFeeCheckedByName:me.name,cashFeeCheckedAt:TS(),updatedAt:TS(),updatedByName:me.name}); writeLog('現金会費差戻し',e,reason); notifyCashFeeReturn(e.id); showToast('差額ありとして班長へ差し戻しました'); openDetail(e.id); return; }
     await R(`entries/${e.id}`).update({amount:actual,status:'approved',returnReason:null,cashFeeActualAmount:actual,cashFeeCheckedBy:me.uid,cashFeeCheckedByName:me.name,cashFeeCheckedAt:TS(),approvedBy:me.uid,approvedByName:me.name,approvedAt:TS(),updatedAt:TS(),updatedByName:me.name}); writeLog('現金会費受取確認',e,`${e.cashFeeBranch||''}${e.cashFeeGroup||''} ${e.cashFeeCount||0}世帯 ${yen(actual)}`); showToast('受取確認し、会費収入に登録しました'); openDetail(e.id);
   }catch(err){console.error(err);showToast('処理できませんでした（Firebase権限を確認してください）');} finally{if(btn) btn.disabled=false;}
 }
