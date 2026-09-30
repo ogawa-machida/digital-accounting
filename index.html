@@ -284,7 +284,7 @@ table.pub th{font-family:'Shippori Mincho',serif; background:var(--tint);}
 .settings-task-panel>.section-title:first-child{margin-top:4px!important}
 
 
-/* ===== 文字組み・改行の全体最適化 2026.09.30-10 ===== */
+/* ===== 文字組み・改行の全体最適化 2026.09.30-11 ===== */
 html{font-size:16px;}
 body{line-break:strict; overflow-wrap:normal; word-break:normal;}
 p,.hint,.notice,.slip-title,.slip-memo,.person-row,.cat-row,.settings-task-btn,
@@ -334,6 +334,9 @@ p,.hint,.notice,.slip-title,.slip-memo,.person-row,.cat-row,.settings-task-btn,
   .cat-row .cname{flex:1 1 calc(100% - 30px);}
   .cat-row input.budget,.cat-row select{max-width:none; width:100%;}
 }
+
+/* 複数行になる説明文は中央揃えにせず、行頭を揃えて読みやすくする */
+.readable-multiline{text-align:left!important;}
 
 </style>
 </head>
@@ -591,7 +594,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.09.30-10';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.09.30-11';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -619,9 +622,24 @@ function improveTypography(root=document){
     });
     el.replaceChildren(frag); el.dataset.typographyDone='1';
   });
+  requestAnimationFrame(()=>alignWrappedProse(root));
+}
+function alignWrappedProse(root=document){
+  const proseSelectors = '.center-wrap p, .form-card > p, .form-card .hint, .panel > p, .panel .hint, .empty';
+  root.querySelectorAll(proseSelectors).forEach(el=>{
+    el.classList.remove('readable-multiline');
+    if(!el.textContent.trim()) return;
+    const range=document.createRange();
+    range.selectNodeContents(el);
+    const rects=[...range.getClientRects()].filter(r=>r.width>1 && r.height>1);
+    const lines=[];
+    rects.forEach(r=>{ if(!lines.some(y=>Math.abs(y-r.top)<3)) lines.push(r.top); });
+    if(el.querySelector('br') || lines.length>1) el.classList.add('readable-multiline');
+  });
 }
 new MutationObserver(()=>improveTypography()).observe(document.body,{childList:true,subtree:true});
-window.addEventListener('DOMContentLoaded',()=>improveTypography());
+window.addEventListener('DOMContentLoaded',()=>{improveTypography(); setTimeout(()=>alignWrappedProse(),80);});
+window.addEventListener('resize',()=>requestAnimationFrame(()=>alignWrappedProse()));
 const CONFIGURED = !firebaseConfig.apiKey.startsWith('YOUR_');
 const ROOT = 'chokai-kaikei';
 let auth = null, db = null;
