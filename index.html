@@ -596,7 +596,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.01-23';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.01-24';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -766,12 +766,18 @@ async function notify(action, extra, url){
   if (!target || !auth || !auth.currentUser) return { ok:false, error:'通知先URLが未設定です' };
   try {
     const idToken = await auth.currentUser.getIdToken();
-    const res = await fetch(target, {
+    /* Apps Script Web App は ContentService の応答時に googleusercontent.com へ
+       リダイレクトするため、GitHub Pages から通常の CORS fetch で応答本文を
+       読もうとすると Chrome で Failed to fetch になることがある。
+       メール通知は GAS 側で Firebase ID トークンを再検証するので、送信自体は
+       no-cors で行い、レスポンス本文には依存しない。 */
+    await fetch(target, {
       method:'POST',
-      headers:{ 'Content-Type':'text/plain;charset=utf-8' },   // プリフライトを避けるため text/plain
+      mode:'no-cors',
+      headers:{ 'Content-Type':'text/plain;charset=utf-8' },
       body: JSON.stringify({ action, idToken, appUrl: location.origin + location.pathname, ...(extra||{}) })
     });
-    return await res.json().catch(()=>({ ok:true }));
+    return { ok:true, dispatched:true };
   } catch(e) { console.warn('メール通知に失敗', e); return { ok:false, error:String(e.message||e) }; }
 }
 function notifyEntries(ids){
