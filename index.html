@@ -594,7 +594,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.09.30-12';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.09.30-13';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -2408,6 +2408,24 @@ function renderSettings(){
       <div class="field"><label>${curFY}年度の前年度繰越金</label><input type="number" id="sOpening" class="amount-input" value="${opening}" inputmode="numeric"></div>
       <button class="btn btn-primary full" id="sSaveOrg">保存する</button></div>`;
 
+    const reconOpening = Number((settings.opening||{})[curFY])||0;
+    const reconIncome = approvedFY().filter(e=>e.type==='income').reduce((n,e)=>n+(Number(e.amount)||0),0);
+    const reconExpense = approvedFY().filter(e=>e.type==='expense').reduce((n,e)=>n+(Number(e.amount)||0),0);
+    const reconBook = reconOpening + reconIncome - reconExpense;
+    const reconAdv = advances.filter(a=>a.settleState==='pending').reduce((n,a)=>n+(Number(a.amount)||0),0);
+    const reconHist = Object.entries((((settings.balanceChecks||{})[curFY])||{})).map(([id,v])=>({id,...v})).sort((a,b)=>(b.at||0)-(a.at||0));
+    html += `<h2 class="section-title" style="margin-top:20px">現預金残高の確認</h2><div class="form-card">
+      <p class="hint" style="margin-top:0">通帳と手元現金の実際の残高を入力し、帳簿残高と照合します。未清算の仮払金はアプリから自動集計します。</p>
+      <div class="total-check"><span>帳簿残高</span><b>${yen(reconBook)}</b></div>
+      <div class="field" style="margin-top:12px"><label>JA普通預金の実残高</label><input type="number" id="reconBank" class="amount-input" inputmode="numeric" placeholder="通帳の残高"></div>
+      <div class="field"><label>手元現金の実残高</label><input type="number" id="reconCash" class="amount-input" inputmode="numeric" placeholder="実際に数えた現金"></div>
+      <div class="total-check"><span>未清算の仮払金（自動）</span><b>${yen(reconAdv)}</b></div>
+      <div class="field" style="margin-top:12px"><label>確認メモ（任意）</label><input type="text" id="reconMemo" placeholder="例）9月末残高確認"></div>
+      <div id="reconPreview" class="total-check" style="margin-top:10px"><span>実残高合計との差額</span><b>金額を入力してください</b></div>
+      <button class="btn btn-primary full" id="reconSave" style="margin-top:10px">残高確認を記録する</button>
+      ${reconHist.length?`<div style="font-weight:700;font-size:13.5px;margin:16px 0 6px">確認履歴</div>`+reconHist.slice(0,12).map(x=>`<div class="cat-row"><span class="cname">${fmtTs(x.at)}<small>${esc(x.byName||'')}・帳簿 ${yen(Number(x.bookBalance)||0)}／実残高 ${yen(Number(x.actualTotal)||0)}${x.memo?`・${esc(x.memo)}`:''}</small></span><span class="stamp-tag" style="border-color:${Number(x.diff)===0?'var(--moss)':'var(--stamp-red)'};color:${Number(x.diff)===0?'var(--moss)':'var(--stamp-red)'}">${Number(x.diff)===0?'一致':'差額 '+yen(Number(x.diff)||0)}</span></div>`).join(''):''}
+    </div>`;
+
     html += `<h2 class="section-title" style="margin-top:20px">科目と${curFY}年度の予算</h2>`;
     ['expense','income'].forEach(t=>{
       html += `<div class="hint" style="margin:0 0 6px;font-weight:700">${t==='expense'?'支出の科目':'収入の科目'}</div>` +
@@ -2506,7 +2524,7 @@ function organizeTreasurerSettings(){
   const root=$('settingsScreen'); if(!root) return;
   const defs=[
     {id:'people', icon:'👥', title:'利用者・名簿', sub:'権限、支部・班、支払者名簿', heads:['支払者名簿','アプリの利用者と権限']},
-    {id:'money', icon:'💰', title:'会計の基本設定', sub:'団体情報、科目・予算、支払方法', heads:['団体の情報',`科目と${curFY}年度の予算`,'支払方法']},
+    {id:'money', icon:'💰', title:'会計の基本設定', sub:'団体情報、科目・予算、支払方法', heads:['団体の情報','現預金残高の確認',`科目と${curFY}年度の予算`,'支払方法']},
     {id:'report', icon:'📊', title:'会員向け会計報告', sub:'公開内容の設定・報告の更新', heads:['会員向けの会計報告']},
     {id:'data', icon:'💾', title:'データ管理', sub:'Excel取込、バックアップ', heads:['データの取り込み・バックアップ']},
     {id:'notice', icon:'✉️', title:'メール通知', sub:'承認依頼の通知設定・テスト', heads:['承認依頼のメール通知']},
@@ -2581,6 +2599,35 @@ function bindSettings(){
     writeLog('設定変更', null, `団体名・年度・${curFY}年度繰越金`);
     showToast('保存しました');
   };
+  const updateReconPreview = () => {
+    const bank=$('reconBank'), cash=$('reconCash'), out=$('reconPreview'); if(!bank||!cash||!out) return;
+    if(bank.value==='' || cash.value===''){ out.classList.remove('ng'); out.innerHTML='<span>実残高合計との差額</span><b>金額を入力してください</b>'; return; }
+    const opening=Number((settings.opening||{})[curFY])||0;
+    const inc=approvedFY().filter(e=>e.type==='income').reduce((n,e)=>n+(Number(e.amount)||0),0);
+    const exp=approvedFY().filter(e=>e.type==='expense').reduce((n,e)=>n+(Number(e.amount)||0),0);
+    const book=opening+inc-exp;
+    const adv=advances.filter(a=>a.settleState==='pending').reduce((n,a)=>n+(Number(a.amount)||0),0);
+    const actual=Math.round(Number(bank.value)||0)+Math.round(Number(cash.value)||0)+adv;
+    const diff=actual-book;
+    out.classList.toggle('ng',diff!==0);
+    out.innerHTML=`<span>実残高合計 ${yen(actual)}</span><b>${diff===0?'✓ 一致':'差額 '+yen(diff)}</b>`;
+  };
+  if($('reconBank')) $('reconBank').oninput=updateReconPreview;
+  if($('reconCash')) $('reconCash').oninput=updateReconPreview;
+  if($('reconSave')) $('reconSave').onclick=async()=>{
+    if($('reconBank').value===''||$('reconCash').value==='') return showToast('預金残高と現金残高を入力してください');
+    const opening=Number((settings.opening||{})[curFY])||0;
+    const inc=approvedFY().filter(e=>e.type==='income').reduce((n,e)=>n+(Number(e.amount)||0),0);
+    const exp=approvedFY().filter(e=>e.type==='expense').reduce((n,e)=>n+(Number(e.amount)||0),0);
+    const book=opening+inc-exp;
+    const adv=advances.filter(a=>a.settleState==='pending').reduce((n,a)=>n+(Number(a.amount)||0),0);
+    const bank=Math.round(Number($('reconBank').value)||0), cash=Math.round(Number($('reconCash').value)||0), actual=bank+cash+adv, diff=actual-book;
+    const ref=R(`settings/balanceChecks/${curFY}`).push();
+    await ref.set({at:TS(),by:me.uid,byName:me.name,bank,cash,pendingAdvance:adv,actualTotal:actual,bookBalance:book,diff,memo:$('reconMemo').value.trim()});
+    writeLog('残高確認',null,`${curFY}年度 帳簿${yen(book)} 実残高${yen(actual)} 差額${yen(diff)}`);
+    showToast(diff===0?'帳簿残高と一致しました':'残高確認を記録しました（差額あり）');
+  };
+
   q('[data-budget]').forEach(inp => inp.onchange = async () => {
     const v = inp.value==='' ? null : Math.round(Number(inp.value)||0);
     await R(`accounts/${inp.dataset.budget}/budget/${curFY}`).set(v);
