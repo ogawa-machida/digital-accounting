@@ -595,7 +595,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.01-17';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.01-18';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1350,7 +1350,7 @@ function renderHome(){
   </div>`;
 
   const cashWaiting = fyEntries().filter(e=>e.cashFeeRequest && e.status==='submitted');
-  if (isT() && cashWaiting.length) html += `<button class="notice navy" id="cashFeeWaitingBtn"><span class="n-body">現金会費の受取待ち<span class="n-sub">班長等から現金を受け取り、数えて確認してください</span></span><span class="n-val">${cashWaiting.length}件</span></button>`;
+  if (isT() && cashWaiting.length) html += `<button class="notice navy" id="cashFeeWaitingBtn"><span class="n-body">現金会費の受取待ち<span class="n-sub">班長から現金を受け取り、数えて確認してください</span></span><span class="n-val">${cashWaiting.length}件</span></button>`;
   if (isGroupLeader() && cashFeeCollectionOpen()) {
     const myCash = fyEntries().filter(e=>e.cashFeeRequest && e.createdBy===me.uid);
     const wait = myCash.filter(e=>e.status==='submitted').length;
@@ -1373,6 +1373,8 @@ function renderHome(){
   el.innerHTML = html;
   bindSlips(el);
   if ($('homeBatchBtn')) $('homeBatchBtn').onclick = () => openBatch();
+  if ($('cashFeeNewBtn')) $('cashFeeNewBtn').onclick = submitCashFeeRequest;
+  if ($('cashFeeWaitingBtn')) $('cashFeeWaitingBtn').onclick = () => { bookFilter.status='submitted'; showScreen('bookScreen'); };
   el.querySelectorAll('[data-go]').forEach(b => b.onclick = () => {
     const g = b.dataset.go;
     if (g==='settle') showScreen('settleScreen');
@@ -1419,6 +1421,20 @@ async function submitCashFeeRequest(){
     const data={type:'income',date,fy,voucherNo,amount,accountId:acc.id,methodId:method.id,payee:`${branch}${group}`,purpose:`${fy}年度自治会費（${branch}${group}）`,memo:'',payerId:null,storageLocation:'会計へ現金引渡し',noReceipt:true,noReceiptReason:'班で徴収した自治会費',excludePublic:false,photoCount:0,status:'submitted',settleState:'none',cashFeeRequest:true,cashFeeCount:count,cashFeeBranch:branch,cashFeeGroup:group,cashFeeDeclaredAmount:amount,createdBy:me.uid,createdByName:me.name,createdAt:TS(),updatedAt:TS(),updatedByName:me.name};
     await ref.set(data); writeLog('現金会費引渡し申告',data,`${branch}${group} ${count}件 ${yen(amount)}`); notifyEntries([ref.key]); showToast('会計担当へ受取確認を依頼しました');
   }catch(err){console.error(err);showToast('登録できませんでした（Firebase権限を確認してください）');}
+}
+async function resubmitCashFee(e){
+  if(!isGroupLeader() || !cashFeeCollectionOpen() || !e.cashFeeRequest || e.createdBy!==me.uid || e.status!=='returned') return showToast('現在は修正して再申告できません');
+  const countRaw=prompt(`${e.cashFeeBranch||me.branch||''} ${e.cashFeeGroup||me.group||''}\n現金で集めた会費の件数を修正してください`, String(e.cashFeeCount||''));
+  if(countRaw===null) return;
+  const count=Math.round(Number(String(countRaw).replace(/[^0-9.-]/g,''))||0); if(count<=0) return showToast('件数を正しく入力してください');
+  const amountRaw=prompt(`${count}件分の現金会費の合計金額を修正してください`, String(e.cashFeeDeclaredAmount||e.amount||count*2400));
+  if(amountRaw===null) return;
+  const amount=Math.round(Number(String(amountRaw).replace(/[^0-9.-]/g,''))||0); if(amount<=0) return showToast('金額を正しく入力してください');
+  if(!confirm(`${e.cashFeeBranch||me.branch||''} ${e.cashFeeGroup||me.group||''}\n${count}件　${yen(amount)}\n\n修正して会計担当へ再申告しますか？`)) return;
+  try{
+    await R(`entries/${e.id}`).update({cashFeeCount:count,cashFeeDeclaredAmount:amount,amount,status:'submitted',returnReason:null,cashFeeActualAmount:null,cashFeeCheckedBy:null,cashFeeCheckedByName:null,cashFeeCheckedAt:null,updatedAt:TS(),updatedByName:me.name});
+    writeLog('現金会費再申告',e,`${e.cashFeeBranch||me.branch||''}${e.cashFeeGroup||me.group||''} ${count}件 ${yen(amount)}`); notifyEntries([e.id]); showToast('修正して再申告しました'); openDetail(e.id);
+  }catch(err){console.error(err);showToast('再申告できませんでした（Firebase権限を確認してください）');}
 }
 async function confirmCashFee(e){
   if(!isT() || !e.cashFeeRequest) return;
@@ -1895,6 +1911,7 @@ async function renderDetail(id){
   const stl = e.settlementId ? settlements.find(s=>s.id===e.settlementId) : null;
   const canEditT = isT() && !e.cashFeeRequest;
   const canEditP = !e.cashFeeRequest && (isP() || (isViewer() && e.createdBy===me.uid)) && e.status!=='approved';
+  const canFixCashFee = e.cashFeeRequest && isGroupLeader() && e.createdBy===me.uid && e.status==='returned' && cashFeeCollectionOpen();
   const keepAudit = $('auditComment') ? $('auditComment').value : '';
 
   let html = `<button class="text-link" id="detailBack" style="padding-left:0">‹ 一覧へ戻る</button>
@@ -1961,6 +1978,9 @@ async function renderDetail(id){
       ${isT() && e.audit && e.audit.result==='issue' ? `<div class="inline-add"><input id="auditResp" placeholder="指摘への回答・対応" value="${esc(e.audit.response||'')}"><button class="btn btn-navy sm" id="aResp">回答</button></div>` : ''}
     </div>`;
   }
+  if (canFixCashFee) {
+    html += `<div class="audit-box" style="border-color:var(--stamp-red);margin-bottom:10px"><div style="font-weight:700;margin-bottom:5px">現金会費を修正して再申告</div><p class="hint">差戻し理由：${esc(e.returnReason||'内容を確認してください')}</p><div class="btn-row"><button class="btn btn-navy" id="cashFeeResubmitBtn">件数・金額を修正して再申告</button></div></div>`;
+  }
   if (canEditT || canEditP) {
     html += `<div class="btn-row"><button class="btn btn-ghost" id="dEdit">${isP()&&e.status==='returned'?'修正して再申請':'修正する'}</button></div>
       <div class="btn-row"><button class="btn btn-danger" id="dDelete">${isP()?'申請を取り下げる':'この伝票を削除'}</button></div>`;
@@ -1972,6 +1992,7 @@ async function renderDetail(id){
   if ($('dDelete')) $('dDelete').onclick = () => deleteEntry(e);
   if ($('dApprove')) $('dApprove').onclick = () => approveEntry(e, $('gTarget') ? $('gTarget').value : null, $('gRole') ? $('gRole').value : null);
   if ($('cashFeeConfirmBtn')) $('cashFeeConfirmBtn').onclick = () => confirmCashFee(e);
+  if ($('cashFeeResubmitBtn')) $('cashFeeResubmitBtn').onclick = () => resubmitCashFee(e);
   if ($('gReject')) $('gReject').onclick = () => rejectGuest(e);
   if ($('dReturn')) $('dReturn').onclick = () => returnEntry(e);
   if ($('aOk')) $('aOk').onclick = () => auditEntry(e, 'ok');
