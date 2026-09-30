@@ -284,7 +284,7 @@ table.pub th{font-family:'Shippori Mincho',serif; background:var(--tint);}
 .settings-task-panel>.section-title:first-child{margin-top:4px!important}
 
 
-/* ===== 文字組み・改行の全体最適化 2026.09.30-11 ===== */
+/* ===== 文字組み・改行の全体最適化 2026.09.30-12 ===== */
 html{font-size:16px;}
 body{line-break:strict; overflow-wrap:normal; word-break:normal;}
 p,.hint,.notice,.slip-title,.slip-memo,.person-row,.cat-row,.settings-task-btn,
@@ -407,8 +407,8 @@ p,.hint,.notice,.slip-title,.slip-memo,.person-row,.cat-row,.settings-task-btn,
     <p>自治会員であることを確認するため、所属とお名前を登録してください。会計報告の閲覧は会計担当の承認後に利用できます。</p>
     <div class="form-card" style="width:100%;max-width:380px;text-align:left">
       <div class="field"><label>利用目的</label><select id="jPurpose"><option value="report" selected>会計報告を閲覧する</option><option value="payer">支払い申請・精算も利用する</option></select></div>
-      <div class="field"><label>支部</label><select id="jBranch"></select></div>
-      <div class="field"><label>班</label><select id="jGroup"></select></div>
+      <div class="field" id="jBranchField"><label>支部</label><select id="jBranch"></select></div>
+      <div class="field" id="jGroupField"><label>班</label><select id="jGroup"></select></div>
       <div class="field"><label>お名前</label><input type="text" id="jName" placeholder="例）山田 花子"></div>
       <div class="field"><label>役職（任意）</label><input type="text" id="jPost" placeholder="例）班長、防災支隊長" list="postList2"><datalist id="postList2"></datalist></div>
       <button class="btn btn-primary full" id="jSubmit">申請する</button>
@@ -594,7 +594,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.09.30-11';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.09.30-12';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -931,12 +931,19 @@ function showJoinForm(user, mref){
     $('jName').value = user.displayName || '';
     if (!user.displayName) $('jName').placeholder = '例）山田 花子（' + (user.email||'') + '）';
     $('postList2').innerHTML = POSTS.map(p=>`<option value="${p}">`).join('');
-    fillBranchGroup($('jBranch'), $('jGroup'), '', '');
     const reportIntent = params.get('view')==='public' || params.get('reportApply')==='1' || (()=>{ try{return localStorage.getItem('kaikei_reportIntent')==='1' || sessionStorage.getItem('kaikei_reportIntent')==='1'}catch(e){return false} })();
+    let reportDraft=null;
+    try { reportDraft=JSON.parse(localStorage.getItem(REPORT_DRAFT_KEY)||'null'); } catch(e){}
+    const useReportDraft = !!(reportIntent && reportDraft && validAffiliation(reportDraft.branch, reportDraft.group));
+    fillBranchGroup($('jBranch'), $('jGroup'), useReportDraft ? reportDraft.branch : '', useReportDraft ? reportDraft.group : '');
+    // 会計報告の閲覧申請では、最初の専用画面で入力済みの支部・班を再入力させない。
+    $('jBranchField').style.display = useReportDraft ? 'none' : '';
+    $('jGroupField').style.display = useReportDraft ? 'none' : '';
+    if (useReportDraft && reportDraft.name) $('jName').value = reportDraft.name;
     $('jPurpose').value = reportIntent ? 'report' : 'payer';
     $('jErr').textContent = '';
     $('jSubmit').onclick = async () => {
-      const name=$('jName').value.trim(), post=$('jPost').value.trim(), branch=$('jBranch').value, group=$('jGroup').value, purpose=$('jPurpose').value;
+      const name=$('jName').value.trim(), post=$('jPost').value.trim(), branch=useReportDraft ? reportDraft.branch : $('jBranch').value, group=useReportDraft ? reportDraft.group : $('jGroup').value, purpose=$('jPurpose').value;
       if (!validAffiliation(branch,group)) { $('jErr').textContent='支部と班を選択してください'; return; }
       if (!name) { $('jErr').textContent='お名前を入力してください'; return; }
       const btn=$('jSubmit'); btn.disabled=true; btn.textContent='申請中…';
