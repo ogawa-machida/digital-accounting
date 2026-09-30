@@ -558,6 +558,7 @@ p,.hint,.notice,.slip-title,.slip-memo,.person-row,.cat-row,.settings-task-btn,
       </div>
     </section>
 
+    <section id="cashFeeScreen" class="screen"></section>
     <section id="detailScreen" class="screen"></section>
     <section id="settleScreen" class="screen"></section>
     <section id="auditScreen" class="screen"></section>
@@ -595,7 +596,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.01-18';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.01-19';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1198,7 +1199,7 @@ function buildNav(){
   if (!navItems().some(n=>n[0]===currentScreen)) currentScreen=navItems()[0][0];
   showScreen(currentScreen);
 }
-const TITLES = { homeScreen:'ホーム', bookScreen:'出納帳', settleScreen:'精算', auditScreen:'監査', settingsScreen:'設定', formScreen:'登録', detailScreen:'伝票', batchScreen:'まとめて読み込み', budgetImportScreen:'予算の取り込み', importScreen:'データ取り込み' };
+const TITLES = { homeScreen:'ホーム', bookScreen:'出納帳', settleScreen:'精算', auditScreen:'監査', settingsScreen:'設定', formScreen:'登録', cashFeeScreen:'現金会費', detailScreen:'伝票', batchScreen:'まとめて読み込み', budgetImportScreen:'予算の取り込み', importScreen:'データ取り込み' };
 function showScreen(id){
   currentScreen = id;
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
@@ -1223,6 +1224,7 @@ function renderCurrent(){
   switch(currentScreen){
     case 'homeScreen': renderHome(); break;
     case 'bookScreen': renderBook(); break;
+    case 'cashFeeScreen': renderCashFeeScreen(); break;
     case 'settleScreen': renderSettle(); break;
     case 'auditScreen': renderAudit(); break;
     case 'settingsScreen': { const a=document.activeElement; const typing = a && $('settingsScreen').contains(a) && ['INPUT','TEXTAREA','SELECT'].includes(a.tagName) && a.type!=='checkbox'; if (!typing) renderSettings(); break; }
@@ -1373,7 +1375,7 @@ function renderHome(){
   el.innerHTML = html;
   bindSlips(el);
   if ($('homeBatchBtn')) $('homeBatchBtn').onclick = () => openBatch();
-  if ($('cashFeeNewBtn')) $('cashFeeNewBtn').onclick = submitCashFeeRequest;
+  if ($('cashFeeNewBtn')) $('cashFeeNewBtn').onclick = () => openCashFeeForm('new');
   if ($('cashFeeWaitingBtn')) $('cashFeeWaitingBtn').onclick = () => { bookFilter.status='submitted'; showScreen('bookScreen'); };
   el.querySelectorAll('[data-go]').forEach(b => b.onclick = () => {
     const g = b.dataset.go;
@@ -1399,60 +1401,73 @@ function budgetPanel(ap){
           ${i?`<div class="panel"><h3>収入の予算達成 <small>実績 ／ 予算</small></h3>${i}</div>`:''}`;
 }
 
-async function submitCashFeeRequest(){
-  if (!isGroupLeader() || !cashFeeCollectionOpen()) return showToast('現在は班長による会費徴収の受付期間外です');
-  const branch = me.branch || ''; const group = me.group || '';
-  if (!branch || !group) return showToast('先に支部・班を登録してください');
-  const countRaw = prompt(`${branch} ${group}\n現金で集めた会費の件数を入力してください`, '');
-  if (countRaw===null) return;
-  const count = Math.round(Number(String(countRaw).replace(/[^0-9.-]/g,''))||0);
-  if (count<=0) return showToast('件数を正しく入力してください');
-  const amountRaw = prompt(`${count}件分の現金会費の合計金額を入力してください`, String(count*2400));
-  if (amountRaw===null) return;
-  const amount = Math.round(Number(String(amountRaw).replace(/[^0-9.-]/g,''))||0);
-  if (amount<=0) return showToast('金額を正しく入力してください');
-  if (!confirm(`${branch} ${group}\n${count}件　${yen(amount)}\n\n会計担当へ引き渡す現金として申告しますか？`)) return;
-  const acc=findCashFeeAccount(), method=findCashMethod();
-  if(!acc || !method) return showToast('収入科目または現金の受取方法が設定されていません');
-  try{
-    const date=localDate(), fy=fyOf(date), ref=R('entries').push();
-    const tx=await R(`counters/${fy}`).transaction(n=>(n||0)+1);
-    const voucherNo=`${fy}-${pad(tx.snapshot.val(),3)}`;
-    const data={type:'income',date,fy,voucherNo,amount,accountId:acc.id,methodId:method.id,payee:`${branch}${group}`,purpose:`${fy}年度自治会費（${branch}${group}）`,memo:'',payerId:null,storageLocation:'会計へ現金引渡し',noReceipt:true,noReceiptReason:'班で徴収した自治会費',excludePublic:false,photoCount:0,status:'submitted',settleState:'none',cashFeeRequest:true,cashFeeCount:count,cashFeeBranch:branch,cashFeeGroup:group,cashFeeDeclaredAmount:amount,createdBy:me.uid,createdByName:me.name,createdAt:TS(),updatedAt:TS(),updatedByName:me.name};
-    await ref.set(data); writeLog('現金会費引渡し申告',data,`${branch}${group} ${count}件 ${yen(amount)}`); notifyEntries([ref.key]); showToast('会計担当へ受取確認を依頼しました');
-  }catch(err){console.error(err);showToast('登録できませんでした（Firebase権限を確認してください）');}
+let cashFeeFormState = null;
+const CASH_FEE_STANDARD = 2400;
+function openCashFeeForm(mode, entry=null){
+  if(mode==='new' && (!isGroupLeader() || !cashFeeCollectionOpen())) return showToast('現在は班長による会費徴収の受付期間外です');
+  if(mode==='resubmit' && (!entry || !isGroupLeader() || !cashFeeCollectionOpen() || entry.createdBy!==me.uid || entry.status!=='returned')) return showToast('現在は修正して再申告できません');
+  if(mode==='confirm' && (!entry || !isT() || !entry.cashFeeRequest)) return;
+  cashFeeFormState={mode, entryId:entry?.id||null};
+  showScreen('cashFeeScreen');
 }
-async function resubmitCashFee(e){
-  if(!isGroupLeader() || !cashFeeCollectionOpen() || !e.cashFeeRequest || e.createdBy!==me.uid || e.status!=='returned') return showToast('現在は修正して再申告できません');
-  const countRaw=prompt(`${e.cashFeeBranch||me.branch||''} ${e.cashFeeGroup||me.group||''}\n現金で集めた会費の件数を修正してください`, String(e.cashFeeCount||''));
-  if(countRaw===null) return;
-  const count=Math.round(Number(String(countRaw).replace(/[^0-9.-]/g,''))||0); if(count<=0) return showToast('件数を正しく入力してください');
-  const amountRaw=prompt(`${count}件分の現金会費の合計金額を修正してください`, String(e.cashFeeDeclaredAmount||e.amount||count*2400));
-  if(amountRaw===null) return;
-  const amount=Math.round(Number(String(amountRaw).replace(/[^0-9.-]/g,''))||0); if(amount<=0) return showToast('金額を正しく入力してください');
-  if(!confirm(`${e.cashFeeBranch||me.branch||''} ${e.cashFeeGroup||me.group||''}\n${count}件　${yen(amount)}\n\n修正して会計担当へ再申告しますか？`)) return;
-  try{
-    await R(`entries/${e.id}`).update({cashFeeCount:count,cashFeeDeclaredAmount:amount,amount,status:'submitted',returnReason:null,cashFeeActualAmount:null,cashFeeCheckedBy:null,cashFeeCheckedByName:null,cashFeeCheckedAt:null,updatedAt:TS(),updatedByName:me.name});
-    writeLog('現金会費再申告',e,`${e.cashFeeBranch||me.branch||''}${e.cashFeeGroup||me.group||''} ${count}件 ${yen(amount)}`); notifyEntries([e.id]); showToast('修正して再申告しました'); openDetail(e.id);
-  }catch(err){console.error(err);showToast('再申告できませんでした（Firebase権限を確認してください）');}
-}
-async function confirmCashFee(e){
-  if(!isT() || !e.cashFeeRequest) return;
-  const raw=prompt(`申告額 ${yen(e.cashFeeDeclaredAmount||e.amount)}\n実際に数えた現金の金額を入力してください`, String(e.cashFeeDeclaredAmount||e.amount));
-  if(raw===null) return;
-  const actual=Math.round(Number(String(raw).replace(/[^0-9.-]/g,''))||0);
-  if(actual<=0) return showToast('確認した金額を入力してください');
-  const declared=Number(e.cashFeeDeclaredAmount||e.amount)||0;
-  if(actual!==declared){
-    const diff=actual-declared;
-    const reason=`現金確認で差額があります。申告 ${yen(declared)}／実際 ${yen(actual)}／差額 ${diff>=0?'+':''}${yen(diff)}`;
-    if(!confirm(`${reason}\n\n班長へ差し戻しますか？`)) return;
-    await R(`entries/${e.id}`).update({status:'returned',returnReason:reason,cashFeeActualAmount:actual,cashFeeCheckedBy:me.uid,cashFeeCheckedByName:me.name,cashFeeCheckedAt:TS(),updatedAt:TS(),updatedByName:me.name});
-    writeLog('現金会費差戻し',e,reason); showToast('差額ありとして差し戻しました'); openDetail(e.id); return;
+function cashFeeFormEntry(){ return cashFeeFormState?.entryId ? entryById(cashFeeFormState.entryId) : null; }
+function renderCashFeeScreen(){
+  const el=$('cashFeeScreen'); if(!el || !cashFeeFormState){ if(el) el.innerHTML='<div class="empty">操作する現金会費がありません</div>'; return; }
+  const mode=cashFeeFormState.mode, e=cashFeeFormEntry();
+  const branch=(e?.cashFeeBranch||me.branch||''), group=(e?.cashFeeGroup||me.group||'');
+  if(mode!=='confirm' && (!branch || !group)){ el.innerHTML='<div class="empty">先に支部・班を登録してください</div><button class="btn btn-ghost full" id="cfBack">戻る</button>'; $('cfBack').onclick=()=>showScreen('homeScreen'); return; }
+  if(mode==='confirm'){
+    if(!e){ el.innerHTML='<div class="empty">申告が見つかりません</div>'; return; }
+    const declared=Number(e.cashFeeDeclaredAmount||e.amount)||0;
+    el.innerHTML=`<button class="text-link" id="cfBack" style="padding-left:0">‹ 伝票へ戻る</button>
+      <h2 class="section-title">現金会費の受取確認</h2><div class="form-card">
+      <div class="field"><label>支部・班</label><div class="total-check"><b>${esc(branch)} ${esc(group)}</b></div></div>
+      <div class="field"><label>現金で会費を納めた世帯数</label><div class="total-check"><b>${Number(e.cashFeeCount)||0}世帯</b></div></div>
+      <div class="field"><label>班長の申告金額</label><div class="total-check"><b>${yen(declared)}</b></div></div>
+      <div class="field"><label>実際に数えた現金</label><input type="number" id="cfActual" class="amount-input" inputmode="numeric" min="0" value="${declared}"><p class="hint">会計担当が実際の現金を数えて入力してください。</p></div>
+      <div class="total-check"><span>差額</span><b id="cfDiff">¥0</b></div>
+      <div id="cfDiffNote" class="hint" style="margin-top:8px">一致しています。受取確認すると出納帳の会費収入として確定します。</div>
+      <div class="btn-row" style="margin-top:16px"><button class="btn btn-ghost" id="cfCancel">キャンセル</button><button class="btn btn-moss" id="cfSubmit">受取確認する</button></div></div>`;
+    const refresh=()=>{const actual=Math.round(Number($('cfActual').value)||0), diff=actual-declared; $('cfDiff').textContent=(diff>0?'+':'')+yen(diff); $('cfDiffNote').textContent=diff===0?'一致しています。受取確認すると出納帳の会費収入として確定します。':`差額があります。申告 ${yen(declared)}／実際 ${yen(actual)}。確定せず班長へ差し戻します。`; $('cfSubmit').textContent=diff===0?'受取確認する':'班長へ差し戻す'; $('cfSubmit').className=`btn ${diff===0?'btn-moss':'btn-danger'}`;};
+    $('cfActual').oninput=refresh; refresh(); $('cfBack').onclick=$('cfCancel').onclick=()=>openDetail(e.id); $('cfSubmit').onclick=()=>saveCashFeeConfirmation(e); return;
   }
-  if(!confirm(`${yen(actual)} を現金で受け取りましたか？\n確認すると会費収入として出納帳に確定します。`)) return;
-  await R(`entries/${e.id}`).update({amount:actual,status:'approved',returnReason:null,cashFeeActualAmount:actual,cashFeeCheckedBy:me.uid,cashFeeCheckedByName:me.name,cashFeeCheckedAt:TS(),approvedBy:me.uid,approvedByName:me.name,approvedAt:TS(),updatedAt:TS(),updatedByName:me.name});
-  writeLog('現金会費受取確認',e,`${e.cashFeeBranch||''}${e.cashFeeGroup||''} ${e.cashFeeCount||0}件 ${yen(actual)}`); showToast('受取確認し、会費収入に登録しました'); openDetail(e.id);
+  const count=Number(e?.cashFeeCount)||''; const amount=Number(e?.cashFeeDeclaredAmount||e?.amount)||'';
+  el.innerHTML=`<button class="text-link" id="cfBack" style="padding-left:0">‹ ホームへ戻る</button>
+    <h2 class="section-title">${mode==='resubmit'?'現金会費を修正して再申告':'現金会費を会計へ渡す'}</h2><div class="form-card">
+    ${mode==='resubmit'&&e?.returnReason?`<div class="notice" style="cursor:default"><span class="n-body">差戻しの理由<span class="n-sub" style="color:var(--ink);font-size:13px">${esc(e.returnReason)}</span></span></div>`:''}
+    <div class="field"><label>支部・班</label><div class="total-check"><b>${esc(branch)} ${esc(group)}</b></div><p class="hint">登録されている所属を使用します。</p></div>
+    <div class="field"><label>現金で会費を納めた世帯数</label><input type="number" id="cfCount" inputmode="numeric" min="1" step="1" value="${count}" placeholder="例）12"><p class="hint">この班で、会費を現金で納めた世帯の数を入力してください。</p></div>
+    <div class="field"><label>世帯数からの参考金額</label><div class="total-check"><span id="cfCalcLabel">1世帯 ${yen(CASH_FEE_STANDARD)} × 0世帯</span><b id="cfCalc">¥0</b></div><p class="hint">現在の標準年会費を1世帯 ${yen(CASH_FEE_STANDARD)} として計算した参考額です。減免・途中加入などがある場合は、実際の引渡金額と異なっていて構いません。</p></div>
+    <div class="field"><label>会計へ引き渡す現金の金額</label><input type="number" id="cfAmount" class="amount-input" inputmode="numeric" min="1" value="${amount}" placeholder="0"><p class="hint">実際に会計担当へ渡す現金の合計額を入力してください。</p></div>
+    <div class="total-check"><span>参考金額との差</span><b id="cfDeclaredDiff">¥0</b></div>
+    <div class="btn-row" style="margin-top:16px"><button class="btn btn-ghost" id="cfCancel">キャンセル</button><button class="btn btn-navy" id="cfSubmit">${mode==='resubmit'?'修正して再申告':'会計へ申告する'}</button></div></div>`;
+  const refresh=()=>{const c=Math.max(0,Math.round(Number($('cfCount').value)||0)), calc=c*CASH_FEE_STANDARD; $('cfCalcLabel').textContent=`1世帯 ${yen(CASH_FEE_STANDARD)} × ${c}世帯`; $('cfCalc').textContent=yen(calc); if(!$('cfAmount').dataset.touched && !amount) $('cfAmount').value=calc||''; const a=Math.round(Number($('cfAmount').value)||0), d=a-calc; $('cfDeclaredDiff').textContent=(d>0?'+':'')+yen(d);};
+  $('cfCount').oninput=refresh; $('cfAmount').oninput=()=>{$('cfAmount').dataset.touched='1';refresh();}; refresh();
+  $('cfBack').onclick=$('cfCancel').onclick=()=>showScreen('homeScreen'); $('cfSubmit').onclick=()=>saveCashFeeRequest(mode,e,branch,group);
+}
+async function saveCashFeeRequest(mode,e,branch,group){
+  if(!isGroupLeader() || !cashFeeCollectionOpen()) return showToast('現在は会費徴収期間外です');
+  const count=Math.round(Number($('cfCount')?.value)||0), amount=Math.round(Number($('cfAmount')?.value)||0); if(count<=0) return showToast('現金で会費を納めた世帯数を入力してください'); if(amount<=0) return showToast('引渡金額を入力してください');
+  const acc=findCashFeeAccount(), method=findCashMethod(); if(!acc||!method) return showToast('収入科目または現金の受取方法が設定されていません');
+  const btn=$('cfSubmit'); btn.disabled=true;
+  try{
+    if(mode==='resubmit'){
+      await R(`entries/${e.id}`).update({cashFeeCount:count,cashFeeDeclaredAmount:amount,amount,status:'submitted',returnReason:null,cashFeeActualAmount:null,cashFeeCheckedBy:null,cashFeeCheckedByName:null,cashFeeCheckedAt:null,updatedAt:TS(),updatedByName:me.name});
+      writeLog('現金会費再申告',e,`${branch}${group} ${count}世帯 ${yen(amount)}`); notifyEntries([e.id]); showToast('修正して再申告しました'); openDetail(e.id); return;
+    }
+    const date=localDate(), fy=fyOf(date), ref=R('entries').push(), tx=await R(`counters/${fy}`).transaction(n=>(n||0)+1), voucherNo=`${fy}-${pad(tx.snapshot.val(),3)}`;
+    const data={type:'income',date,fy,voucherNo,amount,accountId:acc.id,methodId:method.id,payee:`${branch}${group}`,purpose:`${fy}年度自治会費（${branch}${group}）`,memo:'',payerId:null,storageLocation:'会計へ現金引渡し',noReceipt:true,noReceiptReason:'班で徴収した自治会費',excludePublic:false,photoCount:0,status:'submitted',settleState:'none',cashFeeRequest:true,cashFeeCount:count,cashFeeBranch:branch,cashFeeGroup:group,cashFeeDeclaredAmount:amount,createdBy:me.uid,createdByName:me.name,createdAt:TS(),updatedAt:TS(),updatedByName:me.name};
+    await ref.set(data); writeLog('現金会費引渡し申告',data,`${branch}${group} ${count}世帯 ${yen(amount)}`); notifyEntries([ref.key]); showToast('会計担当へ受取確認を依頼しました'); showScreen('homeScreen');
+  }catch(err){console.error(err);showToast('登録できませんでした（Firebase権限を確認してください）');} finally{if(btn){btn.disabled=false;}}
+}
+function resubmitCashFee(e){ openCashFeeForm('resubmit',e); }
+function confirmCashFee(e){ openCashFeeForm('confirm',e); }
+async function saveCashFeeConfirmation(e){
+  if(!isT()||!e.cashFeeRequest) return; const actual=Math.round(Number($('cfActual')?.value)||0); if(actual<=0) return showToast('確認した金額を入力してください'); const declared=Number(e.cashFeeDeclaredAmount||e.amount)||0, diff=actual-declared; const btn=$('cfSubmit'); btn.disabled=true;
+  try{
+    if(diff!==0){ const reason=`現金確認で差額があります。申告 ${yen(declared)}／実際 ${yen(actual)}／差額 ${diff>=0?'+':''}${yen(diff)}`; await R(`entries/${e.id}`).update({status:'returned',returnReason:reason,cashFeeActualAmount:actual,cashFeeCheckedBy:me.uid,cashFeeCheckedByName:me.name,cashFeeCheckedAt:TS(),updatedAt:TS(),updatedByName:me.name}); writeLog('現金会費差戻し',e,reason); showToast('差額ありとして班長へ差し戻しました'); openDetail(e.id); return; }
+    await R(`entries/${e.id}`).update({amount:actual,status:'approved',returnReason:null,cashFeeActualAmount:actual,cashFeeCheckedBy:me.uid,cashFeeCheckedByName:me.name,cashFeeCheckedAt:TS(),approvedBy:me.uid,approvedByName:me.name,approvedAt:TS(),updatedAt:TS(),updatedByName:me.name}); writeLog('現金会費受取確認',e,`${e.cashFeeBranch||''}${e.cashFeeGroup||''} ${e.cashFeeCount||0}世帯 ${yen(actual)}`); showToast('受取確認し、会費収入に登録しました'); openDetail(e.id);
+  }catch(err){console.error(err);showToast('処理できませんでした（Firebase権限を確認してください）');} finally{if(btn) btn.disabled=false;}
 }
 function renderPayerHome(el){
   if (!me.payerId) {
@@ -1933,7 +1948,7 @@ async function renderDetail(id){
       ${e.addressee?`<dt>宛名</dt><dd>${esc(e.addressee)}${addresseeWarning(e.addressee)?' <span class="stamp-tag" style="border-color:var(--amber);color:var(--amber)">要確認</span>':''}</dd>`:''}
       <dt>原本の保管</dt><dd>${esc(e.storageLocation||'－')}</dd>
       ${e.noReceipt?`<dt>領収証なし</dt><dd>${esc(e.noReceiptReason)}</dd>`:''}
-      ${e.cashFeeRequest?`<dt>現金会費</dt><dd>${esc(e.cashFeeBranch||'')} ${esc(e.cashFeeGroup||'')}　${Number(e.cashFeeCount)||0}件</dd><dt>申告額</dt><dd>${yen(e.cashFeeDeclaredAmount||e.amount)}</dd>${e.cashFeeCheckedAt?`<dt>現金確認</dt><dd>${esc(e.cashFeeCheckedByName||'')} ${fmtTs(e.cashFeeCheckedAt)}　${yen(e.cashFeeActualAmount||e.amount)}</dd>`:''}`:''}
+      ${e.cashFeeRequest?`<dt>現金会費</dt><dd>${esc(e.cashFeeBranch||'')} ${esc(e.cashFeeGroup||'')}　${Number(e.cashFeeCount)||0}世帯</dd><dt>申告額</dt><dd>${yen(e.cashFeeDeclaredAmount||e.amount)}</dd>${e.cashFeeCheckedAt?`<dt>現金確認</dt><dd>${esc(e.cashFeeCheckedByName||'')} ${fmtTs(e.cashFeeCheckedAt)}　${yen(e.cashFeeActualAmount||e.amount)}</dd>`:''}`:''}
       ${e.memo?`<dt>メモ</dt><dd>${esc(e.memo)}</dd>`:''}
       ${e.excludePublic?`<dt>公開</dt><dd>会員向け報告では明細を伏せる</dd>`:''}
     </dl>
@@ -1959,7 +1974,7 @@ async function renderDetail(id){
     </div>`;
   }
   if (isT() && e.status==='submitted' && e.selfApprovalRequired!==true) {
-    if(e.cashFeeRequest) html += `<div class="audit-box" style="border-color:var(--stamp-navy);margin-bottom:10px"><div style="font-weight:700;margin-bottom:5px">現金会費の受取確認</div><p class="hint">申告：${esc(e.cashFeeBranch||'')} ${esc(e.cashFeeGroup||'')}／${Number(e.cashFeeCount)||0}件／${yen(e.cashFeeDeclaredAmount||e.amount)}。現金を実際に数えてから確認してください。</p><div class="btn-row"><button class="btn btn-danger" id="dReturn">差し戻す</button><button class="btn btn-moss" id="cashFeeConfirmBtn">現金を数えて受取確認</button></div></div>`;
+    if(e.cashFeeRequest) html += `<div class="audit-box" style="border-color:var(--stamp-navy);margin-bottom:10px"><div style="font-weight:700;margin-bottom:5px">現金会費の受取確認</div><p class="hint">申告：${esc(e.cashFeeBranch||'')} ${esc(e.cashFeeGroup||'')}／${Number(e.cashFeeCount)||0}世帯／${yen(e.cashFeeDeclaredAmount||e.amount)}。現金を実際に数えてから確認してください。</p><div class="btn-row"><button class="btn btn-danger" id="dReturn">差し戻す</button><button class="btn btn-moss" id="cashFeeConfirmBtn">現金を数えて受取確認</button></div></div>`;
     else html += `<div class="btn-row" style="margin-bottom:10px"><button class="btn btn-danger" id="dReturn">差し戻す</button><button class="btn btn-moss" id="dApprove">${pv&&pv.provisional?'本登録して承認する':'承認する'}</button></div>`;
   }
   if (isViewer() && e.status==='submitted' && e.selfApprovalRequired===true && e.createdBy!==me.uid) {
@@ -1979,7 +1994,7 @@ async function renderDetail(id){
     </div>`;
   }
   if (canFixCashFee) {
-    html += `<div class="audit-box" style="border-color:var(--stamp-red);margin-bottom:10px"><div style="font-weight:700;margin-bottom:5px">現金会費を修正して再申告</div><p class="hint">差戻し理由：${esc(e.returnReason||'内容を確認してください')}</p><div class="btn-row"><button class="btn btn-navy" id="cashFeeResubmitBtn">件数・金額を修正して再申告</button></div></div>`;
+    html += `<div class="audit-box" style="border-color:var(--stamp-red);margin-bottom:10px"><div style="font-weight:700;margin-bottom:5px">現金会費を修正して再申告</div><p class="hint">差戻し理由：${esc(e.returnReason||'内容を確認してください')}</p><div class="btn-row"><button class="btn btn-navy" id="cashFeeResubmitBtn">世帯数・金額を修正して再申告</button></div></div>`;
   }
   if (canEditT || canEditP) {
     html += `<div class="btn-row"><button class="btn btn-ghost" id="dEdit">${isP()&&e.status==='returned'?'修正して再申請':'修正する'}</button></div>
@@ -2068,7 +2083,7 @@ async function approveOne(e){
   writeLog('承認', e, `${payerName(e.payerId)} ${e.purpose||e.payee||''}`);
 }
 async function returnEntry(e){
-  const reason = prompt('差し戻す理由を入力してください（申請者に表示されます）', e.cashFeeRequest ? '件数または金額を確認してください' : '領収証の宛名を町内会名にしてもらってください');
+  const reason = prompt('差し戻す理由を入力してください（申請者に表示されます）', e.cashFeeRequest ? '世帯数または金額を確認してください' : '領収証の宛名を町内会名にしてもらってください');
   if (reason===null) return;
   await R(`entries/${e.id}`).update({ status:'returned', returnReason: reason.trim() || '内容を確認してください' });
   writeLog('差戻し', e, reason);
