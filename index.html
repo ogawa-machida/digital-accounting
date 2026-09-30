@@ -595,7 +595,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.09.30-16';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.01-17';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -657,7 +657,7 @@ const PALETTE = ['#B4432C','#2E5E7C','#7A8450','#9C6B3E','#7D5A8C','#3E7C6B','#B
 const ROLES = {
   treasurer:{ name:'会計', desc:'すべての登録・承認・精算・設定' },
   auditor:  { name:'監査', desc:'全件の閲覧と監査チェック' },
-  viewer:   { name:'役員', desc:'全件の閲覧・会計本人申請の承認・自分の支出申請と精算確認' },
+  viewer:   { name:'役員', desc:'本部役員または班長。全件の閲覧・会計本人申請の承認・自分の支出申請と精算確認' },
   payer:    { name:'支払者', desc:'自分の支出の申請と精算の確認' },
   report:   { name:'会員', desc:'承認済みの会計報告を閲覧' },
   guest:    { name:'仮登録', desc:'初回の申請が承認されると本登録（申請はすぐにできます）' },
@@ -705,6 +705,8 @@ function isA(){ return me && me.role==='auditor'; }
 function isP(){ return me && (me.role==='payer' || me.role==='guest'); }
 function canOwnSubmit(){ return me && ['payer','guest','viewer'].includes(me.role) && !!me.payerId; }
 function isViewer(){ return me && me.role==='viewer'; }
+function isGroupLeader(){ return isViewer() && me.officerType==='leader'; }
+function cashFeeCollectionOpen(){ return !!(settings.cashFeeCollection && settings.cashFeeCollection.active); }
 function isGuest(){ return me && me.role==='guest'; }
 function accById(id){ return accounts.find(a=>a.id===id); }
 function methodById(id){ return methods.find(m=>m.id===id); }
@@ -1349,11 +1351,11 @@ function renderHome(){
 
   const cashWaiting = fyEntries().filter(e=>e.cashFeeRequest && e.status==='submitted');
   if (isT() && cashWaiting.length) html += `<button class="notice navy" id="cashFeeWaitingBtn"><span class="n-body">現金会費の受取待ち<span class="n-sub">班長等から現金を受け取り、数えて確認してください</span></span><span class="n-val">${cashWaiting.length}件</span></button>`;
-  if (isViewer()) {
+  if (isGroupLeader() && cashFeeCollectionOpen()) {
     const myCash = fyEntries().filter(e=>e.cashFeeRequest && e.createdBy===me.uid);
     const wait = myCash.filter(e=>e.status==='submitted').length;
     const ret = myCash.filter(e=>e.status==='returned').length;
-    html += `<div class="panel" style="margin:12px 0 16px"><h3>現金会費を会計へ渡す</h3><p class="hint">班で集めた現金会費を申告します。会計担当が現金を数えて確認するまで、出納帳の収入には確定しません。</p><div class="btn-row"><button class="btn btn-navy" id="cashFeeNewBtn">現金会費を引き渡す</button></div>${wait?`<p class="hint">受取確認待ち：${wait}件</p>`:''}${ret?`<p class="hint" style="color:var(--stamp-red)">差戻し：${ret}件</p>`:''}</div>`;
+    html += `<div class="panel" style="margin:12px 0 16px"><h3>現金会費を会計へ渡す</h3><p class="hint">会費徴収期間中です。班で集めた現金会費を申告します。会計担当が現金を数えて確認するまで、出納帳の収入には確定しません。</p><div class="btn-row"><button class="btn btn-navy" id="cashFeeNewBtn">現金会費を引き渡す</button></div>${wait?`<p class="hint">受取確認待ち：${wait}件</p>`:''}${ret?`<p class="hint" style="color:var(--stamp-red)">差戻し：${ret}件</p>`:''}</div>`;
   }
 
   if (isT() && treasurerActionable.length) html += `<button class="notice amber" data-go="submitted"><span class="n-body">承認待ちの申請<span class="n-sub">支払者から届いた領収証を確認してください</span></span><span class="n-val">${treasurerActionable.length}件</span></button>`;
@@ -1396,7 +1398,7 @@ function budgetPanel(ap){
 }
 
 async function submitCashFeeRequest(){
-  if (!isViewer()) return;
+  if (!isGroupLeader() || !cashFeeCollectionOpen()) return showToast('現在は班長による会費徴収の受付期間外です');
   const branch = me.branch || ''; const group = me.group || '';
   if (!branch || !group) return showToast('先に支部・班を登録してください');
   const countRaw = prompt(`${branch} ${group}\n現金で集めた会費の件数を入力してください`, '');
@@ -2466,6 +2468,16 @@ function renderSettings(){
       <div class="field"><label>${curFY}年度の前年度繰越金</label><input type="number" id="sOpening" class="amount-input" value="${opening}" inputmode="numeric"></div>
       <button class="btn btn-primary full" id="sSaveOrg">保存する</button></div>`;
 
+    const cashFeeOpen = cashFeeCollectionOpen();
+    const cashFeeInfo = settings.cashFeeCollection || {};
+    html += `<h2 class="section-title" style="margin-top:20px">会費徴収期間</h2><div class="form-card">
+      <div class="total-check"><span>現在の状態</span><b style="color:${cashFeeOpen?'var(--moss)':'var(--ink-soft)'}">${cashFeeOpen?'会費徴収中':'徴収期間外'}</b></div>
+      <p class="hint" style="margin-top:10px">「会費徴収開始」にすると、班長のホームにだけ「現金会費を会計へ渡す」が表示されます。「会費徴収終了」にすると非表示になります。本部役員には表示されません。</p>
+      ${cashFeeOpen && cashFeeInfo.startedAt?`<p class="hint">開始：${fmtTs(cashFeeInfo.startedAt)}　${esc(cashFeeInfo.startedByName||'')}</p>`:''}
+      ${!cashFeeOpen && cashFeeInfo.endedAt?`<p class="hint">前回終了：${fmtTs(cashFeeInfo.endedAt)}　${esc(cashFeeInfo.endedByName||'')}</p>`:''}
+      <button class="btn ${cashFeeOpen?'btn-danger':'btn-moss'} full" id="cashFeePeriodBtn">${cashFeeOpen?'会費徴収を終了する':'会費徴収を開始する'}</button>
+    </div>`;
+
     const reconOpening = Number((settings.opening||{})[curFY])||0;
     const reconIncome = approvedFY().filter(e=>e.type==='income').reduce((n,e)=>n+(Number(e.amount)||0),0);
     const reconExpense = approvedFY().filter(e=>e.type==='expense').reduce((n,e)=>n+(Number(e.amount)||0),0);
@@ -2517,6 +2529,7 @@ function renderSettings(){
       ms.map(m=>`<div class="cat-row" style="flex-wrap:wrap;${m.role==='pending'||m.role==='guest'?'border-color:var(--amber)':''}">
         <span class="cname" style="flex-basis:100%">${esc(m.name)}<small>${esc(m.email)}${m.branch?`・${esc(m.branch)} ${esc(m.group||'')}`:''}${m.requestType==='report'?'・会計報告閲覧申請':''}${m.id===me.uid?'（あなた）':''}</small></span>
         <select data-role="${m.id}" ${m.id===me.uid?'disabled':''}>${Object.entries(ROLES).map(([k,r])=>`<option value="${k}" ${m.role===k?'selected':''}>${r.name}</option>`).join('')}</select>
+        ${m.role==='viewer'?`<select data-officertype="${m.id}" title="役員区分"><option value="headquarters" ${(m.officerType||'headquarters')==='headquarters'?'selected':''}>本部役員</option><option value="leader" ${m.officerType==='leader'?'selected':''}>班長</option></select>`:''}
         <select data-link="${m.id}"><option value="">名簿と紐付けない</option>${payers.map(p=>`<option value="${p.id}" ${m.payerId===p.id?'selected':''}>${esc(payerLabel(p.id))}</option>`).join('')}</select>
         <div class="inline-add" style="flex-basis:100%;margin:4px 0 0">
           <select data-mbranch="${m.id}" style="flex:1"></select><select data-mgroup="${m.id}" style="flex:1"></select>
@@ -2524,7 +2537,7 @@ function renderSettings(){
           ${m.id===me.uid?'':`<button class="btn btn-ghost sm" data-delmember="${m.id}" style="color:var(--stamp-red);border-color:var(--stamp-red)">削除</button>`}
         </div>
       </div>`).join('') +
-      `<p class="hint">会計＝全操作／監査＝全件閲覧と監査チェック／役員＝全件閲覧／支払者＝自分の申請と精算確認／利用申請中＝初めてログインし、会計担当の権限設定を待っている人。</p>`;
+      `<p class="hint">会計＝全操作／監査＝全件閲覧と監査チェック／本部役員＝全件閲覧・会計本人申請の承認／班長＝本部役員と同じ基本権限＋会費徴収期間中の現金会費引渡し／支払者＝自分の申請と精算確認。</p>`;
 
     const trs = members.filter(m=>m.role==='treasurer');
     html += `<h2 class="section-title" style="margin-top:20px">会費ペイから会費収入を取り込む</h2><div class="form-card">
@@ -2588,7 +2601,7 @@ function organizeTreasurerSettings(){
   const root=$('settingsScreen'); if(!root) return;
   const defs=[
     {id:'people', icon:'👥', title:'利用者・名簿', sub:'権限、支部・班、支払者名簿', heads:['支払者名簿','アプリの利用者と権限']},
-    {id:'money', icon:'💰', title:'会計の基本設定', sub:'団体情報、科目・予算、支払方法', heads:['団体の情報','現預金残高の確認',`科目と${curFY}年度の予算`,'支払方法']},
+    {id:'money', icon:'💰', title:'会計の基本設定', sub:'団体情報、会費徴収期間、科目・予算、支払方法', heads:['団体の情報','会費徴収期間','現預金残高の確認',`科目と${curFY}年度の予算`,'支払方法']},
     {id:'report', icon:'📊', title:'会員向け会計報告', sub:'公開内容の設定・報告の更新', heads:['会員向けの会計報告']},
     {id:'data', icon:'💾', title:'データ管理', sub:'Excel取込、会費ペイ、バックアップ', heads:['会費ペイから会費収入を取り込む','データの取り込み・バックアップ']},
     {id:'notice', icon:'✉️', title:'メール通知', sub:'承認依頼の通知設定・テスト', heads:['承認依頼のメール通知']},
@@ -2662,6 +2675,18 @@ function bindSettings(){
     await R(`settings/opening/${curFY}`).set(Math.round(Number($('sOpening').value)||0));
     writeLog('設定変更', null, `団体名・年度・${curFY}年度繰越金`);
     showToast('保存しました');
+  };
+  if ($('cashFeePeriodBtn')) $('cashFeePeriodBtn').onclick = async () => {
+    const open=cashFeeCollectionOpen();
+    const action=open?'終了':'開始';
+    if(!confirm(`会費徴収を${action}しますか？\n\n${open?'終了すると班長の「現金会費を会計へ渡す」は非表示になります。':'開始すると班長のホームに「現金会費を会計へ渡す」が表示されます。'}`)) return;
+    const data=open
+      ? {active:false, endedAt:TS(), endedBy:me.uid, endedByName:me.name}
+      : {active:true, startedAt:TS(), startedBy:me.uid, startedByName:me.name, endedAt:null, endedBy:null, endedByName:null};
+    await R('settings/cashFeeCollection').update(data);
+    writeLog(`会費徴収${action}`, null, `${curFY}年度`);
+    showToast(`会費徴収を${action}しました`);
+    setTimeout(renderSettings,250);
   };
   const updateReconPreview = () => {
     const bank=$('reconBank'), cash=$('reconCash'), out=$('reconPreview'); if(!bank||!cash||!out) return;
@@ -2742,6 +2767,8 @@ function bindSettings(){
     const newRole = s.value;
     const ups = {};
     ups[`members/${m.id}/role`] = newRole;
+    if (newRole==='viewer' && oldRole!=='viewer') ups[`members/${m.id}/officerType`] = 'headquarters';
+    if (oldRole==='viewer' && newRole!=='viewer') ups[`members/${m.id}/officerType`] = null;
     // 仮登録者を直接、本登録する。支払者・役員は支払者名簿を残し、監査は支払いと切り離す。
     if (m.role==='guest' && m.payerId) {
       const pp = payerById(m.payerId);
@@ -2756,6 +2783,12 @@ function bindSettings(){
     writeLog('権限変更', null, `${m.name}：${ROLES[oldRole]?.name}→${ROLES[newRole]?.name}`);
     showToast(`${m.name}さんを「${ROLES[newRole].name}」にしました`);
     if (['treasurer','viewer'].includes(newRole) || ['treasurer','viewer'].includes(oldRole)) setTimeout(()=>syncRecipients(), 800);
+  });
+  q('[data-officertype]').forEach(sel => sel.onchange = async () => {
+    const m=members.find(x=>x.id===sel.dataset.officertype); if(!m || m.role!=='viewer') return;
+    await R(`members/${m.id}/officerType`).set(sel.value);
+    writeLog('役員区分変更', null, `${m.name}：${sel.value==='leader'?'班長':'本部役員'}`);
+    showToast(`${m.name}さんを「${sel.value==='leader'?'班長':'本部役員'}」にしました`);
   });
   q('[data-link]').forEach(s => s.onchange = async () => {
     const m = members.find(x=>x.id===s.dataset.link);
