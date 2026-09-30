@@ -566,7 +566,7 @@ p,.hint,.notice,.slip-title,.slip-memo,.person-row,.cat-row,.settings-task-btn,
     <section id="budgetImportScreen" class="screen"></section>
     <section id="importScreen" class="screen"></section>
     <input type="file" id="importInput" accept=".csv,.tsv,.txt,.xlsx,.xls,text/csv" style="display:none;">
-    <input type="file" id="kaihipayInput" accept=".xlsx" style="display:none;">
+    <input type="file" id="kaihipayInput" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none;">
     <input type="file" id="batchInput" accept="image/*" multiple style="display:none;">
     <input type="file" id="batchCamera" accept="image/*" capture="environment" style="display:none;">
     <input type="file" id="budgetInput" accept="image/*" multiple style="display:none;">
@@ -595,7 +595,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.09.30-14';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.09.30-16';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -712,6 +712,10 @@ function payerById(id){ return payers.find(p=>p.id===id); }
 function payerName(id){ const p=payerById(id); return p ? p.name : ''; }
 function payerLabel(id){ const p=payerById(id); return p ? `${p.name}${p.post?`（${p.post}）`:''}` : ''; }
 function needsSettle(e){ const m=methodById(e.methodId); return e.type==='expense' && !!(m && m.settle); }
+function cashFeeRequests(){ return allEntries().filter(e=>e.cashFeeRequest); }
+function findCashFeeAccount(){ return accounts.find(a=>a.type==='income' && a.active && /会費/.test(a.name)) || accounts.find(a=>a.type==='income' && a.active); }
+function findCashMethod(){ return methods.find(m=>(m.use==='income'||m.use==='both') && m.active && /現金/.test(m.name)) || methods.find(m=>(m.use==='income'||m.use==='both') && m.active); }
+
 
 let toastTimer;
 function showToast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove('show'), 2600); }
@@ -1343,6 +1347,15 @@ function renderHome(){
     <div><div class="lbl">残高</div><div class="val big">${yen(opening+inc-exp)}</div></div>
   </div>`;
 
+  const cashWaiting = fyEntries().filter(e=>e.cashFeeRequest && e.status==='submitted');
+  if (isT() && cashWaiting.length) html += `<button class="notice navy" id="cashFeeWaitingBtn"><span class="n-body">現金会費の受取待ち<span class="n-sub">班長等から現金を受け取り、数えて確認してください</span></span><span class="n-val">${cashWaiting.length}件</span></button>`;
+  if (isViewer()) {
+    const myCash = fyEntries().filter(e=>e.cashFeeRequest && e.createdBy===me.uid);
+    const wait = myCash.filter(e=>e.status==='submitted').length;
+    const ret = myCash.filter(e=>e.status==='returned').length;
+    html += `<div class="panel" style="margin:12px 0 16px"><h3>現金会費を会計へ渡す</h3><p class="hint">班で集めた現金会費を申告します。会計担当が現金を数えて確認するまで、出納帳の収入には確定しません。</p><div class="btn-row"><button class="btn btn-navy" id="cashFeeNewBtn">現金会費を引き渡す</button></div>${wait?`<p class="hint">受取確認待ち：${wait}件</p>`:''}${ret?`<p class="hint" style="color:var(--stamp-red)">差戻し：${ret}件</p>`:''}</div>`;
+  }
+
   if (isT() && treasurerActionable.length) html += `<button class="notice amber" data-go="submitted"><span class="n-body">承認待ちの申請<span class="n-sub">支払者から届いた領収証を確認してください</span></span><span class="n-val">${treasurerActionable.length}件</span></button>`;
   if (isViewer() && viewerActionable.length) html += `<button class="notice amber" data-go="submitted"><span class="n-body">会計担当から承認依頼<span class="n-sub">会計担当本人の支出を確認してください</span></span><span class="n-val">${viewerActionable.length}件</span></button>`;
   if (returned.length) html += `<button class="notice" data-go="returned"><span class="n-body">差戻し中<span class="n-sub">申請者の修正待ち</span></span><span class="n-val">${returned.length}件</span></button>`;
@@ -1382,6 +1395,47 @@ function budgetPanel(ap){
           ${i?`<div class="panel"><h3>収入の予算達成 <small>実績 ／ 予算</small></h3>${i}</div>`:''}`;
 }
 
+async function submitCashFeeRequest(){
+  if (!isViewer()) return;
+  const branch = me.branch || ''; const group = me.group || '';
+  if (!branch || !group) return showToast('先に支部・班を登録してください');
+  const countRaw = prompt(`${branch} ${group}\n現金で集めた会費の件数を入力してください`, '');
+  if (countRaw===null) return;
+  const count = Math.round(Number(String(countRaw).replace(/[^0-9.-]/g,''))||0);
+  if (count<=0) return showToast('件数を正しく入力してください');
+  const amountRaw = prompt(`${count}件分の現金会費の合計金額を入力してください`, String(count*2400));
+  if (amountRaw===null) return;
+  const amount = Math.round(Number(String(amountRaw).replace(/[^0-9.-]/g,''))||0);
+  if (amount<=0) return showToast('金額を正しく入力してください');
+  if (!confirm(`${branch} ${group}\n${count}件　${yen(amount)}\n\n会計担当へ引き渡す現金として申告しますか？`)) return;
+  const acc=findCashFeeAccount(), method=findCashMethod();
+  if(!acc || !method) return showToast('収入科目または現金の受取方法が設定されていません');
+  try{
+    const date=localDate(), fy=fyOf(date), ref=R('entries').push();
+    const tx=await R(`counters/${fy}`).transaction(n=>(n||0)+1);
+    const voucherNo=`${fy}-${pad(tx.snapshot.val(),3)}`;
+    const data={type:'income',date,fy,voucherNo,amount,accountId:acc.id,methodId:method.id,payee:`${branch}${group}`,purpose:`${fy}年度自治会費（${branch}${group}）`,memo:'',payerId:null,storageLocation:'会計へ現金引渡し',noReceipt:true,noReceiptReason:'班で徴収した自治会費',excludePublic:false,photoCount:0,status:'submitted',settleState:'none',cashFeeRequest:true,cashFeeCount:count,cashFeeBranch:branch,cashFeeGroup:group,cashFeeDeclaredAmount:amount,createdBy:me.uid,createdByName:me.name,createdAt:TS(),updatedAt:TS(),updatedByName:me.name};
+    await ref.set(data); writeLog('現金会費引渡し申告',data,`${branch}${group} ${count}件 ${yen(amount)}`); notifyEntries([ref.key]); showToast('会計担当へ受取確認を依頼しました');
+  }catch(err){console.error(err);showToast('登録できませんでした（Firebase権限を確認してください）');}
+}
+async function confirmCashFee(e){
+  if(!isT() || !e.cashFeeRequest) return;
+  const raw=prompt(`申告額 ${yen(e.cashFeeDeclaredAmount||e.amount)}\n実際に数えた現金の金額を入力してください`, String(e.cashFeeDeclaredAmount||e.amount));
+  if(raw===null) return;
+  const actual=Math.round(Number(String(raw).replace(/[^0-9.-]/g,''))||0);
+  if(actual<=0) return showToast('確認した金額を入力してください');
+  const declared=Number(e.cashFeeDeclaredAmount||e.amount)||0;
+  if(actual!==declared){
+    const diff=actual-declared;
+    const reason=`現金確認で差額があります。申告 ${yen(declared)}／実際 ${yen(actual)}／差額 ${diff>=0?'+':''}${yen(diff)}`;
+    if(!confirm(`${reason}\n\n班長へ差し戻しますか？`)) return;
+    await R(`entries/${e.id}`).update({status:'returned',returnReason:reason,cashFeeActualAmount:actual,cashFeeCheckedBy:me.uid,cashFeeCheckedByName:me.name,cashFeeCheckedAt:TS(),updatedAt:TS(),updatedByName:me.name});
+    writeLog('現金会費差戻し',e,reason); showToast('差額ありとして差し戻しました'); openDetail(e.id); return;
+  }
+  if(!confirm(`${yen(actual)} を現金で受け取りましたか？\n確認すると会費収入として出納帳に確定します。`)) return;
+  await R(`entries/${e.id}`).update({amount:actual,status:'approved',returnReason:null,cashFeeActualAmount:actual,cashFeeCheckedBy:me.uid,cashFeeCheckedByName:me.name,cashFeeCheckedAt:TS(),approvedBy:me.uid,approvedByName:me.name,approvedAt:TS(),updatedAt:TS(),updatedByName:me.name});
+  writeLog('現金会費受取確認',e,`${e.cashFeeBranch||''}${e.cashFeeGroup||''} ${e.cashFeeCount||0}件 ${yen(actual)}`); showToast('受取確認し、会費収入に登録しました'); openDetail(e.id);
+}
 function renderPayerHome(el){
   if (!me.payerId) {
     el.innerHTML = `<div class="empty"><div class="mark-big">準備<br>中</div>会計担当があなたを支払者名簿と紐付けると、<br>支出の申請ができるようになります。</div>`;
@@ -1837,8 +1891,8 @@ async function renderDetail(id){
   const acc = accById(e.accountId), m = methodById(e.methodId);
   const inc = e.type==='income';
   const stl = e.settlementId ? settlements.find(s=>s.id===e.settlementId) : null;
-  const canEditT = isT();
-  const canEditP = (isP() || (isViewer() && e.createdBy===me.uid)) && e.status!=='approved';
+  const canEditT = isT() && !e.cashFeeRequest;
+  const canEditP = !e.cashFeeRequest && (isP() || (isViewer() && e.createdBy===me.uid)) && e.status!=='approved';
   const keepAudit = $('auditComment') ? $('auditComment').value : '';
 
   let html = `<button class="text-link" id="detailBack" style="padding-left:0">‹ 一覧へ戻る</button>
@@ -1860,6 +1914,7 @@ async function renderDetail(id){
       ${e.addressee?`<dt>宛名</dt><dd>${esc(e.addressee)}${addresseeWarning(e.addressee)?' <span class="stamp-tag" style="border-color:var(--amber);color:var(--amber)">要確認</span>':''}</dd>`:''}
       <dt>原本の保管</dt><dd>${esc(e.storageLocation||'－')}</dd>
       ${e.noReceipt?`<dt>領収証なし</dt><dd>${esc(e.noReceiptReason)}</dd>`:''}
+      ${e.cashFeeRequest?`<dt>現金会費</dt><dd>${esc(e.cashFeeBranch||'')} ${esc(e.cashFeeGroup||'')}　${Number(e.cashFeeCount)||0}件</dd><dt>申告額</dt><dd>${yen(e.cashFeeDeclaredAmount||e.amount)}</dd>${e.cashFeeCheckedAt?`<dt>現金確認</dt><dd>${esc(e.cashFeeCheckedByName||'')} ${fmtTs(e.cashFeeCheckedAt)}　${yen(e.cashFeeActualAmount||e.amount)}</dd>`:''}`:''}
       ${e.memo?`<dt>メモ</dt><dd>${esc(e.memo)}</dd>`:''}
       ${e.excludePublic?`<dt>公開</dt><dd>会員向け報告では明細を伏せる</dd>`:''}
     </dl>
@@ -1885,7 +1940,8 @@ async function renderDetail(id){
     </div>`;
   }
   if (isT() && e.status==='submitted' && e.selfApprovalRequired!==true) {
-    html += `<div class="btn-row" style="margin-bottom:10px"><button class="btn btn-danger" id="dReturn">差し戻す</button><button class="btn btn-moss" id="dApprove">${pv&&pv.provisional?'本登録して承認する':'承認する'}</button></div>`;
+    if(e.cashFeeRequest) html += `<div class="audit-box" style="border-color:var(--stamp-navy);margin-bottom:10px"><div style="font-weight:700;margin-bottom:5px">現金会費の受取確認</div><p class="hint">申告：${esc(e.cashFeeBranch||'')} ${esc(e.cashFeeGroup||'')}／${Number(e.cashFeeCount)||0}件／${yen(e.cashFeeDeclaredAmount||e.amount)}。現金を実際に数えてから確認してください。</p><div class="btn-row"><button class="btn btn-danger" id="dReturn">差し戻す</button><button class="btn btn-moss" id="cashFeeConfirmBtn">現金を数えて受取確認</button></div></div>`;
+    else html += `<div class="btn-row" style="margin-bottom:10px"><button class="btn btn-danger" id="dReturn">差し戻す</button><button class="btn btn-moss" id="dApprove">${pv&&pv.provisional?'本登録して承認する':'承認する'}</button></div>`;
   }
   if (isViewer() && e.status==='submitted' && e.selfApprovalRequired===true && e.createdBy!==me.uid) {
     html += `<div class="audit-box" style="border-color:var(--amber);margin-bottom:10px"><div style="font-weight:700;font-size:13.5px;margin-bottom:4px">会計担当本人の支出です</div><p class="hint" style="margin:0 0 8px">自己承認を防ぐため、役員が内容と領収証を確認して承認します。</p><div class="btn-row"><button class="btn btn-danger" id="dReturn">差し戻す</button><button class="btn btn-moss" id="dApprove">承認する</button></div></div>`;
@@ -1913,6 +1969,7 @@ async function renderDetail(id){
   if ($('dEdit')) $('dEdit').onclick = () => openForm(e);
   if ($('dDelete')) $('dDelete').onclick = () => deleteEntry(e);
   if ($('dApprove')) $('dApprove').onclick = () => approveEntry(e, $('gTarget') ? $('gTarget').value : null, $('gRole') ? $('gRole').value : null);
+  if ($('cashFeeConfirmBtn')) $('cashFeeConfirmBtn').onclick = () => confirmCashFee(e);
   if ($('gReject')) $('gReject').onclick = () => rejectGuest(e);
   if ($('dReturn')) $('dReturn').onclick = () => returnEntry(e);
   if ($('aOk')) $('aOk').onclick = () => auditEntry(e, 'ok');
@@ -1988,7 +2045,7 @@ async function approveOne(e){
   writeLog('承認', e, `${payerName(e.payerId)} ${e.purpose||e.payee||''}`);
 }
 async function returnEntry(e){
-  const reason = prompt('差し戻す理由を入力してください（支払者に表示されます）', '領収証の宛名を町内会名にしてもらってください');
+  const reason = prompt('差し戻す理由を入力してください（申請者に表示されます）', e.cashFeeRequest ? '件数または金額を確認してください' : '領収証の宛名を町内会名にしてもらってください');
   if (reason===null) return;
   await R(`entries/${e.id}`).update({ status:'returned', returnReason: reason.trim() || '内容を確認してください' });
   writeLog('差戻し', e, reason);
@@ -2471,8 +2528,8 @@ function renderSettings(){
 
     const trs = members.filter(m=>m.role==='treasurer');
     html += `<h2 class="section-title" style="margin-top:20px">会費ペイから会費収入を取り込む</h2><div class="form-card">
-      <p class="hint" style="margin-top:0">会費ペイのエクスポートExcel（.xlsx）を端末内で解析し、「入金済」の件数と合計額だけを会計へ登録します。氏名・会員番号・決済SID・支払番号などの個人情報や元ExcelファイルはFirebaseへ保存しません。</p>
-      <button class="btn btn-navy full" id="kaihipayBtn">📥 会費ペイExcelを選ぶ</button>
+      <p class="hint" style="margin-top:0">会費ペイのエクスポートファイル（CSV／Excel）を端末内で解析し、「入金済」の件数と合計額だけを会計へ登録します。氏名・会員番号・決済SID・支払番号などの個人情報や元ファイルはFirebaseへ保存しません。</p>
+      <button class="btn btn-navy full" id="kaihipayBtn">📥 会費ペイCSV／Excelを選ぶ</button>
       <div id="kaihipayPreview" style="margin-top:12px"></div>
     </div>`;
 
@@ -3223,18 +3280,28 @@ let kaihipayImport = null;
 $('kaihipayInput').onchange = async e => {
   const file=e.target.files[0]; e.target.value='';
   if(!file) return;
-  if(!/\.xlsx$/i.test(file.name)) return showToast('会費ペイのExcel（.xlsx）を選んでください');
+  if(!/\.(csv|xlsx)$/i.test(file.name)) return showToast('会費ペイのCSVまたはExcel（.xlsx）を選んでください');
   const box=$('kaihipayPreview');
-  if(box) box.innerHTML='<p class="hint">Excelを端末内で確認しています…</p>';
+  if(box) box.innerHTML='<p class="hint">ファイルを端末内で確認しています…</p>';
   try{
-    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
-    const wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true});
-    const ws=wb.Sheets[wb.SheetNames[0]];
-    const rows=XLSX.utils.sheet_to_json(ws,{defval:'',raw:true});
+    let rows=[];
+    if(/\.csv$/i.test(file.name)){
+      const table=parseCsv(await readTextSmart(file));
+      if(table.length){
+        const headers=table[0].map(v=>String(v??'').trim());
+        rows=table.slice(1).filter(r=>r.some(v=>String(v??'').trim()!==''))
+          .map(r=>Object.fromEntries(headers.map((h,i)=>[h,r[i]??''])));
+      }
+    } else {
+      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
+      const wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      rows=XLSX.utils.sheet_to_json(ws,{defval:'',raw:true});
+    }
     const required=['入金ステータス','入金日時','決済方法','請求金額'];
     if(!rows.length || required.some(k=>!(k in rows[0]))) throw new Error('会費ペイのエクスポート形式を確認できませんでした');
     const paid=rows.filter(r=>String(r['入金ステータス']).trim()==='入金済');
-    const amount=paid.reduce((n,r)=>n+(Number(r['請求金額'])||0),0);
+    const amount=paid.reduce((n,r)=>n+kaihipayAmount(r['請求金額']),0);
     const dates=paid.map(r=>kaihipayDate(r['入金日時']||r['決済日'])).filter(Boolean).sort();
     const methods=[...new Set(paid.map(r=>String(r['決済方法']||'').trim()).filter(Boolean))];
     const courses=[...new Set(paid.map(r=>String(r['コース / 請求名']||'').trim()).filter(Boolean))];
@@ -3245,6 +3312,10 @@ $('kaihipayInput').onchange = async e => {
     renderKaihipayPreview();
   }catch(err){ console.error(err); kaihipayImport=null; if(box) box.innerHTML=`<p class="hint" style="color:var(--stamp-red)">${esc(String(err.message||err))}</p>`; }
 };
+function kaihipayAmount(v){
+  const n=Number(String(v??'').replace(/[,￥¥\s]/g,''));
+  return Number.isFinite(n)?n:0;
+}
 function kaihipayDate(v){
   if(!v) return '';
   if(v instanceof Date && !isNaN(v)) return localDate(v);
@@ -3278,7 +3349,7 @@ async function saveKaihipayIncome(){
   const fy=fyOf(date);
   const hist=Object.values((((settings.kaihipayImports||{})[fy])||{}));
   if(hist.some(x=>x.fingerprint===d.fingerprint)) return showToast('同じ集計内容はすでに取り込まれています');
-  if(!confirm(`会費ペイの入金済 ${d.count}件・${yen(d.amount)} を、\n${fmtDateFull(date)} の会費収入として1件登録します。\n\n個人情報と元Excelは保存しません。よろしいですか？`)) return;
+  if(!confirm(`会費ペイの入金済 ${d.count}件・${yen(d.amount)} を、\n${fmtDateFull(date)} の会費収入として1件登録します。\n\n個人情報と元ファイルは保存しません。よろしいですか？`)) return;
   const btn=$('kaihipayDo'); btn.disabled=true; btn.textContent='登録中…';
   try{
     const tx=await R(`counters/${fy}`).transaction(n=>(n||0)+1);
