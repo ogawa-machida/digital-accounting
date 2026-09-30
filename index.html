@@ -282,6 +282,59 @@ table.pub th{font-family:'Shippori Mincho',serif; background:var(--tint);}
 .settings-task-btn span:nth-child(2){flex:1;min-width:0}.settings-task-btn b{display:block;font-size:14px}.settings-task-btn small{display:block;color:var(--ink-soft);font-size:11.5px;margin-top:2px;font-weight:400}
 .settings-task-arrow{font-size:24px;color:var(--ink-soft)}
 .settings-task-panel>.section-title:first-child{margin-top:4px!important}
+
+
+/* ===== 文字組み・改行の全体最適化 2026.09.30-10 ===== */
+html{font-size:16px;}
+body{line-break:strict; overflow-wrap:normal; word-break:normal;}
+p,.hint,.notice,.slip-title,.slip-memo,.person-row,.cat-row,.settings-task-btn,
+.field>label,.check-line,.empty,.history,.kv dd,.panel,.center-wrap{
+  line-break:strict;
+  word-break:normal;
+  overflow-wrap:break-word;
+  text-wrap:pretty;
+}
+/* 括弧内は可能な限り一まとまりで表示。入らない時は括弧の頭から次行へ */
+.keep-together{white-space:nowrap; display:inline-block; max-width:100%;}
+/* 長い説明文は少し広く、行間も確保 */
+.center-wrap p{max-width:420px; font-size:14px; line-height:1.95;}
+.hint{font-size:12px; line-height:1.8;}
+.form-card{padding:18px;}
+.field{margin-bottom:18px;}
+.field>label{font-size:13px; line-height:1.5; margin-bottom:7px;}
+.field input[type=text],.field input[type=number],.field input[type=date],.field input[type=password],.field input[type=email],.field textarea,.field select{
+  min-height:52px; padding:13px 14px; font-size:16px; line-height:1.45;
+}
+.field textarea{min-height:84px;}
+.check-line{align-items:flex-start; line-height:1.65;}
+.btn{min-height:50px; padding:14px 15px; line-height:1.4;}
+.btn.sm{min-height:42px;}
+.google-btn{min-height:54px; padding:14px 24px; font-size:15.5px;}
+.notice{line-height:1.55; padding:12px 13px;}
+.settings-task-btn{padding:14px; min-height:68px;}
+.settings-task-btn b{font-size:15px; line-height:1.45;}
+.settings-task-btn small{font-size:12px; line-height:1.55; margin-top:3px;}
+.kv{grid-template-columns:minmax(88px,auto) 1fr; line-height:1.65;}
+.cat-row{line-height:1.5;}
+.inline-add input,.inline-add select,.search-row input,.search-row select{min-height:46px; font-size:15px;}
+/* スマホでは入力欄・説明文の横幅を最大限使い、窮屈な横並びを減らす */
+@media (max-width:480px){
+  main{padding-left:12px; padding-right:12px;}
+  .center-wrap{padding-left:16px; padding-right:16px;}
+  .form-card,.panel{padding:16px;}
+  .btn-row{flex-wrap:wrap;}
+  .btn-row>.btn{min-width:calc(50% - 5px);}
+  .inline-add{flex-wrap:wrap;}
+  .inline-add>input,.inline-add>select{flex:1 1 100%;}
+  .inline-add>.btn{flex:1 1 100%;}
+  .kv{grid-template-columns:1fr; gap:2px;}
+  .kv dt{padding-top:7px;}
+  .kv dd{padding-bottom:3px;}
+  .cat-row{flex-wrap:wrap;}
+  .cat-row .cname{flex:1 1 calc(100% - 30px);}
+  .cat-row input.budget,.cat-row select{max-width:none; width:100%;}
+}
+
 </style>
 </head>
 <body>
@@ -538,7 +591,37 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.09.30-8';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.09.30-10';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+
+
+/* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
+function improveTypography(root=document){
+  const proseSelectors = '.center-wrap p, .form-card > p, .form-card .hint, .panel > p, .panel .hint, .empty';
+  root.querySelectorAll(proseSelectors).forEach(el=>{
+    if(el.dataset.typographyDone==='1' || el.children.length) return;
+    let t=el.textContent || '';
+    if(!t.trim()) return;
+    // 括弧のまとまりを保護しつつ、句点の後を視覚的な区切りにする
+    const frag=document.createDocumentFragment();
+    const parts=t.split(/(（[^（）]*）)/g);
+    parts.forEach(part=>{
+      if(!part) return;
+      if(/^（[^（）]*）$/.test(part)){
+        const sp=document.createElement('span'); sp.className='keep-together'; sp.textContent=part; frag.appendChild(sp);
+      }else{
+        const sentences=part.split(/(。)/);
+        for(let i=0;i<sentences.length;i++){
+          if(!sentences[i]) continue;
+          frag.appendChild(document.createTextNode(sentences[i]));
+          if(sentences[i]==='。' && i < sentences.length-1 && sentences.slice(i+1).join('').trim()) frag.appendChild(document.createElement('br'));
+        }
+      }
+    });
+    el.replaceChildren(frag); el.dataset.typographyDone='1';
+  });
+}
+new MutationObserver(()=>improveTypography()).observe(document.body,{childList:true,subtree:true});
+window.addEventListener('DOMContentLoaded',()=>improveTypography());
 const CONFIGURED = !firebaseConfig.apiKey.startsWith('YOUR_');
 const ROOT = 'chokai-kaikei';
 let auth = null, db = null;
@@ -623,6 +706,7 @@ function fillBranchGroup(branchEl, groupEl, branch, group){
 }
 function validAffiliation(branch, group){ return !!(branch && group && (BRANCH_GROUPS[branch]||[]).includes(group)); }
 function startReportLogin(){
+  try { localStorage.setItem('kaikei_reportIntent','1'); sessionStorage.setItem('kaikei_reportIntent','1'); } catch(e){}
   hideAllRoots(); $('reportApplyScreen').style.display='block';
   fillBranchGroup($('rBranch'), $('rGroup'), '', '');
   $('rMsg').textContent='';
@@ -745,7 +829,7 @@ function startAuth(){
   const lsSet = (k,v) => { try { v===null ? localStorage.removeItem(k) : localStorage.setItem(k,v); } catch(e){} };
   const REPORT_DRAFT_KEY = 'kaikei_reportDraft';
   $('rBack').onclick = backToLogin;
-  $('rExisting').onclick = () => { try { sessionStorage.setItem('kaikei_reportIntent','1'); } catch(e){} backToLogin(); showToast('Googleまたはメールでログインしてください'); };
+  $('rExisting').onclick = () => { try { localStorage.setItem('kaikei_reportIntent','1'); sessionStorage.setItem('kaikei_reportIntent','1'); } catch(e){} backToLogin(); showToast('Googleまたはメールでログインしてください'); };
   $('rSubmit').onclick = async () => {
     const branch=$('rBranch').value, group=$('rGroup').value, name=$('rName').value.trim(), email=$('rEmail').value.trim();
     const msg=$('rMsg');
@@ -756,7 +840,7 @@ function startAuth(){
     try {
       const draft={branch,group,name,email};
       lsSet(REPORT_DRAFT_KEY, JSON.stringify(draft));
-      try { sessionStorage.setItem('kaikei_reportIntent','1'); } catch(e){}
+      try { localStorage.setItem('kaikei_reportIntent','1'); sessionStorage.setItem('kaikei_reportIntent','1'); } catch(e){}
       const back=new URL(location.origin+location.pathname); back.searchParams.set('reportApply','1');
       await auth.sendSignInLinkToEmail(email,{url:back.toString(),handleCodeInApp:true});
       lsSet(EMAIL_KEY,email);
@@ -830,7 +914,7 @@ function showJoinForm(user, mref){
     if (!user.displayName) $('jName').placeholder = '例）山田 花子（' + (user.email||'') + '）';
     $('postList2').innerHTML = POSTS.map(p=>`<option value="${p}">`).join('');
     fillBranchGroup($('jBranch'), $('jGroup'), '', '');
-    const reportIntent = params.get('view')==='public' || (()=>{ try{return sessionStorage.getItem('kaikei_reportIntent')==='1'}catch(e){return false} })();
+    const reportIntent = params.get('view')==='public' || params.get('reportApply')==='1' || (()=>{ try{return localStorage.getItem('kaikei_reportIntent')==='1' || sessionStorage.getItem('kaikei_reportIntent')==='1'}catch(e){return false} })();
     $('jPurpose').value = reportIntent ? 'report' : 'payer';
     $('jErr').textContent = '';
     $('jSubmit').onclick = async () => {
@@ -846,7 +930,7 @@ function showJoinForm(user, mref){
           await mref.set({name,email:user.email||'',post,branch,group,role:'guest',payerId:pid,createdAt:TS()});
           await R(`payers/${pid}`).set({name,post,branch,group,provisional:true,uid:user.uid,email:user.email||'',active:true,order:999,createdAt:TS()});
         }
-        try { sessionStorage.removeItem('kaikei_reportIntent'); } catch(e){}
+        try { localStorage.removeItem('kaikei_reportIntent'); sessionStorage.removeItem('kaikei_reportIntent'); } catch(e){}
         resolve();
       } catch(e) { console.error(e); $('jErr').textContent='登録できませんでした：'+(e.message||e); btn.disabled=false; btn.textContent='申請する'; }
     };
@@ -879,7 +963,7 @@ async function enterAs(user){
     const existing = snap.val() || {};
     const reportAllowed = ['treasurer','viewer','auditor','payer','report'].includes(existing.role);
     if (reportAllowed) {
-      try { localStorage.removeItem(REPORT_DRAFT_KEY); sessionStorage.removeItem('kaikei_reportIntent'); } catch(e){}
+      try { localStorage.removeItem(REPORT_DRAFT_KEY); localStorage.removeItem('kaikei_reportIntent'); sessionStorage.removeItem('kaikei_reportIntent'); } catch(e){}
       me = {uid:user.uid, ...existing};
       hideAllRoots();
       showToast('すでに登録されています。会計報告を表示します');
@@ -887,11 +971,11 @@ async function enterAs(user){
       return;
     }
     if (existing.role==='pending' && existing.requestType==='report') {
-      try { localStorage.removeItem(REPORT_DRAFT_KEY); sessionStorage.removeItem('kaikei_reportIntent'); } catch(e){}
+      try { localStorage.removeItem(REPORT_DRAFT_KEY); localStorage.removeItem('kaikei_reportIntent'); sessionStorage.removeItem('kaikei_reportIntent'); } catch(e){}
       // 既存の閲覧申請を維持し、下の通常処理で承認待ち画面を表示する。
     } else if (existing.role==='guest') {
       // 支払者の仮登録中は権限をpending/reportへ上書きしない。会計担当による本登録後に閲覧可能。
-      try { localStorage.removeItem(REPORT_DRAFT_KEY); sessionStorage.removeItem('kaikei_reportIntent'); } catch(e){}
+      try { localStorage.removeItem(REPORT_DRAFT_KEY); localStorage.removeItem('kaikei_reportIntent'); sessionStorage.removeItem('kaikei_reportIntent'); } catch(e){}
       hideAllRoots(); $('pendingText').innerHTML = `${esc(existing.name||reportDraft.name)} さんは支払い申請の仮登録中です。<br>会計担当が本登録すると、会計報告も閲覧できるようになります。`; $('pendingScreen').style.display='block';
       return;
     }
@@ -900,7 +984,7 @@ async function enterAs(user){
   if (!snap.exists()) {
     if (reportDraft && reportDraft.email && user.email && reportDraft.email.toLowerCase()===user.email.toLowerCase() && validAffiliation(reportDraft.branch,reportDraft.group)) {
       await mref.set({name:reportDraft.name,email:user.email||reportDraft.email,post:'',branch:reportDraft.branch,group:reportDraft.group,role:'pending',requestType:'report',createdAt:TS()});
-      try { localStorage.removeItem(REPORT_DRAFT_KEY); sessionStorage.removeItem('kaikei_reportIntent'); } catch(e){}
+      try { localStorage.removeItem(REPORT_DRAFT_KEY); localStorage.removeItem('kaikei_reportIntent'); sessionStorage.removeItem('kaikei_reportIntent'); } catch(e){}
       snap = await mref.get();
     }
     const initSnap = await R('settings/initialized').get();
