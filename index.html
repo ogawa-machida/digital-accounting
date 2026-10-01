@@ -597,7 +597,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.01-43';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.01-44';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -4158,7 +4158,12 @@ function computeImport(){
     const ak = `${r.type}|${r.accName}`;
     if (d.accMap[ak]===undefined) {
       if (!r.accName) { const fb = accounts.find(a=>a.type===r.type && a.active && /雑/.test(a.name)) || accounts.find(a=>a.type===r.type && a.active); d.accMap[ak] = fb ? fb.id : 'new'; }
-      else { const ex = accounts.find(a=>a.type===r.type && normKey(a.name)===normKey(r.accName)); const m=matchAccount(r.type,r.accName); d.accMap[ak] = ex ? ex.id : (m&&m!=='new'?m:'add'); }
+      else {
+        const ex = accounts.find(a=>a.type===r.type && normKey(a.name)===normKey(r.accName));
+        if(r.type==='expense' && /^仮払い?\s*\d*$/u.test(r.accName)) d.accMap[ak]='__advance__';
+        else if(r.type==='income' && /仮払い?精算/u.test(r.accName)) d.accMap[ak]='__advance_settle__';
+        else { const m=matchAccount(r.type,r.accName); d.accMap[ak] = ex ? ex.id : (m&&m!=='new'?m:'add'); }
+      }
     }
     const mk = `${r.type}|${r.methodName}`;
     if (d.methMap[mk]===undefined) {
@@ -4215,7 +4220,7 @@ function renderImport(){
   html += `<div class="form-card"><h3 style="font-size:14.5px;margin-bottom:4px">③ 科目の対応</h3>` +
     accKeys.map(k=>{ const [type,name]=[k.split('|')[0], k.slice(k.indexOf('|')+1)];
       return mapRow(`${type==='income'?'［収］':'［支］'}${esc(name||'（科目なし）')}`, cnt(r=>`${r.type}|${r.accName}`===k), 'data-acc', k,
-        cur => `<option value="add" ${cur==='add'?'selected':''}>＋ 新しい科目を追加…</option>` + accounts.filter(a=>a.type===type).map(a=>`<option value="${a.id}" ${cur===a.id?'selected':''}>${esc(a.name)}${a.active?'':'（停止中）'}</option>`).join(''), d.accMap[k]); }).join('') + `</div>`;
+        cur => `${type==='expense'&&/^仮払い?\s*\d*$/u.test(name)?`<option value="__advance__" ${cur==='__advance__'?'selected':''}>仮払金として管理（費用にしない）</option>`:''}${type==='income'&&/仮払い?精算/u.test(name)?`<option value="__advance_settle__" ${cur==='__advance_settle__'?'selected':''}>仮払金の精算履歴として扱う（収入にしない）</option>`:''}<option value="add" ${cur==='add'?'selected':''}>＋ 新しい科目を追加…</option>` + accounts.filter(a=>a.type===type).map(a=>`<option value="${a.id}" ${cur===a.id?'selected':''}>${esc(a.name)}${a.active?'':'（停止中）'}</option>`).join(''), d.accMap[k]); }).join('') + `</div>`;
   html += `<div class="form-card"><h3 style="font-size:14.5px;margin-bottom:4px">④ 支払方法の対応</h3>` +
     methKeys.map(k=>{ const [type,name]=[k.split('|')[0], k.slice(k.indexOf('|')+1)];
       return mapRow(`${type==='income'?'［収］':'［支］'}${esc(name||'（記載なし）')}`, cnt(r=>`${r.type}|${r.methodName}`===k), 'data-meth', k,
@@ -4240,7 +4245,8 @@ function renderImport(){
       <td class="r" style="color:${r.type==='income'?'var(--stamp-navy)':'inherit'}">${r.amount?yen(r.amount):''}</td>
       <td style="font-size:11px;color:${r.err?'var(--stamp-red)':'var(--ink-soft)'}">${r.err?esc(r.err):r.skip?esc(r.skip):r.dup?'重複':'✓'}</td></tr>`).join('')}
     </tbody></table>${rows.length>60&&!d.showAll?`<button class="text-link" id="ipAll">残り${rows.length-60}行も表示</button>`:''}</div>`;
-  html += `<button class="btn btn-primary full" id="ipDo" ${willImport.length&&((d.map.date!==undefined&&d.map.date!=='')||(d.map.month!==undefined&&d.map.month!==''&&d.map.day!==undefined&&d.map.day!==''))?'':'disabled'}>${willImport.length}件を取り込む</button>
+  html += `<div class="hint" style="margin:8px 0 12px">旧Excelの「仮払1～」は<b>仮払金</b>として管理し、費用には計上しません。「仮払い精算」は<b>精算履歴</b>として扱い、収入には計上しません。実際の費用は本来の支出科目で計上します。</div>
+  <button class="btn btn-primary full" id="ipDo" ${willImport.length&&((d.map.date!==undefined&&d.map.date!=='')||(d.map.month!==undefined&&d.map.month!==''&&d.map.day!==undefined&&d.map.day!==''))?'':'disabled'}>${willImport.length}件を取り込む</button>
     <p class="hint">取り込み後でも、設定画面の「取り込みの履歴」からこの取り込み分だけをまとめて取り消せます。</p>`;
   el.innerHTML = html;
 
@@ -4289,6 +4295,9 @@ async function runImport(list){
   const d = imp;
   const unresolved=[...new Set(list.map(r=>`${r.type}|${r.accName}`).filter(k=>d.accMap[k]==='add'))];
   if(unresolved.length){ showToast(`科目の対応が未確定です（${unresolved.length}件）。「新しい科目を追加…」から科目を作成するか、既存科目を選んでください`); return; }
+  const normalList=list.filter(r=>!['__advance__','__advance_settle__'].includes(d.accMap[`${r.type}|${r.accName}`]));
+  const advanceList=list.filter(r=>d.accMap[`${r.type}|${r.accName}`]==='__advance__');
+  const advanceSettleList=list.filter(r=>d.accMap[`${r.type}|${r.accName}`]==='__advance_settle__');
   const fys = [...new Set(list.map(r=>fyOf(r.date)))].sort();
   if (!confirm(`${list.length}件（${fys.map(y=>y+'年度').join('、')}）を取り込みます。よろしいですか？`)) return;
   const btn = $('ipDo'); btn.disabled = true; btn.textContent = '取り込み中…';
@@ -4309,7 +4318,7 @@ async function runImport(list){
     // 伝票番号：CSVの番号（2025-012 形式）が空いていればそのまま使い、なければ新しく振る
     const usedNo = new Set(d.existing.map(e=>e.voucherNo));
     const byFy = {};
-    list.slice().sort((a,b)=>a.date<b.date?-1:1).forEach(r => (byFy[fyOf(r.date)] = byFy[fyOf(r.date)] || []).push(r));
+    normalList.slice().sort((a,b)=>a.date<b.date?-1:1).forEach(r => (byFy[fyOf(r.date)] = byFy[fyOf(r.date)] || []).push(r));
     for (const [fyS, rs] of Object.entries(byFy)) {
       const fy = Number(fyS);
       let maxKept = 0; const needNew = [];
@@ -4322,7 +4331,7 @@ async function runImport(list){
       let next = tx.snapshot.val() - needNew.length + 1;
       needNew.forEach(r => { r._no = `${fy}-${pad(next++,3)}`; });
     }
-    list.forEach(r => {
+    normalList.forEach(r => {
       const key = R('entries').push().key;
       const m = methOf(r);
       const accId = d.accMap[`${r.type}|${r.accName}`]==='new' ? newAcc[`${r.type}|${r.accName}`] : d.accMap[`${r.type}|${r.accName}`];
@@ -4341,8 +4350,22 @@ async function runImport(list){
         approvedBy:me.uid, approvedByName:`${me.name}（取込）`, approvedAt:TS()
       };
     });
-    ups[`imports/${batchId}`] = { fileName:d.fileName, count:list.length, fys, byName:me.name, at:TS(),
-      income:list.filter(r=>r.type==='income').reduce((s,r)=>s+r.amount,0), expense:list.filter(r=>r.type==='expense').reduce((s,r)=>s+r.amount,0) };
+    advanceList.forEach(r=>{
+      const key=R('advances').push().key;
+      ups[`advances/${key}`]={ payerId:null, legacyPayeeName:r.payerName||r.purpose||r.payee||'', date:r.date, amount:r.amount,
+        memo:[r.purpose,r.memo,'旧Excelから移行'].filter(Boolean).join('／'), settleState:'pending',
+        imported:true, importBatch:batchId, importLine:r.line, createdBy:me.uid, createdByName:me.name, createdAt:TS() };
+    });
+    advanceSettleList.forEach(r=>{
+      const key=R('settlements').push().key;
+      ups[`settlements/${key}`]={ no:`旧精算-${r.line}`, payerId:null, legacyPayeeName:r.payerName||r.purpose||r.payee||'', date:r.date,
+        way:'旧帳簿から移行', memo:[r.purpose,r.memo,'旧Excelの仮払い精算'].filter(Boolean).join('／'),
+        spent:0, adv:r.amount, net:0, legacy:true, imported:true, importBatch:batchId, importLine:r.line,
+        createdBy:me.uid, createdByName:me.name, createdAt:TS() };
+    });
+    ups[`imports/${batchId}`] = { fileName:d.fileName, count:list.length, normalCount:normalList.length, advanceCount:advanceList.length,
+      advanceSettlementCount:advanceSettleList.length, fys, byName:me.name, at:TS(),
+      income:normalList.filter(r=>r.type==='income').reduce((s,r)=>s+r.amount,0), expense:normalList.filter(r=>r.type==='expense').reduce((s,r)=>s+r.amount,0) };
     // 大量でも失敗しないよう分けて書き込む
     const keys = Object.keys(ups); const nonEntry = keys.filter(k=>!k.startsWith('entries/')); const entryKeys = keys.filter(k=>k.startsWith('entries/'));
     await db.ref(ROOT).update(Object.fromEntries(nonEntry.map(k=>[k,ups[k]])));
