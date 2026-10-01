@@ -596,7 +596,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.01-25';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.01-26';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -746,6 +746,32 @@ function allEntries(){
 }
 function entryById(id){ return fyMap[id] || pendingMap[id] || mineMap[id] || null; }
 function fyEntries(){ return allEntries().filter(e => e.fy === curFY); }
+/* 役員の出納帳は「自分が関係する案件」と「自分に承認権限がある案件」だけを表示する。
+   会計報告の透明性と、日常操作画面の分かりやすさを分離する。 */
+function viewerRelatedEntries(){
+  if (!isViewer()) return fyEntries();
+  return fyEntries().filter(e =>
+    e.createdBy===me.uid ||
+    (!!me.payerId && e.payerId===me.payerId) ||
+    e.approvedBy===me.uid ||
+    (e.status==='submitted' && e.selfApprovalRequired===true && e.createdBy!==me.uid)
+  );
+}
+function bookBaseEntries(){
+  if (isP()) return allEntries().filter(e=>e.fy===curFY || e.status!=='approved' || e.settleState==='pending');
+  if (isViewer()) return viewerRelatedEntries();
+  return fyEntries();
+}
+function preferredBookStatus(){
+  const base=bookBaseEntries();
+  if (isT() && base.some(e=>e.status==='submitted' && e.selfApprovalRequired!==true)) return 'submitted';
+  if (isViewer()) {
+    if (base.some(e=>e.status==='returned' && (e.createdBy===me.uid || (!!me.payerId && e.payerId===me.payerId)))) return 'returned';
+    if (base.some(e=>e.status==='submitted' && e.selfApprovalRequired===true && e.createdBy!==me.uid)) return 'submitted';
+  }
+  if (isP() && base.some(e=>e.status==='returned')) return 'returned';
+  return 'all';
+}
 function approvedFY(){ return fyEntries().filter(e => e.status==='approved'); }
 
 /* 操作履歴（追記のみ。ルールで書き換え・削除できないようにしている） */
@@ -812,6 +838,13 @@ function notifyCashFeeReturn(entryId){
   if (!entryId) return Promise.resolve({ok:false, error:'現金会費の伝票IDがありません'});
   return notify('cashFeeReturn', { entryId }).then(r => {
     if (r && r.ok===false) console.warn('現金会費の差戻しメール通知に失敗', r.error||'');
+    return r;
+  });
+}
+function notifyCashFeeComplete(entryId){
+  if (!entryId) return Promise.resolve({ok:false, error:'現金会費の伝票IDがありません'});
+  return notify('cashFeeComplete', { entryId }).then(r => {
+    if (r && r.ok===false) console.warn('現金会費の受取完了メール通知に失敗', r.error||'');
     return r;
   });
 }
@@ -1238,6 +1271,8 @@ function buildNav(){
 }
 const TITLES = { homeScreen:'ホーム', bookScreen:'出納帳', settleScreen:'精算', auditScreen:'監査', settingsScreen:'設定', formScreen:'登録', cashFeeScreen:'現金会費', detailScreen:'伝票', batchScreen:'まとめて読み込み', budgetImportScreen:'予算の取り込み', importScreen:'データ取り込み' };
 function showScreen(id){
+  const prevScreen = currentScreen;
+  if (id==='bookScreen' && prevScreen!=='bookScreen') bookFilter.status = preferredBookStatus();
   currentScreen = id;
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
   $(id).classList.add('active');
@@ -1374,8 +1409,10 @@ function renderHome(){
   const submitted = fyEntries().filter(e=>e.status==='submitted');
   const treasurerActionable = submitted.filter(e=>e.selfApprovalRequired!==true);
   const viewerActionable = submitted.filter(e=>e.selfApprovalRequired===true && e.createdBy!==me.uid);
-  const returned = fyEntries().filter(e=>e.status==='returned');
-  const people = settlePeople().filter(p=>p.ready);
+  const returned = isViewer()
+    ? viewerRelatedEntries().filter(e=>e.status==='returned' && (e.createdBy===me.uid || (!!me.payerId && e.payerId===me.payerId)))
+    : fyEntries().filter(e=>e.status==='returned');
+  const people = (isViewer() && me.payerId ? [payerBalance(me.payerId)] : settlePeople()).filter(p=>p.ready);
   const toPay = people.filter(p=>p.net>0).reduce((s,p)=>s+p.net,0);
   const toBack = people.filter(p=>p.net<0).reduce((s,p)=>s-p.net,0);
   const audited = ap.filter(e=>e.audit && !e.auditStale).length;
@@ -1406,7 +1443,7 @@ function renderHome(){
   if (isT()) html += `<button class="btn btn-navy full" id="homeBatchBtn" style="margin:4px 0 12px">📚 レシート・領収証をまとめて読み込む</button>`;
   html += budgetPanel(ap);
 
-  const recent = fyEntries().sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0)).slice(0,5);
+  const recent = (isViewer()?viewerRelatedEntries():fyEntries()).sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0)).slice(0,5);
   html += `<h2 class="section-title" style="margin-top:18px;">最近の登録</h2>`;
   html += recent.length ? recent.map(slipHTML).join('') : `<div class="empty"><div class="mark-big">記録<br>なし</div>${isT()?'右下の＋から収入・支出を登録しましょう':'まだ記録がありません'}</div>`;
   el.innerHTML = html;
@@ -1551,7 +1588,7 @@ async function saveCashFeeConfirmation(e){
   if(!isT()||!e.cashFeeRequest) return; const actual=Math.round(Number($('cfActual')?.value)||0); if(actual<=0) return showToast('確認した金額を入力してください'); const declared=Number(e.cashFeeDeclaredAmount||e.amount)||0, diff=actual-declared; const btn=$('cfSubmit'); btn.disabled=true;
   try{
     if(diff!==0){ const reason=`現金確認で差額があります。申告 ${yen(declared)}／実際 ${yen(actual)}／差額 ${diff>=0?'+':''}${yen(diff)}`; await R(`entries/${e.id}`).update({status:'returned',returnReason:reason,cashFeeActualAmount:actual,cashFeeCheckedBy:me.uid,cashFeeCheckedByName:me.name,cashFeeCheckedAt:TS(),updatedAt:TS(),updatedByName:me.name}); writeLog('現金会費差戻し',e,reason); notifyCashFeeReturn(e.id); showToast('差額ありとして班長へ差し戻しました'); openDetail(e.id); return; }
-    await R(`entries/${e.id}`).update({amount:actual,status:'approved',returnReason:null,cashFeeActualAmount:actual,cashFeeCheckedBy:me.uid,cashFeeCheckedByName:me.name,cashFeeCheckedAt:TS(),approvedBy:me.uid,approvedByName:me.name,approvedAt:TS(),updatedAt:TS(),updatedByName:me.name}); writeLog('現金会費受取確認',e,`${e.cashFeeBranch||''}${e.cashFeeGroup||''} ${e.cashFeeCount||0}世帯 ${yen(actual)}`); showToast('受取確認し、会費収入に登録しました'); openDetail(e.id);
+    await R(`entries/${e.id}`).update({amount:actual,status:'approved',returnReason:null,cashFeeActualAmount:actual,cashFeeCheckedBy:me.uid,cashFeeCheckedByName:me.name,cashFeeCheckedAt:TS(),approvedBy:me.uid,approvedByName:me.name,approvedAt:TS(),updatedAt:TS(),updatedByName:me.name}); writeLog('現金会費受取確認',e,`${e.cashFeeBranch||''}${e.cashFeeGroup||''} ${e.cashFeeCount||0}世帯 ${yen(actual)}`); notifyCashFeeComplete(e.id); showToast('受取確認し、会費収入に登録しました。班長へ完了メールを送信します'); openDetail(e.id);
   }catch(err){console.error(err);showToast('処理できませんでした（Firebase権限を確認してください）');} finally{if(btn) btn.disabled=false;}
 }
 function renderPayerHome(el){
@@ -1590,7 +1627,7 @@ function renderPayerHome(el){
    出納帳（一覧）
    ========================================================= */
 function renderBook(){
-  const base = isP() ? allEntries().filter(e=>e.fy===curFY || e.status!=='approved' || e.settleState==='pending') : fyEntries();
+  const base = bookBaseEntries();
   const counts = {
     all: base.length,
     expense: base.filter(e=>e.type==='expense').length,
@@ -1619,7 +1656,7 @@ function renderBook(){
   pSel.innerHTML = `<option value="">すべての支払者</option>` + payers.map(p=>`<option value="${p.id}">${esc(payerLabel(p.id))}</option>`).join('');
   pSel.value = bookFilter.payer;
   pSel.onchange = () => { bookFilter.payer = pSel.value; renderBook(); };
-  $('bookPayerRow').style.display = isP() ? 'none' : 'flex';
+  $('bookPayerRow').style.display = (isP()||isViewer()) ? 'none' : 'flex';
   const sIn = $('bookSearch');
   sIn.oninput = () => { bookFilter.q = sIn.value.trim(); renderBookList(base); };
   renderBookList(base);
