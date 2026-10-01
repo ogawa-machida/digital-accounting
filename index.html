@@ -597,7 +597,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.01-47';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.02-48';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -685,6 +685,7 @@ let settleView = null;         // 精算画面で開いている支払者ID
 let detailId = null;
 let sharedKey = null;
 let importsList = [];
+let autoBackupCheckRunning = false;
 
 /* ---------- ユーティリティ ---------- */
 function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -1208,6 +1209,7 @@ function attachData(){
     if (curFY===null) { curFY = fyOf(localDate()); subscribeFY(); }
     $('headerOrg').textContent = settings.orgName || '';
     renderAll();
+    if(isT()) setTimeout(maybeAutoBackup,500);
   });
   onData(R('accounts'), s => { accounts = toArr(s.val()).sort((a,b)=>(a.order||0)-(b.order||0)); renderAll(); });
   onData(R('methods'),  s => { methods  = toArr(s.val()).sort((a,b)=>(a.order||0)-(b.order||0)); renderAll(); });
@@ -2836,6 +2838,19 @@ function renderSettings(){
       <div class="btn-row"><button class="btn btn-ghost" id="bkEntries">伝票（全年度）</button><button class="btn btn-ghost" id="bkAccounts">科目・予算・名簿</button></div>
       ${settings.lastBackupAt?`<p class="hint">前回のバックアップ：${fmtTs(settings.lastBackupAt)}</p>`:''}
       <hr style="border:0;border-top:1px solid var(--line);margin:20px 0">
+      <div style="font-weight:700;font-size:13.5px;margin-bottom:6px">Firebase自動バックアップ</div>
+      <p class="hint" style="margin-top:0">会計担当がアプリを開いたとき、前回バックアップから設定期間を過ぎていればFirebase内に自動保存します。秘密情報（Claude APIキー）は保存しません。最新3世代だけを保持します。</p>
+      <div class="field"><label>バックアップ間隔</label><select id="autoBackupPeriod">
+        <option value="14" ${backupIntervalDays()===14?'selected':''}>2週間</option>
+        <option value="30" ${backupIntervalDays()===30?'selected':''}>1ヶ月（推奨・初期値）</option>
+        <option value="90" ${backupIntervalDays()===90?'selected':''}>3ヶ月</option>
+        <option value="custom" ${![14,30,90].includes(backupIntervalDays())?'selected':''}>自由入力</option>
+      </select></div>
+      <div class="field" id="autoBackupCustomWrap" style="${![14,30,90].includes(backupIntervalDays())?'':'display:none'}"><label>日数（14～365日）</label><input type="number" id="autoBackupCustomDays" min="14" max="365" inputmode="numeric" value="${backupIntervalDays()}"></div>
+      <div class="btn-row"><button class="btn btn-ghost" id="saveAutoBackup">間隔を保存</button><button class="btn btn-navy" id="backupNowBtn">今すぐバックアップ</button></div>
+      <div id="backupStatus" style="margin-top:10px">${backupStatusHtml()}</div>
+      <p class="hint">Firebaseプロジェクト自体の削除・障害には備えられないため、監査前・年度末などは上のCSV書き出しも併用してください。</p>
+      <hr style="border:0;border-top:1px solid var(--line);margin:20px 0">
       <div style="font-weight:700;font-size:13.5px;margin-bottom:6px;color:var(--stamp-red)">実運用開始前のデータ初期化</div>
       <p class="hint" style="margin-top:0">試行中の取引データだけを削除し、団体名・1月末締め等の基本設定、科目体系・予算、支払方法、利用者・権限、支払者名簿、通知設定、AI設定は残します。実行前に削除件数を確認できます。</p>
       <button class="btn btn-ghost full" id="resetPreviewBtn" style="color:var(--stamp-red);border-color:var(--stamp-red)">削除対象を確認する</button>
@@ -2882,6 +2897,83 @@ function renderSettings(){
 }
 
 
+
+function backupIntervalDays(){
+  const n=Number(settings.autoBackup?.intervalDays);
+  return Number.isFinite(n) && n>=14 && n<=365 ? Math.round(n) : 30;
+}
+function backupKindLabel(k){
+  return k==='pre_reset'?'初期化前':k==='manual'?'手動':'自動';
+}
+function backupStatusHtml(){
+  const meta=settings.autoBackup||{}, list=asList(meta.history).sort((a,b)=>(b.at||0)-(a.at||0)).slice(0,3);
+  const last=Number(meta.lastAt)||0, days=backupIntervalDays();
+  const next=last ? last + days*86400000 : 0;
+  let h=`<div class="total-check"><span>最終バックアップ</span><b>${last?fmtTs(last):'未実施'}</b></div>`;
+  h+=`<div class="total-check"><span>次回の目安</span><b>${next?fmtTs(next):'次回の会計ログイン時'}</b></div>`;
+  if(list.length) h+=`<div style="font-weight:700;font-size:12.5px;margin:10px 0 4px">保存中の3世代</div>`+
+    list.map(x=>`<div class="cat-row"><span class="cname">${fmtTs(x.at)}<small>${backupKindLabel(x.kind)}・${x.itemCount||0}件・${formatBytes(x.bytes||0)}</small></span></div>`).join('');
+  return h;
+}
+function formatBytes(n){
+  n=Number(n)||0;
+  if(n<1024) return `${n} B`;
+  if(n<1024*1024) return `${(n/1024).toFixed(1)} KB`;
+  return `${(n/1024/1024).toFixed(1)} MB`;
+}
+function countBackupItems(data){
+  return Object.values(data).reduce((n,v)=>n+(v && typeof v==='object' ? Object.keys(v).length : (v==null?0:1)),0);
+}
+async function collectBackupData(){
+  // backups自身とsecretsは意図的に含めない。settings内の秘密情報も作らない設計。
+  const paths=['entries','photos','advances','settlements','auditReports','imports','log','counters','public',
+    'accounts','methods','payers','members','storageTags','settings'];
+  const snaps=await Promise.all(paths.map(p=>R(p).get()));
+  const data={};
+  paths.forEach((p,i)=>{ const v=snaps[i].val(); if(v!==null) data[p]=v; });
+  // バックアップ管理情報は復旧対象データではないためスナップショットから除く。
+  if(data.settings && typeof data.settings==='object'){
+    delete data.settings.autoBackup;
+    delete data.settings.productionReset;
+  }
+  return data;
+}
+async function createFirebaseBackup(kind='manual', quiet=false){
+  if(!isT()) throw new Error('会計権限が必要です');
+  const data=await collectBackupData();
+  const json=JSON.stringify(data);
+  const bytes=new Blob([json]).size;
+  // ブラウザからの巨大な単一書込みを避ける。20MB超は外部CSV等を併用して設計を見直す。
+  if(bytes>20*1024*1024) throw new Error(`バックアップ容量が大きすぎます（${formatBytes(bytes)}）。証憑データ量を確認してください`);
+  const at=Date.now(), id=`b_${at}_${Math.random().toString(36).slice(2,8)}`;
+  const payload={createdAt:TS(),createdBy:me.uid,createdByName:me.name||'',kind,version:APP_VERSION,itemCount:countBackupItems(data),bytes,data};
+  await R(`backups/${id}`).set(payload);
+
+  // 新しい世代の保存成功後に古い世代を削除。削除に失敗しても新バックアップは残る。
+  const all=toArr((await R('backups').get()).val()).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+  const remove=all.slice(3);
+  if(remove.length){
+    const ups={}; remove.forEach(x=>ups[`backups/${x.id}`]=null);
+    try{ await db.ref(ROOT).update(ups); }catch(e){ console.warn('古いバックアップの削除に失敗',e); }
+  }
+  const kept=all.slice(0,3).map(x=>({id:x.id,at:x.createdAt||at,kind:x.kind||'auto',itemCount:x.itemCount||0,bytes:x.bytes||0,version:x.version||''}));
+  await R('settings/autoBackup').update({lastAt:at,lastKind:kind,history:kept.reduce((o,x)=>(o[x.id]=x,o),{})});
+  settings.autoBackup={...(settings.autoBackup||{}),lastAt:at,lastKind:kind,history:kept.reduce((o,x)=>(o[x.id]=x,o),{})};
+  if(!quiet) showToast(`バックアップしました（${formatBytes(bytes)}）`);
+  return {id,at,bytes,itemCount:payload.itemCount};
+}
+async function maybeAutoBackup(){
+  if(autoBackupCheckRunning || !isT()) return;
+  autoBackupCheckRunning=true;
+  try{
+    const meta=settings.autoBackup||{}, last=Number(meta.lastAt)||0, due=backupIntervalDays()*86400000;
+    if(!last || Date.now()-last>=due) await createFirebaseBackup('auto',true);
+  }catch(e){
+    console.error('自動バックアップ失敗',e);
+    showToast('自動バックアップに失敗しました。設定→データ管理を確認してください');
+  }finally{ autoBackupCheckRunning=false; }
+}
+
 async function getResetPreview(){
   const paths=[
     ['entries','収支伝票'],['photos','領収書・証憑'],['advances','仮払履歴'],['settlements','精算履歴'],
@@ -2919,9 +3011,11 @@ async function resetTrialData(){
     'settings/cashFeeCollection':null
   };
   try{
-    // ルール更新漏れを本番データ削除の直前に検出する。logは通常「追記のみ」だが、初期化時だけ会計による削除を許可する必要がある。
+    // ルール更新漏れを本番データ削除の直前に検出する。
     const roleSnap=await R(`members/${me.uid}/role`).get();
     if(roleSnap.val()!=='treasurer') throw new Error('会計権限を確認できません');
+    showToast('初期化前バックアップを作成しています…');
+    await createFirebaseBackup('pre_reset',true);
     await db.ref(ROOT).update(ups);
     // 操作履歴を0件にするため、この初期化自体はlogへ書かず設定メタデータだけに残す。
     await R('settings/productionReset').set({at:TS(),by:me.uid,byName:me.name,version:APP_VERSION});
@@ -3146,6 +3240,24 @@ function bindSettings(){
   if ($('kaihipayStatementBtn')) $('kaihipayStatementBtn').onclick = () => $('kaihipayStatementInput').click();
   $('bkEntries').onclick = async () => { await exportBackupCsv(); R('settings/lastBackupAt').set(TS()); };
   $('bkAccounts').onclick = exportAccountsCsv;
+  if($('autoBackupPeriod')) $('autoBackupPeriod').onchange=()=>{
+    const custom=$('autoBackupPeriod').value==='custom';
+    $('autoBackupCustomWrap').style.display=custom?'':'none';
+    if(!custom) $('autoBackupCustomDays').value=$('autoBackupPeriod').value;
+  };
+  if($('saveAutoBackup')) $('saveAutoBackup').onclick=async()=>{
+    const sel=$('autoBackupPeriod').value;
+    const days=sel==='custom'?Math.round(Number($('autoBackupCustomDays').value)||0):Number(sel);
+    if(days<14||days>365) return showToast('自由入力は14～365日で指定してください');
+    await R('settings/autoBackup/intervalDays').set(days);
+    showToast(`自動バックアップを${days}日間隔に設定しました`);
+  };
+  if($('backupNowBtn')) $('backupNowBtn').onclick=async()=>{
+    const b=$('backupNowBtn'); b.disabled=true; b.textContent='バックアップ中…';
+    try{ await createFirebaseBackup('manual'); renderSettings(); }
+    catch(e){ console.error(e); showToast('バックアップに失敗しました：'+(e.message||e)); }
+    finally{ if($('backupNowBtn')){ $('backupNowBtn').disabled=false; $('backupNowBtn').textContent='今すぐバックアップ'; } }
+  };
   if($('resetPreviewBtn')) $('resetPreviewBtn').onclick=async()=>{
     const b=$('resetPreviewBtn'), box=$('resetPreview'); b.disabled=true; b.textContent='確認中…';
     try{
