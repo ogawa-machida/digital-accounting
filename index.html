@@ -597,7 +597,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.01-37';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.01-38';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -3828,18 +3828,62 @@ function parseKaihipayStatement(text){
   }
   return {gross,fee,carry,transfer,processNo,transferDate,period};
 }
+async function recognizeKaihipayStatementPdf(file){
+  if(!getApiKey()) throw new Error('NOKEY');
+  const rendered=await Promise.race([
+    pdfToImages(file,2),
+    new Promise((_,reject)=>setTimeout(()=>reject(new Error('PDFTIMEOUT')),20000))
+  ]);
+  if(!rendered.images.length) throw new Error('PDFIMAGE');
+  const r=await Promise.race([
+    callClaude(rendered.images,
+      'あなたは町内会・自治会の会計担当を手伝うアシスタントです。会費ペイ（PAYMENT FOR）の「支払通知書」PDFをページ画像化した画像から、精算に必要な項目を正確に抽出します。JSONオブジェクトのみを出力し、説明文やコードブロックは付けません。',
+      `この支払通知書から次のJSONのみを返してください。
+{"gross":決済金額(A)の整数,"fee":請求金額(B)の整数,"carry":前回繰越額(C)の整数,"transfer":振込金額(A)-(B)+(C)の整数,"transferDate":"振込日 YYYY-MM-DD","period":"集計対象期間を原文どおり","processNo":"処理番号"}
+注意：
+- 表中の「取扱金額」ではなく、最下部の「合計」にある決済金額(A)・請求金額(B)・前回繰越額(C)・振込金額を使ってください。
+- gross - fee + carry = transfer になることを確認してください。
+- 金額はカンマや円記号を除いた整数にしてください。
+- 不明な文字列は空文字、金額は0にしてください。`,700),
+    new Promise((_,reject)=>setTimeout(()=>reject(new Error('AITIMEOUT')),45000))
+  ]);
+  return {
+    gross:Math.round(Number(r.gross)||0),
+    fee:Math.round(Number(r.fee)||0),
+    carry:Math.round(Number(r.carry)||0),
+    transfer:Math.round(Number(r.transfer)||0),
+    transferDate:String(r.transferDate||''),
+    period:String(r.period||''),
+    processNo:String(r.processNo||'')
+  };
+}
+
 $('kaihipayStatementInput').onchange = async e=>{
   const file=e.target.files[0]; e.target.value=''; if(!file) return;
   const box=$('kaihipayStatementPreview');
   if(!/\.pdf$/i.test(file.name)) return showToast('会費ペイの支払通知書PDFを選んでください');
-  if(box) box.innerHTML='<p class="hint">PDFを端末内で解析しています…</p>';
+  if(!getApiKey()){
+    if(box) box.innerHTML='<p class="hint" style="color:var(--stamp-red)">AIのAPIキーが未設定です。設定画面でClaude APIキーを登録してください。</p>';
+    return;
+  }
+  if(box) box.innerHTML='<p class="hint"><span class="spinner"></span> 支払通知書をAIで読み取っています…</p>';
   try{
-    const d=await extractKaihipayStatementPdf(file);
-    if(!(d.gross>0) || !(d.transfer>0) || !(d.fee>=0)) throw new Error(`支払通知書の主要金額を読み取れませんでした（決済 ${d.gross||0}円／請求 ${d.fee||0}円／振込 ${d.transfer||0}円）`);
-    if(Math.abs((d.gross-d.fee+d.carry)-d.transfer)>1) throw new Error('決済金額－請求金額＋繰越額と振込金額が一致しません');
+    const d=await recognizeKaihipayStatementPdf(file);
+    if(!(d.gross>0) || !(d.transfer>0) || !(d.fee>=0))
+      throw new Error(`主要金額を読み取れませんでした（決済 ${d.gross||0}円／請求 ${d.fee||0}円／振込 ${d.transfer||0}円）`);
+    if(Math.abs((d.gross-d.fee+d.carry)-d.transfer)>1)
+      throw new Error(`金額の整合が取れません（${d.gross}－${d.fee}＋${d.carry}≠${d.transfer}）。登録せず、PDFを確認してください`);
     const key=await kaihipayHash(d.processNo||[d.period,d.transferDate,d.gross,d.fee,d.transfer].join('|'));
     kaihipayStatement={...d,key,fileName:file.name}; renderKaihipayStatementPreview();
-  }catch(err){ console.error(err); kaihipayStatement=null; if(box) box.innerHTML=`<p class="hint" style="color:var(--stamp-red)">${esc(String(err.message||err))}</p>`; }
+  }catch(err){
+    console.error(err); kaihipayStatement=null;
+    let msg=String(err.message||err);
+    if(msg==='PDFTIMEOUT') msg='PDFの画像化に時間がかかりすぎました。もう一度お試しください';
+    else if(msg==='AITIMEOUT') msg='AIの読み取りが45秒以内に完了しませんでした。もう一度お試しください';
+    else if(msg==='NOKEY') msg='AIのAPIキーが未設定です';
+    else if(/^API /.test(msg)) msg=aiErrorText(err);
+    if(box) box.innerHTML=`<p class="hint" style="color:var(--stamp-red)">${esc(msg)}</p>`;
+  }
 };
 function renderKaihipayStatementPreview(){
   const d=kaihipayStatement, box=$('kaihipayStatementPreview'); if(!d||!box) return;
