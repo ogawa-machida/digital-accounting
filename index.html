@@ -597,7 +597,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.01-45';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.01-46';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -2835,6 +2835,11 @@ function renderSettings(){
       <p class="hint" style="margin-top:0">伝票のCSVは全年度・全状態を含み、このアプリにそのまま取り込み直せる形式です。領収証の写真は含まれません（データベースに保存されています）。</p>
       <div class="btn-row"><button class="btn btn-ghost" id="bkEntries">伝票（全年度）</button><button class="btn btn-ghost" id="bkAccounts">科目・予算・名簿</button></div>
       ${settings.lastBackupAt?`<p class="hint">前回のバックアップ：${fmtTs(settings.lastBackupAt)}</p>`:''}
+      <hr style="border:0;border-top:1px solid var(--line);margin:20px 0">
+      <div style="font-weight:700;font-size:13.5px;margin-bottom:6px;color:var(--stamp-red)">実運用開始前のデータ初期化</div>
+      <p class="hint" style="margin-top:0">試行中の取引データだけを削除し、団体名・1月末締め等の基本設定、科目体系・予算、支払方法、利用者・権限、支払者名簿、通知設定、AI設定は残します。実行前に削除件数を確認できます。</p>
+      <button class="btn btn-ghost full" id="resetPreviewBtn" style="color:var(--stamp-red);border-color:var(--stamp-red)">削除対象を確認する</button>
+      <div id="resetPreview" style="margin-top:10px"></div>
     </div>`;
     html += `<h2 class="section-title" style="margin-top:20px">承認依頼のメール通知</h2><div class="form-card">
       <p class="hint" style="margin-top:0">支出の申請や利用申請が来たとき、会計担当（${trs.map(m=>esc(m.email)).join('、')||'未登録'}）のGoogleアドレスへ自動でメールを送ります。送信にはGoogle Apps Script（無料）を使います。</p>
@@ -2874,6 +2879,53 @@ function renderSettings(){
   el.innerHTML = html;
   if (isT()) organizeTreasurerSettings();
   bindSettings();
+}
+
+
+async function getResetPreview(){
+  const paths=[
+    ['entries','収支伝票'],['photos','領収書・証憑'],['advances','仮払履歴'],['settlements','精算履歴'],
+    ['auditReports','年度監査記録'],['imports','Excel／CSV取込履歴'],['log','操作履歴'],['public','会員向け公開データ'],
+    ['settings/balanceChecks','現預金照合履歴'],['settings/kaihipayImports','会費ペイ取込履歴'],
+    ['settings/kaihipayProcessed','会費ペイ処理済み情報'],['settings/kaihipaySettlements','会費ペイ精算履歴'],
+    ['settings/opening','前年度繰越金']
+  ];
+  const snaps=await Promise.all(paths.map(([p])=>R(p).get()));
+  const rows=paths.map(([path,label],i)=>{
+    const v=snaps[i].val();
+    let count=0;
+    if(v!==null && v!==undefined){
+      if(typeof v==='object') count=Object.keys(v).length;
+      else count=1;
+    }
+    return {path,label,count};
+  });
+  return {rows,total:rows.reduce((n,x)=>n+x.count,0)};
+}
+async function resetTrialData(){
+  if(!isT()) return;
+  const btn=$('resetRunBtn'); if(btn) btn.disabled=true;
+  const typed=prompt('本当に試行データを初期化する場合は「本番開始」と入力してください。\n\nこの操作は元に戻せません。');
+  if(typed!=='本番開始'){ if(btn) btn.disabled=false; if(typed!==null) showToast('確認文字が一致しないため中止しました'); return; }
+  if(!confirm('最終確認です。\n\n収支伝票・証憑・仮払・精算・監査・残高照合・会費ペイ履歴・取込履歴・操作履歴・前年度繰越金を削除します。\n\n科目・予算・利用者・権限・支払方法・基本設定は残します。\n\n実行しますか？')){
+    if(btn) btn.disabled=false; return;
+  }
+  const ups={
+    entries:null, photos:null, advances:null, settlements:null, auditReports:null, imports:null, log:null, counters:null, public:null,
+    'settings/balanceChecks':null, 'settings/kaihipayImports':null, 'settings/kaihipayProcessed':null,
+    'settings/kaihipaySettlements':null, 'settings/opening':null, 'settings/lastBackupAt':null,
+    'settings/cashFeeCollection':null
+  };
+  try{
+    await db.ref(ROOT).update(ups);
+    // 操作履歴を0件にするため、この初期化自体はlogへ書かず設定メタデータだけに残す。
+    await R('settings/productionReset').set({at:TS(),by:me.uid,byName:me.name,version:APP_VERSION});
+    showToast('試行データを初期化しました');
+    setTimeout(()=>location.reload(),700);
+  }catch(e){
+    console.error(e); if(btn) btn.disabled=false;
+    showToast('初期化に失敗しました。Firebaseの権限を確認してください');
+  }
 }
 
 /* 会計の設定画面は「設定項目の羅列」ではなく、やりたいことから選ぶ入口にする。 */
@@ -3089,6 +3141,21 @@ function bindSettings(){
   if ($('kaihipayStatementBtn')) $('kaihipayStatementBtn').onclick = () => $('kaihipayStatementInput').click();
   $('bkEntries').onclick = async () => { await exportBackupCsv(); R('settings/lastBackupAt').set(TS()); };
   $('bkAccounts').onclick = exportAccountsCsv;
+  if($('resetPreviewBtn')) $('resetPreviewBtn').onclick=async()=>{
+    const b=$('resetPreviewBtn'), box=$('resetPreview'); b.disabled=true; b.textContent='確認中…';
+    try{
+      const p=await getResetPreview();
+      box.innerHTML=`<div class="audit-box" style="border-color:var(--stamp-red)">
+        <div style="font-weight:700;color:var(--stamp-red);margin-bottom:7px">削除される試行データ</div>
+        ${p.rows.filter(x=>x.count).map(x=>`<div class="total-check"><span>${esc(x.label)}</span><b>${x.count}件</b></div>`).join('')||'<p class="hint">削除対象のデータはありません。</p>'}
+        <div class="total-check" style="margin-top:8px"><span>削除対象 合計</span><b>${p.total}件</b></div>
+        <p class="hint" style="margin:10px 0 6px"><b>残すもの：</b>団体名・会計年度の締め、科目体系・予算、支払方法、利用者・権限、支払者名簿、通知設定、AI設定。</p>
+        ${p.total?'<button class="btn btn-danger full" id="resetRunBtn">試行データを初期化する</button>':''}
+      </div>`;
+      if($('resetRunBtn')) $('resetRunBtn').onclick=resetTrialData;
+    }catch(e){console.error(e); box.innerHTML='<p class="hint" style="color:var(--stamp-red)">削除対象を確認できませんでした。Firebaseの権限を確認してください。</p>';}
+    finally{b.disabled=false;b.textContent='削除対象を再確認する';}
+  };
   q('[data-undoimp]').forEach(b => b.onclick = () => undoImport(b.dataset.undoimp));
   $('nSave').onclick = async () => {
     const url = $('nUrl').value.trim();
