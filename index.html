@@ -597,7 +597,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.01-38';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.01-39';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -2538,49 +2538,99 @@ function renderAudit(){
   const todo = ap.filter(e=>!e.audit || e.auditStale);
   const pct = ap.length ? Math.round((ok.length+issue.length)/ap.length*100) : 0;
   const report = auditReports[curFY];
+  const opening=Number((settings.opening||{})[curFY])||0;
+  const inc=ap.filter(e=>e.type==='income').reduce((n,e)=>n+(Number(e.amount)||0),0);
+  const exp=ap.filter(e=>e.type==='expense').reduce((n,e)=>n+(Number(e.amount)||0),0);
+  const book=opening+inc-exp;
+  const pendingAdv=advances.filter(a=>a.settleState==='pending').reduce((n,a)=>n+(Number(a.amount)||0),0);
+  const reconHist=Object.entries((((settings.balanceChecks||{})[curFY])||{})).map(([id,v])=>({id,...v})).sort((a,b)=>(b.at||0)-(a.at||0));
+  const latestRecon=reconHist[0]||null;
+  const checks=autoChecks(ap);
+  const exceptionCount=checks.reduce((n,c)=>n+(c.list?c.list.length:1),0);
+  const noEvidence=ap.filter(e=>e.type==='expense' && !e.photoCount && !e.noReceipt && !e.imported).length;
+  const stale=ap.filter(e=>e.auditStale).length;
+  const unresolvedIssue=issue.filter(e=>!e.audit?.response).length;
+  const moneyOK=latestRecon && Number(latestRecon.diff)===0;
+  const checklist=report?.checklist||{};
 
-  let html = `<div class="panel"><div class="progress-ring"><span class="pct">${pct}%</span>
-      <div style="flex:1"><div class="bar"><i style="width:${pct}%;background:var(--stamp-navy)"></i></div>
-      <div class="hint">承認済み ${ap.length}件　確認済み ${ok.length}件　指摘 ${issue.length}件　未確認 ${todo.length}件</div></div></div>
-      ${report ? `<p style="margin:10px 0 0;font-size:13px;color:var(--moss);font-weight:700">✓ ${curFY}年度の監査完了（${fmtTs(report.at)} ${esc(report.byName)}）</p>${report.comment?`<p class="hint">${esc(report.comment)}</p>`:''}` : ''}
-    </div>`;
+  const card=(label,value,sub,okFlag)=>`<div class="panel" style="margin:0;padding:12px;min-width:0">
+    <div class="hint" style="margin:0 0 4px">${esc(label)}</div>
+    <div style="font-family:'Shippori Mincho',serif;font-size:21px;font-weight:700;line-height:1.25;color:${okFlag===false?'var(--stamp-red)':okFlag===true?'var(--moss)':'var(--ink)'}">${value}</div>
+    ${sub?`<div class="hint" style="margin:5px 0 0">${sub}</div>`:''}</div>`;
 
-  const checks = autoChecks(ap);
-  html += `<div class="panel"><h3>自動チェック <small>監査の手がかり</small></h3>` + (checks.length ? checks.map((c,i)=>`
-    <details style="margin-bottom:8px"><summary style="font-size:13px;cursor:pointer">⚠ ${esc(c.label)}${c.list?`（${c.list.length}件）`:''}</summary>
-    ${c.list ? `<div style="margin-top:8px">${c.list.map(slipHTML).join('')}</div>` : `<p class="hint">${esc(c.text)}</p>`}</details>`).join('') : `<p class="hint" style="margin:0">気になる点は見つかりませんでした</p>`) + `</div>`;
-
-  html += `<div class="panel"><h3>書類の出力</h3>
-    <div class="btn-row" style="flex-wrap:wrap">
-      <button class="btn btn-ghost sm" id="outCsv">出納帳CSV（Excel）</button>
-      <button class="btn btn-ghost sm" id="outVouchers">証憑台帳を印刷</button>
-      <button class="btn btn-ghost sm" id="outReport">収支決算書を印刷</button>
+  let html=`<div class="panel"><h3 style="margin-bottom:10px">${curFY}年度 監査ダッシュボード <small>紙を使わず、この画面で確認できます</small></h3>
+    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px">
+      ${card('帳簿残高',yen(book),`期首 ${yen(opening)} ＋ 収入 ${yen(inc)} − 支出 ${yen(exp)}`,null)}
+      ${card('現預金照合',latestRecon?(moneyOK?'差額 0円':'差額 '+yen(Number(latestRecon.diff)||0)):'未確認',
+        latestRecon?`${fmtTs(latestRecon.at)}　JA ${yen(Number(latestRecon.bank)||0)}／現金 ${yen(Number(latestRecon.cash)||0)}／仮払 ${yen(Number(latestRecon.pendingAdvance)||0)}`:'会計担当が「現預金残高の確認」を記録すると表示されます',latestRecon?moneyOK:false)}
+      ${card('未確認伝票',`${todo.length}件`,`確認済み ${ok.length+issue.length}/${ap.length}件${stale?`・監査後修正 ${stale}件`:''}`,todo.length===0)}
+      ${card('要確認事項',`${exceptionCount}件`,`未確認証憑 ${noEvidence}件${unresolvedIssue?`・未回答の監査指摘 ${unresolvedIssue}件`:''}`,exceptionCount===0&&unresolvedIssue===0)}
     </div>
-    <p class="hint">証憑台帳は伝票番号順に写真付きで並びます。紙への貼り付け・Excelへの転記の代わりにお使いください。領収証の原本には同じ伝票番号を書いておくと照合が楽です。</p></div>`;
+    ${report?`<div class="audit-box" style="border-color:var(--moss);margin-top:12px"><b style="color:var(--moss)">✓ 監査完了記録</b><div class="hint">${fmtTs(report.at)}　${esc(report.byName)}</div>${report.comment?`<div style="margin-top:5px;font-size:13px">${esc(report.comment)}</div>`:''}</div>`:''}
+  </div>`;
 
-  if (isA()) html += `<button class="btn ${report?'btn-ghost':'btn-navy'} full" id="auditDone" style="margin-bottom:14px">${report?'監査完了の記録を更新する':`${curFY}年度の監査を完了する`}</button>`;
+  html+=`<div class="panel"><h3>年度収支 <small>数字から伝票へたどれます</small></h3>
+    <div class="summary-strip" style="margin:0">
+      <div><div class="lbl">前年度繰越</div><div class="val">${yen(opening)}</div></div>
+      <div><div class="lbl">収入</div><div class="val" style="color:var(--stamp-navy)">${yen(inc)}</div></div>
+      <div><div class="lbl">支出</div><div class="val" style="color:var(--stamp-red)">${yen(exp)}</div></div>
+      <div><div class="lbl">残高</div><div class="val big">${yen(book)}</div></div>
+    </div>
+    ${pendingAdv?`<p class="hint" style="margin-bottom:0">未清算の仮払・立替：${yen(pendingAdv)}</p>`:''}
+  </div>`;
 
-  const f = auditFilter;
-  const list = f==='todo' ? todo : f==='issue' ? issue : f==='ok' ? ok : ap;
-  html += `<div class="filter-bar">${[['todo','未確認',todo.length],['issue','指摘',issue.length],['ok','確認済み',ok.length],['all','すべて',ap.length]].map(([k,l,n])=>`<button class="chip ${f===k?'active':''}" data-f="${k}">${l}<span class="cnt">${n}</span></button>`).join('')}</div>`;
-  html += list.length ? list.map(slipHTML).join('') : `<div class="empty" style="padding:24px">該当する伝票はありません</div>`;
+  html += `<div class="panel"><h3>例外チェック <small>正常な伝票より、気になるものを優先して確認</small></h3>` +
+    (checks.length ? checks.map(c=>`<details style="margin-bottom:8px"><summary style="font-size:13px;cursor:pointer">⚠ ${esc(c.label)}${c.list?`（${c.list.length}件）`:''}</summary>
+      ${c.list?`<div style="margin-top:8px">${c.list.map(slipHTML).join('')}</div>`:`<p class="hint">${esc(c.text)}</p>`}</details>`).join('') :
+      `<p class="hint" style="margin:0;color:var(--moss);font-weight:700">✓ 自動チェックで気になる点は見つかりませんでした</p>`) + `</div>`;
 
-  html += `<details class="panel" style="margin-top:16px"><summary style="font-family:'Shippori Mincho',serif;font-weight:700;cursor:pointer">操作履歴（直近${Math.min(logs.length,300)}件）</summary>
-    <p class="hint">登録・修正・削除・承認・精算のすべてが自動で記録され、誰も書き換えや削除ができません。</p>
-    <div class="history" style="margin-top:8px">${logs.map(l=>`<div style="border-bottom:1px dashed var(--line);padding:4px 0">${fmtTs(l.at)}　<b style="color:var(--ink)">${esc(l.action)}</b>　${esc(l.name)}　${esc(l.voucherNo||'')} ${l.amount?yen(l.amount):''}<br>${esc(l.detail||'')}</div>`).join('') || 'まだありません'}</div></details>`;
+  html += `<div class="panel"><h3>証憑・伝票の確認</h3>
+    <div class="progress-ring"><span class="pct">${pct}%</span><div style="flex:1"><div class="bar"><i style="width:${pct}%;background:var(--stamp-navy)"></i></div>
+    <div class="hint">承認済み ${ap.length}件　確認済み ${ok.length}件　指摘 ${issue.length}件　未確認 ${todo.length}件</div></div></div>
+  </div>`;
 
-  el.innerHTML = html;
+  if(isA()){
+    html+=`<div class="panel"><h3>監査完了前チェック</h3>
+      <label style="display:flex;gap:9px;align-items:flex-start;margin:9px 0;font-size:13px"><input type="checkbox" class="audit-final-check" data-k="balance" ${checklist.balance?'checked':''} style="margin-top:3px">年度の収入・支出・帳簿残高を確認した</label>
+      <label style="display:flex;gap:9px;align-items:flex-start;margin:9px 0;font-size:13px"><input type="checkbox" class="audit-final-check" data-k="money" ${checklist.money?'checked':''} style="margin-top:3px">JA口座・現金・仮払等の残高照合を確認した</label>
+      <label style="display:flex;gap:9px;align-items:flex-start;margin:9px 0;font-size:13px"><input type="checkbox" class="audit-final-check" data-k="evidence" ${checklist.evidence?'checked':''} style="margin-top:3px">必要な証憑と未確認・例外伝票を確認した</label>
+      <label style="display:flex;gap:9px;align-items:flex-start;margin:9px 0;font-size:13px"><input type="checkbox" class="audit-final-check" data-k="issues" ${checklist.issues?'checked':''} style="margin-top:3px">監査指摘と会計担当の回答・対応を確認した</label>
+      <button class="btn ${report?'btn-ghost':'btn-navy'} full" id="auditDone" style="margin-top:12px">${report?'監査完了の記録を更新する':`${curFY}年度の監査を完了する`}</button>
+      <p class="hint" style="margin-bottom:0">4項目すべてを確認すると監査完了を記録できます。未確認伝票や残高差異がある場合は、完了前に内容を確認してください。</p>
+    </div>`;
+  }
+
+  const f=auditFilter;
+  const list=f==='todo'?todo:f==='issue'?issue:f==='ok'?ok:ap;
+  html+=`<div class="filter-bar">${[['todo','未確認',todo.length],['issue','指摘',issue.length],['ok','確認済み',ok.length],['all','すべて',ap.length]].map(([k,l,n])=>`<button class="chip ${f===k?'active':''}" data-f="${k}">${l}<span class="cnt">${n}</span></button>`).join('')}</div>`;
+  html+=list.length?list.map(slipHTML).join(''):`<div class="empty" style="padding:24px">該当する伝票はありません</div>`;
+
+  html+=`<details class="panel" style="margin-top:16px"><summary style="font-family:'Shippori Mincho',serif;font-weight:700;cursor:pointer">データ出力・印刷（必要な場合のみ）</summary>
+    <div class="btn-row" style="flex-wrap:wrap;margin-top:10px"><button class="btn btn-ghost sm" id="outCsv">出納帳CSV</button><button class="btn btn-ghost sm" id="outVouchers">証憑台帳を印刷</button><button class="btn btn-ghost sm" id="outReport">収支決算書を印刷</button></div>
+    <p class="hint">通常の監査は画面上で完結できます。紙やExcelが必要な場合だけ使用してください。</p></details>`;
+
+  html+=`<details class="panel" style="margin-top:12px"><summary style="font-family:'Shippori Mincho',serif;font-weight:700;cursor:pointer">操作履歴（直近${Math.min(logs.length,300)}件）</summary>
+    <p class="hint">登録・修正・承認・精算・監査の履歴を確認できます。</p><div class="history" style="margin-top:8px">${logs.map(l=>`<div style="border-bottom:1px dashed var(--line);padding:4px 0">${fmtTs(l.at)}　<b style="color:var(--ink)">${esc(l.action)}</b>　${esc(l.name)}　${esc(l.voucherNo||'')} ${l.amount?yen(l.amount):''}<br>${esc(l.detail||'')}</div>`).join('')||'まだありません'}</div></details>`;
+
+  el.innerHTML=html;
   bindSlips(el);
-  el.querySelectorAll('[data-f]').forEach(c=>c.onclick=()=>{ auditFilter=c.dataset.f; renderAudit(); });
-  $('outCsv').onclick = exportCsv;
-  $('outVouchers').onclick = printVouchers;
-  $('outReport').onclick = printReport;
-  if ($('auditDone')) $('auditDone').onclick = async () => {
-    if (todo.length && !confirm(`未確認の伝票が${todo.length}件あります。それでも完了にしますか？`)) return;
-    const comment = prompt('監査の所見（会員向け報告にも表示されます）', '帳簿・証憑を照合した結果、適正に処理されていることを確認しました。');
-    if (comment===null) return;
-    await R(`auditReports/${curFY}`).set({ at:TS(), by:me.uid, byName:me.name, comment:comment.trim(), okCount:ok.length, issueCount:issue.length, total:ap.length });
-    writeLog('監査完了', null, `${curFY}年度 ${comment}`);
+  el.querySelectorAll('[data-f]').forEach(c=>c.onclick=()=>{auditFilter=c.dataset.f;renderAudit();});
+  if($('outCsv')) $('outCsv').onclick=exportCsv;
+  if($('outVouchers')) $('outVouchers').onclick=printVouchers;
+  if($('outReport')) $('outReport').onclick=printReport;
+  if($('auditDone')) $('auditDone').onclick=async()=>{
+    const final={};
+    el.querySelectorAll('.audit-final-check').forEach(x=>final[x.dataset.k]=x.checked);
+    if(Object.values(final).filter(Boolean).length<4) return showToast('監査完了前チェックを4項目すべて確認してください');
+    if(!latestRecon) return showToast('会計担当による現預金残高の確認がまだありません');
+    if(Number(latestRecon.diff)!==0 && !confirm(`現預金照合に${yen(Number(latestRecon.diff)||0)}の差額があります。内容を確認済みとして監査完了しますか？`)) return;
+    if(todo.length && !confirm(`未確認の伝票が${todo.length}件あります。内容を確認済みとして監査完了しますか？`)) return;
+    if(unresolvedIssue && !confirm(`会計担当の回答がない監査指摘が${unresolvedIssue}件あります。それでも完了しますか？`)) return;
+    const comment=prompt('監査の所見（会員向け報告にも表示されます）','帳簿・証憑・現預金残高を照合し、監査を実施しました。');
+    if(comment===null)return;
+    await R(`auditReports/${curFY}`).set({at:TS(),by:me.uid,byName:me.name,comment:comment.trim(),okCount:ok.length,issueCount:issue.length,total:ap.length,
+      checklist:final,balanceCheckId:latestRecon.id||'',balanceDiff:Number(latestRecon.diff)||0,unreviewedCount:todo.length,exceptionCount});
+    writeLog('監査完了',null,`${curFY}年度 ${comment}`);
     showToast('監査完了を記録しました');
   };
 }
