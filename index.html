@@ -597,7 +597,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.01-46';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.01-47';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -2886,9 +2886,11 @@ async function getResetPreview(){
   const paths=[
     ['entries','収支伝票'],['photos','領収書・証憑'],['advances','仮払履歴'],['settlements','精算履歴'],
     ['auditReports','年度監査記録'],['imports','Excel／CSV取込履歴'],['log','操作履歴'],['public','会員向け公開データ'],
+    ['counters','伝票・精算番号カウンタ'],
     ['settings/balanceChecks','現預金照合履歴'],['settings/kaihipayImports','会費ペイ取込履歴'],
     ['settings/kaihipayProcessed','会費ペイ処理済み情報'],['settings/kaihipaySettlements','会費ペイ精算履歴'],
-    ['settings/opening','前年度繰越金']
+    ['settings/opening','前年度繰越金'],['settings/cashFeeCollection','会費徴収期間の試行状態'],
+    ['settings/lastBackupAt','バックアップ実施履歴']
   ];
   const snaps=await Promise.all(paths.map(([p])=>R(p).get()));
   const rows=paths.map(([path,label],i)=>{
@@ -2917,6 +2919,9 @@ async function resetTrialData(){
     'settings/cashFeeCollection':null
   };
   try{
+    // ルール更新漏れを本番データ削除の直前に検出する。logは通常「追記のみ」だが、初期化時だけ会計による削除を許可する必要がある。
+    const roleSnap=await R(`members/${me.uid}/role`).get();
+    if(roleSnap.val()!=='treasurer') throw new Error('会計権限を確認できません');
     await db.ref(ROOT).update(ups);
     // 操作履歴を0件にするため、この初期化自体はlogへ書かず設定メタデータだけに残す。
     await R('settings/productionReset').set({at:TS(),by:me.uid,byName:me.name,version:APP_VERSION});
@@ -2924,7 +2929,7 @@ async function resetTrialData(){
     setTimeout(()=>location.reload(),700);
   }catch(e){
     console.error(e); if(btn) btn.disabled=false;
-    showToast('初期化に失敗しました。Firebaseの権限を確認してください');
+    showToast('初期化に失敗しました。最新版のFirebaseルール（-47）と会計権限を確認してください');
   }
 }
 
@@ -3148,7 +3153,7 @@ function bindSettings(){
       box.innerHTML=`<div class="audit-box" style="border-color:var(--stamp-red)">
         <div style="font-weight:700;color:var(--stamp-red);margin-bottom:7px">削除される試行データ</div>
         ${p.rows.filter(x=>x.count).map(x=>`<div class="total-check"><span>${esc(x.label)}</span><b>${x.count}件</b></div>`).join('')||'<p class="hint">削除対象のデータはありません。</p>'}
-        <div class="total-check" style="margin-top:8px"><span>削除対象 合計</span><b>${p.total}件</b></div>
+        <div class="total-check" style="margin-top:8px"><span>削除対象（データグループ内の記録数）</span><b>${p.total}件</b></div>
         <p class="hint" style="margin:10px 0 6px"><b>残すもの：</b>団体名・会計年度の締め、科目体系・予算、支払方法、利用者・権限、支払者名簿、通知設定、AI設定。</p>
         ${p.total?'<button class="btn btn-danger full" id="resetRunBtn">試行データを初期化する</button>':''}
       </div>`;
