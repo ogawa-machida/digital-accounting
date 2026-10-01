@@ -597,7 +597,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.02-48';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.02-50';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1831,7 +1831,10 @@ async function pdfToImages(file, maxPages=3){
     const vp=page.getViewport({scale});
     const c=document.createElement('canvas'); c.width=Math.ceil(vp.width); c.height=Math.ceil(vp.height);
     await page.render({canvasContext:c.getContext('2d'),viewport:vp}).promise;
-    out.push(c.toDataURL('image/jpeg',0.82));
+    let img=c.toDataURL('image/jpeg',0.74);
+    // PDFページも写真と同じく容量を抑える。300KBを超える場合は再圧縮する。
+    if(dataUrlBytes(img)>300*1024) img=await compressReceiptImage(img);
+    out.push(img);
   }
   return {images:out,totalPages:pdf.numPages};
 }
@@ -1854,31 +1857,66 @@ async function handlePhoto(file){
   if (!file) return;
   if (formPhotos.length >= 3) { showToast('写真は3枚までです'); return; }
   try {
-    const dataUrl = await compressImage(file, 1100, 0.65);
+    const before=file.size||0;
+    const dataUrl = await compressReceiptImage(file);
     formPhotos.push(dataUrl); photosChanged = true;
     renderPhotoStrip();
+    const after=dataUrlBytes(dataUrl);
+    if(before>0 && after>0) showToast(`画像を自動圧縮しました（${formatBytes(before)} → ${formatBytes(after)}）`);
     if (formPhotos.length===1 && getApiKey()) runAi(formPhotos);
-  } catch(e){ showToast('写真の読み込みに失敗しました'); }
+  } catch(e){ console.error(e); showToast('写真の読み込みに失敗しました'); }
 }
-function compressImage(src, maxSize, quality){
-  return new Promise((resolve, reject) => {
-    const go = url => {
-      const img = new Image();
-      img.onload = () => {
-        let {width, height} = img;
-        if (width>maxSize || height>maxSize) {
-          if (width>height) { height=Math.round(height*maxSize/width); width=maxSize; }
-          else { width=Math.round(width*maxSize/height); height=maxSize; }
-        }
-        const c = document.createElement('canvas'); c.width=width; c.height=height;
-        c.getContext('2d').drawImage(img,0,0,width,height);
-        resolve(c.toDataURL('image/jpeg', quality));
+function dataUrlBytes(dataUrl){
+  if(typeof dataUrl!=='string') return 0;
+  const i=dataUrl.indexOf(','); if(i<0) return 0;
+  const b64=dataUrl.slice(i+1);
+  return Math.max(0,Math.floor(b64.length*3/4)-(b64.endsWith('==')?2:b64.endsWith('=')?1:0));
+}
+function imageToCanvas(src,maxSize){
+  return new Promise((resolve,reject)=>{
+    const go=url=>{
+      const img=new Image();
+      img.onload=()=>{
+        let w=img.naturalWidth||img.width, h=img.naturalHeight||img.height;
+        if(!w||!h) return reject(new Error('IMAGE_SIZE'));
+        const scale=Math.min(1,maxSize/Math.max(w,h));
+        w=Math.max(1,Math.round(w*scale)); h=Math.max(1,Math.round(h*scale));
+        const c=document.createElement('canvas'); c.width=w; c.height=h;
+        const ctx=c.getContext('2d',{alpha:false});
+        // JPEG化時の透明部分が黒くならないよう白背景にする。
+        ctx.fillStyle='#fff'; ctx.fillRect(0,0,w,h); ctx.drawImage(img,0,0,w,h);
+        resolve(c);
       };
-      img.onerror = reject; img.src = url;
+      img.onerror=()=>reject(new Error('IMAGE_LOAD'));
+      img.src=url;
     };
-    if (typeof src === 'string') go(src);
-    else { const r=new FileReader(); r.onload=ev=>go(ev.target.result); r.onerror=reject; r.readAsDataURL(src); }
+    if(typeof src==='string') go(src);
+    else{
+      const r=new FileReader();
+      r.onload=ev=>go(ev.target.result);
+      r.onerror=()=>reject(new Error('FILE_READ'));
+      r.readAsDataURL(src);
+    }
   });
+}
+async function compressReceiptImage(src){
+  // レシートの文字可読性を保ちつつ、Firebase RTDB容量を抑える。
+  // 目標約300KB。大きい場合だけ段階的に画質・解像度を下げ、最低900px/quality 0.55まで。
+  const target=300*1024;
+  let maxSize=1400, quality=0.76, best='';
+  for(let pass=0;pass<6;pass++){
+    const c=await imageToCanvas(src,maxSize);
+    best=c.toDataURL('image/jpeg',quality);
+    if(dataUrlBytes(best)<=target) return best;
+    if(pass<3) quality=Math.max(0.58,quality-0.07);
+    else maxSize=Math.max(900,Math.round(maxSize*0.84));
+  }
+  return best;
+}
+// 既存コードから呼ばれる場合の互換関数。
+async function compressImage(src,maxSize=1400,quality=0.76){
+  const c=await imageToCanvas(src,maxSize);
+  return c.toDataURL('image/jpeg',quality);
 }
 
 /* ---------- AI読み取り ----------
@@ -2839,7 +2877,7 @@ function renderSettings(){
       ${settings.lastBackupAt?`<p class="hint">前回のバックアップ：${fmtTs(settings.lastBackupAt)}</p>`:''}
       <hr style="border:0;border-top:1px solid var(--line);margin:20px 0">
       <div style="font-weight:700;font-size:13.5px;margin-bottom:6px">Firebase自動バックアップ</div>
-      <p class="hint" style="margin-top:0">会計担当がアプリを開いたとき、前回バックアップから設定期間を過ぎていればFirebase内に自動保存します。秘密情報（Claude APIキー）は保存しません。最新3世代だけを保持します。</p>
+      <p class="hint" style="margin-top:0">会計担当がアプリを開いたとき、前回バックアップから設定期間を過ぎていればFirebase内に自動保存します。容量節約のため証憑画像そのものは複製せず、会計データと画像の紐付け情報を最新3世代保持します。秘密情報（Claude APIキー）も保存しません。</p>
       <div class="field"><label>バックアップ間隔</label><select id="autoBackupPeriod">
         <option value="14" ${backupIntervalDays()===14?'selected':''}>2週間</option>
         <option value="30" ${backupIntervalDays()===30?'selected':''}>1ヶ月（推奨・初期値）</option>
@@ -2849,7 +2887,7 @@ function renderSettings(){
       <div class="field" id="autoBackupCustomWrap" style="${![14,30,90].includes(backupIntervalDays())?'':'display:none'}"><label>日数（14～365日）</label><input type="number" id="autoBackupCustomDays" min="14" max="365" inputmode="numeric" value="${backupIntervalDays()}"></div>
       <div class="btn-row"><button class="btn btn-ghost" id="saveAutoBackup">間隔を保存</button><button class="btn btn-navy" id="backupNowBtn">今すぐバックアップ</button></div>
       <div id="backupStatus" style="margin-top:10px">${backupStatusHtml()}</div>
-      <p class="hint">Firebaseプロジェクト自体の削除・障害には備えられないため、監査前・年度末などは上のCSV書き出しも併用してください。</p>
+      <p class="hint">証憑画像は通常データとして1個だけ保持し、3世代バックアップには複製しません。 新しく登録する写真・PDFは、文字の可読性を保ちながら目安300KB以下へ自動圧縮します。Firebaseプロジェクト自体の削除・障害には備えられないため、監査前・年度末などは上のCSV書き出しも併用してください。</p>
       <hr style="border:0;border-top:1px solid var(--line);margin:20px 0">
       <div style="font-weight:700;font-size:13.5px;margin-bottom:6px;color:var(--stamp-red)">実運用開始前のデータ初期化</div>
       <p class="hint" style="margin-top:0">試行中の取引データだけを削除し、団体名・1月末締め等の基本設定、科目体系・予算、支払方法、利用者・権限、支払者名簿、通知設定、AI設定は残します。実行前に削除件数を確認できます。</p>
@@ -2926,7 +2964,9 @@ function countBackupItems(data){
 }
 async function collectBackupData(){
   // backups自身とsecretsは意図的に含めない。settings内の秘密情報も作らない設計。
-  const paths=['entries','photos','advances','settlements','auditReports','imports','log','counters','public',
+  // 容量節約：証憑画像（photos）は世代バックアップへ複製しない。
+  // entries側のphoto有無・ID等の紐付け情報は残るため、通常のFirebase内データは維持される。
+  const paths=['entries','advances','settlements','auditReports','imports','log','counters','public',
     'accounts','methods','payers','members','storageTags','settings'];
   const snaps=await Promise.all(paths.map(p=>R(p).get()));
   const data={};
@@ -2944,7 +2984,7 @@ async function createFirebaseBackup(kind='manual', quiet=false){
   const json=JSON.stringify(data);
   const bytes=new Blob([json]).size;
   // ブラウザからの巨大な単一書込みを避ける。20MB超は外部CSV等を併用して設計を見直す。
-  if(bytes>20*1024*1024) throw new Error(`バックアップ容量が大きすぎます（${formatBytes(bytes)}）。証憑データ量を確認してください`);
+  if(bytes>8*1024*1024) throw new Error(`会計データのバックアップ容量が大きすぎます（${formatBytes(bytes)}）。画像を除いても大きいためデータ量を確認してください`);
   const at=Date.now(), id=`b_${at}_${Math.random().toString(36).slice(2,8)}`;
   const payload={createdAt:TS(),createdBy:me.uid,createdByName:me.name||'',kind,version:APP_VERSION,itemCount:countBackupItems(data),bytes,data};
   await R(`backups/${id}`).set(payload);
@@ -3014,7 +3054,11 @@ async function resetTrialData(){
     // ルール更新漏れを本番データ削除の直前に検出する。
     const roleSnap=await R(`members/${me.uid}/role`).get();
     if(roleSnap.val()!=='treasurer') throw new Error('会計権限を確認できません');
-    showToast('初期化前バックアップを作成しています…');
+    // 軽量バックアップは証憑画像を複製しないため、初期化前は画像の存在を確認して誤解を防ぐ。
+    const photoSnap=await R('photos').get();
+    const photoCount=photoSnap.exists() && typeof photoSnap.val()==='object' ? Object.keys(photoSnap.val()).length : 0;
+    if(photoCount && !confirm(`証憑画像が${photoCount}件あります。\n\n容量節約型バックアップでは画像そのものは複製しません。初期化すると、この${photoCount}件の画像も削除され復元できません。\n\nサンプル画像として削除してよい場合だけ続行してください。`)) return;
+    showToast('初期化前の会計データをバックアップしています…');
     await createFirebaseBackup('pre_reset',true);
     await db.ref(ROOT).update(ups);
     // 操作履歴を0件にするため、この初期化自体はlogへ書かず設定メタデータだけに残す。
@@ -3267,6 +3311,7 @@ function bindSettings(){
         ${p.rows.filter(x=>x.count).map(x=>`<div class="total-check"><span>${esc(x.label)}</span><b>${x.count}件</b></div>`).join('')||'<p class="hint">削除対象のデータはありません。</p>'}
         <div class="total-check" style="margin-top:8px"><span>削除対象（データグループ内の記録数）</span><b>${p.total}件</b></div>
         <p class="hint" style="margin:10px 0 6px"><b>残すもの：</b>団体名・会計年度の締め、科目体系・予算、支払方法、利用者・権限、支払者名簿、通知設定、AI設定。</p>
+        <p class="hint" style="color:var(--stamp-red)"><b>注意：</b>容量節約型バックアップは証憑画像そのものを複製しません。初期化対象に証憑画像がある場合は、実行直前にも再確認します。</p>
         ${p.total?'<button class="btn btn-danger full" id="resetRunBtn">試行データを初期化する</button>':''}
       </div>`;
       if($('resetRunBtn')) $('resetRunBtn').onclick=resetTrialData;
