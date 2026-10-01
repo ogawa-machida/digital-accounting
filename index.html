@@ -597,7 +597,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.01-36';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.01-37';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -3763,30 +3763,69 @@ async function extractPdfText(file){
   }
   return pages.join('\n').replace(/[ \t]+/g,' ').replace(/\n{2,}/g,'\n').trim();
 }
+
+async function extractKaihipayStatementPdf(file){
+  await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js');
+  if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  const pdf=await pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise;
+  const page=await pdf.getPage(1), tc=await page.getTextContent();
+  const items=tc.items.filter(x=>String(x.str||'').trim()).map(x=>({
+    str:String(x.str||'').trim(), x:Number(x.transform?.[4]||0), y:Number(x.transform?.[5]||0)
+  }));
+  const numsOnLine=(target,tol=7)=>{
+    return items.filter(x=>Math.abs(x.y-target.y)<=tol && x.x>target.x)
+      .sort((a,b)=>a.x-b.x).map(x=>x.str).filter(v=>/^\s*[0-9][0-9,]*\s*(?:円)?\s*$/.test(v));
+  };
+  const bottomLabel=(label)=>{
+    const c=items.filter(x=>x.str.replace(/\s/g,'').includes(label));
+    return c.sort((a,b)=>a.y-b.y)[0]||null;
+  };
+  const valueRight=(label)=>{
+    const t=bottomLabel(label); if(!t) return 0;
+    const n=numsOnLine(t); return n.length?kpStmtMoney(n[n.length-1]):0;
+  };
+  let gross=valueRight('決済金額');
+  let fee=valueRight('請求金額');
+  let carry=valueRight('前回繰越額');
+  let transfer=valueRight('振込金額');
+
+  // 上部の基本情報は、ラベルと同じ行にある値を座標で拾う。
+  const lineText=(label)=>{
+    const c=items.filter(x=>x.str.replace(/\s/g,'').includes(label)).sort((a,b)=>b.y-a.y);
+    if(!c.length) return '';
+    const t=c[0];
+    return items.filter(x=>Math.abs(x.y-t.y)<=7).sort((a,b)=>a.x-b.x).map(x=>x.str).join(' ');
+  };
+  const td=lineText('振込日'), pn=lineText('処理番号'), pr=lineText('集計対象期間');
+  const transferDate=kpStmtDate(td);
+  const pm=pn.match(/(\d{6}-[A-Za-z0-9-]+)/), processNo=pm?pm[1]:'';
+  const period=(pr.match(/20\d{2}\D+\d{1,2}\D+\d{1,2}\D*\s*[〜～~\-]\s*20\d{2}\D+\d{1,2}\D+\d{1,2}/)||[])[0]||'';
+
+  // 座標抽出で一部欠けた場合だけ、従来のテキスト抽出を補助に使う。
+  if(!gross || !fee || !transfer){
+    const d=await extractKaihipayStatementPdf(file);
+    gross=gross||d.gross; fee=fee||d.fee; carry=carry||d.carry; transfer=transfer||d.transfer;
+    return {gross,fee,carry,transfer,processNo:processNo||d.processNo,transferDate:transferDate||d.transferDate,period:period||d.period};
+  }
+  return {gross,fee,carry,transfer,processNo,transferDate,period};
+}
 function parseKaihipayStatement(text){
   const norm=String(text||'').replace(/，/g,',').replace(/￥/g,'¥');
-  const lines=norm.split(/\n+/).map(x=>x.replace(/\s+/g,' ').trim()).filter(Boolean);
-  const moneyFromLine=(label,mark)=>{
-    const c=lines.filter(l=>l.includes(label)&&(!mark||l.includes(mark)));
-    for(const l of c.reverse()){
-      const nums=[...l.matchAll(/(?:^|[^\d])(\d[\d,]*)(?=$|[^\d])/g)].map(m=>m[1]);
-      if(nums.length) return kpStmtMoney(nums[nums.length-1]);
-    }
-    return 0;
-  };
-  let gross=moneyFromLine('決済金額','A');
-  let fee=moneyFromLine('請求金額','B');
-  let carry=moneyFromLine('前回繰越額','C');
-  let transfer=moneyFromLine('振込金額','A');
-  if(!transfer){
-    const l=lines.find(x=>/^振込金額\b/.test(x)&&/円/.test(x));
-    if(l){const m=l.match(/([0-9][0-9,]*)\s*円/);if(m)transfer=kpStmtMoney(m[1]);}
-  }
-  const joined=lines.join('\n'), pick=re=>{const m=joined.match(re);return m?m[1]:'';};
-  let processNo=pick(/処理番号\s*[:：]?\s*([0-9A-Za-z-]+)/);
-  if(!processNo){const m=joined.match(/\b(\d{6}-[A-Za-z0-9-]+)\b/);processNo=m?m[1]:'';}
-  const transferDate=kpStmtDate(pick(/振込日\s*[:：]?\s*((?:20)?\d{2}\D+\d{1,2}\D+\d{1,2})/));
+  const pick=(re)=>{const m=norm.match(re); return m?m[1]:'';};
+  // PAYMENT FOR支払通知書の定型ラベルを基準に抽出。PDFの文字順差に備え複数パターンを許容する。
+  let gross=kpStmtMoney(pick(/決済金額\s*[（(]?\s*A\s*[）)]?\s*([0-9,]+)/));
+  let fee=kpStmtMoney(pick(/請求金額\s*[（(]?\s*B\s*[）)]?\s*([0-9,]+)/));
+  let carry=kpStmtMoney(pick(/前回繰越額\s*[（(]?\s*C\s*[）)]?\s*([0-9,]+)/));
+  let transfer=kpStmtMoney(pick(/振込金額\s*[（(]?\s*A\s*[）)]?\s*[-−]\s*[（(]?\s*B\s*[）)]?\s*\+\s*[（(]?\s*C\s*[）)]?\s*([0-9,]+)/));
+  if(!transfer) transfer=kpStmtMoney(pick(/振込金額\s*[:：]?\s*([0-9,]+)\s*円/));
+  const processNo=pick(/処理番号\s*[:：]?\s*([0-9A-Za-z-]+)/) || pick(/(\d{6}-[A-Za-z0-9-]+)/);
+  let transferDate=kpStmtDate(pick(/振込日\s*[:：]?\s*((?:20)?\d{2}\D+\d{1,2}\D+\d{1,2})/));
   const period=pick(/集計対象期間\s*[:：]?\s*(20\d{2}\D+\d{1,2}\D+\d{1,2}\D*\s*[〜～~\-]\s*20\d{2}\D+\d{1,2}\D+\d{1,2})/);
+  // テキスト抽出順がラベルと値で離れるPDFでは、末尾付近の日付・金額から補完する。
+  if(!gross || !fee || !transfer){
+    const eq=norm.match(/決済金額[^0-9]{0,30}([0-9,]+).*?請求金額[^0-9]{0,30}([0-9,]+).*?振込金額[^0-9]{0,50}([0-9,]+)/);
+    if(eq){ gross=gross||kpStmtMoney(eq[1]); fee=fee||kpStmtMoney(eq[2]); transfer=transfer||kpStmtMoney(eq[3]); }
+  }
   return {gross,fee,carry,transfer,processNo,transferDate,period};
 }
 $('kaihipayStatementInput').onchange = async e=>{
@@ -3795,7 +3834,7 @@ $('kaihipayStatementInput').onchange = async e=>{
   if(!/\.pdf$/i.test(file.name)) return showToast('会費ペイの支払通知書PDFを選んでください');
   if(box) box.innerHTML='<p class="hint">PDFを端末内で解析しています…</p>';
   try{
-    const text=await extractPdfText(file), d=parseKaihipayStatement(text);
+    const d=await extractKaihipayStatementPdf(file);
     if(!(d.gross>0) || !(d.transfer>0) || !(d.fee>=0)) throw new Error(`支払通知書の主要金額を読み取れませんでした（決済 ${d.gross||0}円／請求 ${d.fee||0}円／振込 ${d.transfer||0}円）`);
     if(Math.abs((d.gross-d.fee+d.carry)-d.transfer)>1) throw new Error('決済金額－請求金額＋繰越額と振込金額が一致しません');
     const key=await kaihipayHash(d.processNo||[d.period,d.transferDate,d.gross,d.fee,d.transfer].join('|'));
