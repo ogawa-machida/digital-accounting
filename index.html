@@ -597,7 +597,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.02-50';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.02-51';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -2459,9 +2459,16 @@ async function doSettlement(pid, recalc){
     const tx = await R(`counters/S${fy}`).transaction(n=>(n||0)+1);
     const no = `精${fy}-${pad(tx.snapshot.val(),3)}`;
     const sid = R('settlements').push().key;
-    const es = eIds.map(entryById);
-    const as = aIds.map(id=>advances.find(a=>a.id===id));
-    const spent = es.reduce((s,e)=>s+(Number(e.amount)||0),0), adv = as.reduce((s,a)=>s+(Number(a.amount)||0),0);
+    // 複数端末で同時に精算しても二重精算しないよう、確定直前にFirebaseの最新状態を再確認する。
+    const [eSnaps,aSnaps]=await Promise.all([
+      Promise.all(eIds.map(id=>R(`entries/${id}`).get())),
+      Promise.all(aIds.map(id=>R(`advances/${id}`).get()))
+    ]);
+    const es=eSnaps.map(x=>x.val()).filter(Boolean), as=aSnaps.map(x=>x.val()).filter(Boolean);
+    if(es.length!==eIds.length || as.length!==aIds.length || es.some(e=>e.settleState!=='pending') || as.some(a=>a.settleState!=='pending')){
+      throw new Error('STALE_SETTLEMENT');
+    }
+    const spent = es.reduce((sum,e)=>sum+(Number(e.amount)||0),0), adv = as.reduce((sum,a)=>sum+(Number(a.amount)||0),0);
     const ups = {};
     ups[`settlements/${sid}`] = {
       no, payerId:pid, date, way, memo:$('stMemo').value.trim(), spent, adv, net: spent-adv,
@@ -2477,7 +2484,7 @@ async function doSettlement(pid, recalc){
     notifySettlementConfirm(sid);
     showToast('精算を記録し、該当者へ受取確認のメール通知を送信しました');
     if (confirm('精算書を印刷しますか？（受領印をもらう場合）')) printSettlement({...ups[`settlements/${sid}`], id:sid, createdAt:Date.now()});
-  } catch(e){ console.error(e); showToast('精算の記録に失敗しました'); btn.disabled=false; }
+  } catch(e){ console.error(e); showToast(e.message==='STALE_SETTLEMENT'?'他の端末で状態が更新されています。画面を更新して精算内容を確認してください':'精算の記録に失敗しました'); btn.disabled=false; }
 }
 
 async function cancelSettlement(s){
@@ -2992,14 +2999,15 @@ async function createFirebaseBackup(kind='manual', quiet=false){
   // 新しい世代の保存成功後に古い世代を削除。削除に失敗しても新バックアップは残る。
   const all=toArr((await R('backups').get()).val()).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
   const remove=all.slice(3);
+  let cleanupFailed=false;
   if(remove.length){
     const ups={}; remove.forEach(x=>ups[`backups/${x.id}`]=null);
-    try{ await db.ref(ROOT).update(ups); }catch(e){ console.warn('古いバックアップの削除に失敗',e); }
+    try{ await db.ref(ROOT).update(ups); }catch(e){ cleanupFailed=true; console.warn('古いバックアップの削除に失敗',e); }
   }
   const kept=all.slice(0,3).map(x=>({id:x.id,at:x.createdAt||at,kind:x.kind||'auto',itemCount:x.itemCount||0,bytes:x.bytes||0,version:x.version||''}));
   await R('settings/autoBackup').update({lastAt:at,lastKind:kind,history:kept.reduce((o,x)=>(o[x.id]=x,o),{})});
   settings.autoBackup={...(settings.autoBackup||{}),lastAt:at,lastKind:kind,history:kept.reduce((o,x)=>(o[x.id]=x,o),{})};
-  if(!quiet) showToast(`バックアップしました（${formatBytes(bytes)}）`);
+  if(!quiet) showToast(cleanupFailed?`バックアップしました（${formatBytes(bytes)}）。古い世代の削除だけ失敗したため次回再整理します`:`バックアップしました（${formatBytes(bytes)}）`);
   return {id,at,bytes,itemCount:payload.itemCount};
 }
 async function maybeAutoBackup(){
@@ -3057,7 +3065,7 @@ async function resetTrialData(){
     // 軽量バックアップは証憑画像を複製しないため、初期化前は画像の存在を確認して誤解を防ぐ。
     const photoSnap=await R('photos').get();
     const photoCount=photoSnap.exists() && typeof photoSnap.val()==='object' ? Object.keys(photoSnap.val()).length : 0;
-    if(photoCount && !confirm(`証憑画像が${photoCount}件あります。\n\n容量節約型バックアップでは画像そのものは複製しません。初期化すると、この${photoCount}件の画像も削除され復元できません。\n\nサンプル画像として削除してよい場合だけ続行してください。`)) return;
+    if(photoCount && !confirm(`証憑画像が${photoCount}件あります。\n\n容量節約型バックアップでは画像そのものは複製しません。初期化すると、この${photoCount}件の画像も削除され復元できません。\n\nサンプル画像として削除してよい場合だけ続行してください。`)){ if(btn) btn.disabled=false; return; }
     showToast('初期化前の会計データをバックアップしています…');
     await createFirebaseBackup('pre_reset',true);
     await db.ref(ROOT).update(ups);
@@ -3067,7 +3075,7 @@ async function resetTrialData(){
     setTimeout(()=>location.reload(),700);
   }catch(e){
     console.error(e); if(btn) btn.disabled=false;
-    showToast('初期化に失敗しました。最新版のFirebaseルール（-47）と会計権限を確認してください');
+    showToast('初期化に失敗しました。最新版のFirebaseルール（-51）と会計権限を確認してください');
   }
 }
 
@@ -3298,7 +3306,7 @@ function bindSettings(){
   };
   if($('backupNowBtn')) $('backupNowBtn').onclick=async()=>{
     const b=$('backupNowBtn'); b.disabled=true; b.textContent='バックアップ中…';
-    try{ await createFirebaseBackup('manual'); renderSettings(); }
+    try{ await createFirebaseBackup('manual'); try{ renderSettings(); }catch(renderErr){ console.warn(renderErr); } }
     catch(e){ console.error(e); showToast('バックアップに失敗しました：'+(e.message||e)); }
     finally{ if($('backupNowBtn')){ $('backupNowBtn').disabled=false; $('backupNowBtn').textContent='今すぐバックアップ'; } }
   };
