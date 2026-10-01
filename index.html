@@ -597,7 +597,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.02-51';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.02-52';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -3052,8 +3052,11 @@ async function resetTrialData(){
   if(!confirm('最終確認です。\n\n収支伝票・証憑・仮払・精算・監査・残高照合・会費ペイ履歴・取込履歴・操作履歴・前年度繰越金を削除します。\n\n科目・予算・利用者・権限・支払方法・基本設定は残します。\n\n実行しますか？')){
     if(btn) btn.disabled=false; return;
   }
+  // entries / photos / log は子要素単位の .write ルールなので、
+  // 親ノードを丸ごと null にすると Firebase Rules が拒否する。
+  // それ以外は親ノードに会計 .write があるため、そのまま削除できる。
   const ups={
-    entries:null, photos:null, advances:null, settlements:null, auditReports:null, imports:null, log:null, counters:null, public:null,
+    advances:null, settlements:null, auditReports:null, imports:null, counters:null, public:null,
     'settings/balanceChecks':null, 'settings/kaihipayImports':null, 'settings/kaihipayProcessed':null,
     'settings/kaihipaySettlements':null, 'settings/opening':null, 'settings/lastBackupAt':null,
     'settings/cashFeeCollection':null
@@ -3068,6 +3071,20 @@ async function resetTrialData(){
     if(photoCount && !confirm(`証憑画像が${photoCount}件あります。\n\n容量節約型バックアップでは画像そのものは複製しません。初期化すると、この${photoCount}件の画像も削除され復元できません。\n\nサンプル画像として削除してよい場合だけ続行してください。`)){ if(btn) btn.disabled=false; return; }
     showToast('初期化前の会計データをバックアップしています…');
     await createFirebaseBackup('pre_reset',true);
+
+    // 子要素単位でのみ削除権限を持つ3系統は、現在存在するIDを列挙して
+    // multi-location update の各削除パスに展開する。
+    const [entrySnap, photoDeleteSnap, logSnap]=await Promise.all([
+      R('entries').get(), R('photos').get(), R('log').get()
+    ]);
+    const addChildDeletes=(prefix,snap)=>{
+      if(!snap.exists() || typeof snap.val()!=='object') return;
+      Object.keys(snap.val()).forEach(id=>{ ups[`${prefix}/${id}`]=null; });
+    };
+    addChildDeletes('entries',entrySnap);
+    addChildDeletes('photos',photoDeleteSnap);
+    addChildDeletes('log',logSnap);
+
     await db.ref(ROOT).update(ups);
     // 操作履歴を0件にするため、この初期化自体はlogへ書かず設定メタデータだけに残す。
     await R('settings/productionReset').set({at:TS(),by:me.uid,byName:me.name,version:APP_VERSION});
@@ -3075,7 +3092,7 @@ async function resetTrialData(){
     setTimeout(()=>location.reload(),700);
   }catch(e){
     console.error(e); if(btn) btn.disabled=false;
-    showToast('初期化に失敗しました。最新版のFirebaseルール（-51）と会計権限を確認してください');
+    showToast(`初期化に失敗しました：${e?.message||e}。Firebaseルール -53 と会計権限を確認してください`);
   }
 }
 
