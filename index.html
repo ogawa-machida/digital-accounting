@@ -596,7 +596,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.01-30';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.01-31';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -3479,21 +3479,46 @@ function exportAccountsCsv(){
 /* ---------- 取り込み ---------- */
 
 /* =========================================================
-   会費ペイ取込（個人情報を保存しない）
+   会費ペイ取込（個人情報を保存しない／決済種別ごとに分類）
    ========================================================= */
 let kaihipayImport = null;
+const KAIHIPAY_METHODS = {
+  card:{name:'会費ペイ（カード決済）', label:'カード決済'},
+  debit:{name:'会費ペイ（口座引き落とし）', label:'口座引き落とし'}
+};
 async function kaihipayHash(text){
   const data=new TextEncoder().encode(String(text));
   const digest=await crypto.subtle.digest('SHA-256',data);
   return Array.from(new Uint8Array(digest)).map(b=>b.toString(16).padStart(2,'0')).join('');
 }
 function kaihipayRowKey(r){
-  // 個人情報そのものは保存しない。会費ペイ内で一意性の高い取引識別子を端末内でハッシュ化する。
   const parts=['請求番号','決済SID','入金日時','請求金額','決済方法'].map(k=>String(r[k]??'').trim());
   return parts.join('|');
 }
-function allKaihipayProcessed(){
-  return settings.kaihipayProcessed||{};
+function kaihipayKind(v){
+  const x=String(v??'').trim();
+  if(/カード|credit|クレジット/i.test(x)) return 'card';
+  if(/口座|引.?落|振替|bank/i.test(x)) return 'debit';
+  return 'unknown';
+}
+function allKaihipayProcessed(){ return settings.kaihipayProcessed||{}; }
+async function ensureKaihipayMethods(){
+  const snap=await R('methods').get();
+  const list=toArr(snap.val());
+  const out={};
+  for(const [kind,def] of Object.entries(KAIHIPAY_METHODS)){
+    let m=list.find(x=>x.name===def.name);
+    if(!m){
+      const ref=R('methods').push();
+      m={id:ref.key,name:def.name,use:'income',settle:false,active:true,order:list.length+Object.keys(out).length};
+      await ref.set({name:m.name,use:m.use,settle:false,active:true,order:m.order});
+    } else if(!m.active || !(m.use==='income'||m.use==='both')){
+      await R(`methods/${m.id}`).update({active:true,use:'income',settle:false});
+      m={...m,active:true,use:'income',settle:false};
+    }
+    out[kind]=m;
+  }
+  return out;
 }
 $('kaihipayInput').onchange = async e => {
   const file=e.target.files[0]; e.target.value='';
@@ -3523,24 +3548,27 @@ $('kaihipayInput').onchange = async e => {
     const enriched=[];
     for(const r of paid){
       const hash=await kaihipayHash(kaihipayRowKey(r));
-      enriched.push({row:r,hash,date:kaihipayDate(r['入金日時']||r['決済日']),amount:kaihipayAmount(r['請求金額'])});
+      enriched.push({row:r,hash,date:kaihipayDate(r['入金日時']||r['決済日']),amount:kaihipayAmount(r['請求金額']),kind:kaihipayKind(r['決済方法'])});
     }
     const fresh=enriched.filter(x=>!processed[x.hash]);
     const amount=paid.reduce((n,r)=>n+kaihipayAmount(r['請求金額']),0);
     const freshAmount=fresh.reduce((n,x)=>n+x.amount,0);
     const dates=enriched.map(x=>x.date).filter(Boolean).sort();
     const freshDates=fresh.map(x=>x.date).filter(Boolean).sort();
-    const methods=[...new Set(paid.map(r=>String(r['決済方法']||'').trim()).filter(Boolean))];
-    const freshMethods=[...new Set(fresh.map(x=>String(x.row['決済方法']||'').trim()).filter(Boolean))];
+    const sourceMethods=[...new Set(paid.map(r=>String(r['決済方法']||'').trim()).filter(Boolean))];
     const courses=[...new Set(paid.map(r=>String(r['コース / 請求名']||'').trim()).filter(Boolean))];
     const minDate=dates[0]||localDate(new Date()), maxDate=dates[dates.length-1]||minDate;
     const freshMinDate=freshDates[0]||'', freshMaxDate=freshDates[freshDates.length-1]||'';
-    const fingerprint=[paid.length,amount,minDate,maxDate,methods.join('+'),courses.join('+')].join('|');
-    // -29以前に同じ集計を取り込んでいる場合は、二重計上せずハッシュ台帳だけ移行できるようにする。
+    const fingerprint=[paid.length,amount,minDate,maxDate,sourceMethods.join('+'),courses.join('+')].join('|');
     const legacyHist=Object.values(settings.kaihipayImports||{}).flatMap(v=>Object.values(v||{}));
     const legacyExact=legacyHist.some(x=>x && x.fingerprint===fingerprint);
-    kaihipayImport={fileName:file.name,count:paid.length,amount,minDate,maxDate,methods,courses,fingerprint,totalRows:rows.length,
-      enriched,fresh,freshCount:fresh.length,freshAmount,freshMinDate,freshMaxDate,freshMethods,legacyExact};
+    const groups={};
+    for(const kind of ['card','debit','unknown']){
+      const all=enriched.filter(x=>x.kind===kind), fr=fresh.filter(x=>x.kind===kind);
+      groups[kind]={all,count:all.length,amount:all.reduce((n,x)=>n+x.amount,0),fresh:fr,freshCount:fr.length,freshAmount:fr.reduce((n,x)=>n+x.amount,0)};
+    }
+    kaihipayImport={fileName:file.name,count:paid.length,amount,minDate,maxDate,sourceMethods,courses,fingerprint,totalRows:rows.length,
+      enriched,fresh,freshCount:fresh.length,freshAmount,freshMinDate,freshMaxDate,legacyExact,groups};
     renderKaihipayPreview();
   }catch(err){ console.error(err); kaihipayImport=null; if(box) box.innerHTML=`<p class="hint" style="color:var(--stamp-red)">${esc(String(err.message||err))}</p>`; }
 };
@@ -3558,27 +3586,34 @@ function kaihipayDate(v){
 function renderKaihipayPreview(){
   const d=kaihipayImport, box=$('kaihipayPreview'); if(!d||!box) return;
   const acc=accounts.find(a=>a.type==='income' && a.name==='会費');
-  const meth=methods.find(m=>m.active && (m.use==='income'||m.use==='both') && /会費ペイ/.test(m.name)) || methods.find(m=>m.active && (m.use==='income'||m.use==='both'));
   const migration=d.legacyExact && d.freshCount===d.count;
+  const classRows=['card','debit'].filter(k=>d.groups[k].count).map(k=>{
+    const g=d.groups[k], def=KAIHIPAY_METHODS[k];
+    return `<div class="total-check"><span>${esc(def.name)}</span><b>${g.count.toLocaleString('ja-JP')}件／${yen(g.amount)}</b></div>`;
+  }).join('');
+  const unknown=d.groups.unknown;
   box.innerHTML=`
     <div class="total-check"><span>CSV内の入金済</span><b>${d.count.toLocaleString('ja-JP')}件／${yen(d.amount)}</b></div>
     <div class="total-check ${d.freshCount?'ok':''}"><span>今回新たに計上する分</span><b>${d.freshCount.toLocaleString('ja-JP')}件／${yen(d.freshAmount)}</b></div>
     <div class="total-check"><span>取込済み</span><b>${(d.count-d.freshCount).toLocaleString('ja-JP')}件</b></div>
-    <p class="hint" style="margin:8px 0">CSV全体：${fmtDateFull(d.minDate)}${d.maxDate!==d.minDate?' ～ '+fmtDateFull(d.maxDate):''}<br>決済方法：${esc(d.methods.join('、')||'不明')}<br>${d.totalRows.toLocaleString('ja-JP')}行のうち「入金済」だけを確認しました。</p>
+    ${classRows}
+    ${unknown.count?`<div class="total-check ng"><span>未分類の決済方法</span><b>${unknown.count.toLocaleString('ja-JP')}件／${yen(unknown.amount)}</b></div>`:''}
+    <p class="hint" style="margin:8px 0">CSV全体：${fmtDateFull(d.minDate)}${d.maxDate!==d.minDate?' ～ '+fmtDateFull(d.maxDate):''}<br>CSV記載の決済方法：${esc(d.sourceMethods.join('、')||'不明')}<br>${d.totalRows.toLocaleString('ja-JP')}行のうち「入金済」だけを確認しました。</p>
+    ${unknown.count?'<p class="hint" style="color:var(--stamp-red)">「カード決済」「口座引き落とし」のどちらにも判定できない決済方法があります。誤計上を防ぐため、このファイルは登録できません。</p>':''}
     ${migration?'<div class="total-check ng"><span>旧版からの移行</span><b>同じ集計の取込履歴があります</b></div><p class="hint">-29以前にこのCSV全体を収入計上済みと判断しました。二重計上を防ぐため、収入は追加せず取込済IDだけを登録してください。</p>':''}
     ${!migration && d.freshCount===0?'<div class="total-check ok"><span>追加計上</span><b>ありません</b></div>':''}
-    ${d.freshCount>0&&!migration?`<div class="field" style="margin-top:12px"><label>会計上の入金日</label><input type="date" id="kaihipayDate" value="${esc(d.freshMaxDate||d.maxDate)}"></div>
+    ${d.freshCount>0&&!migration&&!unknown.count?`<div class="field" style="margin-top:12px"><label>会計上の入金日</label><input type="date" id="kaihipayDate" value="${esc(d.freshMaxDate||d.maxDate)}"></div>
     <div class="field"><label>収入科目</label><select id="kaihipayAccount">${accounts.filter(a=>a.type==='income'&&a.active).map(a=>`<option value="${a.id}" ${a.id===acc?.id?'selected':''}>${esc(a.name)}</option>`).join('')}</select></div>
-    <div class="field"><label>入金方法</label><select id="kaihipayMethod">${methods.filter(m=>m.active&&(m.use==='income'||m.use==='both')).map(m=>`<option value="${m.id}" ${m.id===meth?.id?'selected':''}>${esc(m.name)}</option>`).join('')}</select></div>
-    <div class="field"><label>摘要</label><input type="text" id="kaihipayPurpose" value="${curFY}年度 自治会費（会費ペイ）"></div>`:''}
+    <div class="field"><label>摘要</label><input type="text" id="kaihipayPurpose" value="${curFY}年度 自治会費（会費ペイ）"></div>
+    <p class="hint">入金方法はCSVの「決済方法」から自動分類します。カード決済は「会費ペイ（カード決済）」、口座系の決済は「会費ペイ（口座引き落とし）」として別々の収入伝票にします。</p>`:''}
     <p class="hint">請求番号・決済SIDなどは端末内でSHA-256ハッシュ化し、Firebaseには元の識別子・氏名・会員番号・メールアドレス等を保存しません。保存する取込済IDから個人情報を表示する機能もありません。</p>
-    ${migration?'<button class="btn btn-primary full" id="kaihipayMigrate">このCSVを取込済みとして登録する</button>':d.freshCount>0?'<button class="btn btn-primary full" id="kaihipayDo">未取込分だけ会費収入として登録する</button>':'<button class="btn btn-primary full" disabled>未取込の入金はありません</button>'}`;
+    ${migration?'<button class="btn btn-primary full" id="kaihipayMigrate">このCSVを取込済みとして登録する</button>':d.freshCount>0&&!unknown.count?'<button class="btn btn-primary full" id="kaihipayDo">未取込分だけ会費収入として登録する</button>':'<button class="btn btn-primary full" disabled>登録できる未取込入金はありません</button>'}`;
   const b=$('kaihipayDo'); if(b) b.onclick=saveKaihipayIncome;
   const m=$('kaihipayMigrate'); if(m) m.onclick=seedKaihipayProcessed;
 }
 async function saveKaihipayProcessed(items, meta){
   const updates={};
-  items.forEach(x=>{ updates[`settings/kaihipayProcessed/${x.hash}`]={at:meta.at,fy:meta.fy,entryId:meta.entryId||'',amount:x.amount,date:x.date}; });
+  items.forEach(x=>{ updates[`settings/kaihipayProcessed/${x.hash}`]={at:meta.at,fy:meta.fy,entryId:meta.entryId||'',amount:x.amount,date:x.date,kind:x.kind||''}; });
   if(Object.keys(updates).length) await db.ref(ROOT).update(updates);
 }
 async function seedKaihipayProcessed(){
@@ -3592,37 +3627,46 @@ async function seedKaihipayProcessed(){
   }catch(err){ console.error(err); btn.disabled=false; btn.textContent='このCSVを取込済みとして登録する'; showToast('取込済IDを登録できませんでした。Firebaseの権限設定を確認してください'); }
 }
 async function saveKaihipayIncome(){
-  const d=kaihipayImport; if(!d||!d.freshCount) return;
-  const date=$('kaihipayDate').value, accountId=$('kaihipayAccount').value, methodId=$('kaihipayMethod').value, purpose=$('kaihipayPurpose').value.trim();
-  if(!date||!accountId||!methodId||!purpose) return showToast('入金日・科目・入金方法・摘要を確認してください');
+  const d=kaihipayImport; if(!d||!d.freshCount||d.groups.unknown.count) return;
+  const date=$('kaihipayDate').value, accountId=$('kaihipayAccount').value, purposeBase=$('kaihipayPurpose').value.trim();
+  if(!date||!accountId||!purposeBase) return showToast('入金日・科目・摘要を確認してください');
   const fy=fyOf(date);
-  if(!confirm(`未取込の入金済 ${d.freshCount}件・${yen(d.freshAmount)} を、\n${fmtDateFull(date)} の会費収入として1件登録します。\n\n取込済み ${d.count-d.freshCount}件は再計上しません。個人情報と元ファイルは保存しません。よろしいですか？`)) return;
+  const summaries=['card','debit'].map(k=>({k,g:d.groups[k]})).filter(x=>x.g.freshCount).map(x=>`${KAIHIPAY_METHODS[x.k].label} ${x.g.freshCount}件・${yen(x.g.freshAmount)}`).join('\n');
+  if(!confirm(`未取込分を決済方法ごとに会費収入として登録します。\n\n${summaries}\n\n取込済み ${d.count-d.freshCount}件は再計上しません。個人情報と元ファイルは保存しません。よろしいですか？`)) return;
   const btn=$('kaihipayDo'); btn.disabled=true; btn.textContent='登録中…';
   try{
-    // 保存直前に取込済IDを再確認し、別端末との二重登録をできるだけ防ぐ。
     const latest=(await R('settings/kaihipayProcessed').get()).val()||{};
     const fresh=d.fresh.filter(x=>!latest[x.hash]);
     if(!fresh.length){ kaihipayImport=null; showToast('未取込分はありません。別の端末ですでに登録された可能性があります'); renderSettings(); return; }
-    const freshAmount=fresh.reduce((n,x)=>n+x.amount,0);
-    const freshDates=fresh.map(x=>x.date).filter(Boolean).sort();
-    const tx=await R(`counters/${fy}`).transaction(n=>(n||0)+1);
-    const voucherNo=`${fy}-${pad(tx.snapshot.val(),3)}`;
-    const ref=R('entries').push();
-    const now=TS();
-    await ref.set({
-      type:'income',date,fy,voucherNo,amount:freshAmount,accountId,methodId,payerId:null,
-      purpose,payee:'会費ペイ',memo:`会費ペイ増分取込：未取込 ${fresh.length}件／対象 ${freshDates[0]||date}${freshDates.length>1?'～'+freshDates[freshDates.length-1]:''}`,
-      storageLocation:'',noReceipt:true,noReceiptReason:'会費ペイの集計データによる収入',addressee:'',excludePublic:false,
-      thumb:null,photoCount:0,status:'approved',settleState:'none',auditStale:false,
-      createdBy:me.uid,createdByName:me.name,createdAt:now,updatedAt:now,updatedByName:me.name,
-      approvedBy:me.uid,approvedByName:`${me.name}（会費ペイ取込）`,approvedAt:now
-    });
-    await saveKaihipayProcessed(fresh,{at:now,fy,entryId:ref.key});
-    const h=R(`settings/kaihipayImports/${fy}`).push();
-    await h.set({at:now,by:me.uid,byName:me.name,count:fresh.length,amount:freshAmount,minDate:freshDates[0]||date,maxDate:freshDates[freshDates.length-1]||date,methods:[...new Set(fresh.map(x=>String(x.row['決済方法']||'').trim()).filter(Boolean))],fingerprint:d.fingerprint,entryId:ref.key,voucherNo,incremental:true});
-    writeLog('会費ペイ増分取込',{voucherNo,amount:freshAmount,purpose},`${fresh.length}件を増分集計して収入登録（個人情報は保存せず）`);
-    kaihipayImport=null; showToast(`${voucherNo} として未取込 ${fresh.length}件・${yen(freshAmount)} を登録しました`); renderSettings();
-  }catch(err){ console.error(err); btn.disabled=false; btn.textContent='未取込分だけ会費収入として登録する'; showToast('登録できませんでした。Firebaseの権限設定を確認してください'); }
+    const unknown=fresh.filter(x=>x.kind==='unknown');
+    if(unknown.length) throw new Error('未分類の決済方法があります');
+    const methodMap=await ensureKaihipayMethods();
+    const created=[];
+    for(const kind of ['card','debit']){
+      const items=fresh.filter(x=>x.kind===kind); if(!items.length) continue;
+      const freshAmount=items.reduce((n,x)=>n+x.amount,0);
+      const freshDates=items.map(x=>x.date).filter(Boolean).sort();
+      const tx=await R(`counters/${fy}`).transaction(n=>(n||0)+1);
+      const voucherNo=`${fy}-${pad(tx.snapshot.val(),3)}`;
+      const ref=R('entries').push();
+      const now=TS(), def=KAIHIPAY_METHODS[kind];
+      const purpose=`${purposeBase}（${def.label}）`;
+      await ref.set({
+        type:'income',date,fy,voucherNo,amount:freshAmount,accountId,methodId:methodMap[kind].id,payerId:null,
+        purpose,payee:'会費ペイ',memo:`会費ペイ増分取込：${def.label}／未取込 ${items.length}件／対象 ${freshDates[0]||date}${freshDates.length>1?'～'+freshDates[freshDates.length-1]:''}`,
+        storageLocation:'',noReceipt:true,noReceiptReason:'会費ペイの集計データによる収入',addressee:'',excludePublic:false,
+        thumb:null,photoCount:0,status:'approved',settleState:'none',auditStale:false,
+        createdBy:me.uid,createdByName:me.name,createdAt:now,updatedAt:now,updatedByName:me.name,
+        approvedBy:me.uid,approvedByName:`${me.name}（会費ペイ取込）`,approvedAt:now
+      });
+      await saveKaihipayProcessed(items,{at:now,fy,entryId:ref.key});
+      const h=R(`settings/kaihipayImports/${fy}`).push();
+      await h.set({at:now,by:me.uid,byName:me.name,count:items.length,amount:freshAmount,minDate:freshDates[0]||date,maxDate:freshDates[freshDates.length-1]||date,methods:[def.label],kind,fingerprint:d.fingerprint,entryId:ref.key,voucherNo,incremental:true});
+      writeLog('会費ペイ増分取込',{voucherNo,amount:freshAmount,purpose},`${def.label} ${items.length}件を増分集計して収入登録（個人情報は保存せず）`);
+      created.push(`${voucherNo} ${def.label} ${items.length}件・${yen(freshAmount)}`);
+    }
+    kaihipayImport=null; showToast(`会費ペイを登録しました：${created.join('／')}`); renderSettings();
+  }catch(err){ console.error(err); btn.disabled=false; btn.textContent='未取込分だけ会費収入として登録する'; showToast(`登録できませんでした：${String(err.message||err)}`); }
 }
 
 const IMPORT_FIELDS = [
