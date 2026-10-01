@@ -596,7 +596,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.01-27';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.01-26';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -762,6 +762,8 @@ function actionableBookStatus(){
   const approval = isT()
     ? base.some(e=>e.status==='submitted' && e.selfApprovalRequired!==true)
     : (isViewer() ? base.some(entryIsMyApproval) : false);
+  // 会計は処理責任のある「承認待ち」を最優先。会計以外は本人への差戻しを先に案内する。
+  if (isT() && approval) return 'submitted';
   if (returnedMine) return 'returned';
   if (approval) return 'submitted';
   return 'all';
@@ -1400,9 +1402,12 @@ function renderHome(){
   const exp = ap.filter(e=>e.type==='expense').reduce((s,e)=>s+(Number(e.amount)||0),0);
   const opening = Number((settings.opening||{})[curFY])||0;
   const submitted = fyEntries().filter(e=>e.status==='submitted');
-  const treasurerActionable = submitted.filter(e=>e.selfApprovalRequired!==true);
-  const viewerActionable = submitted.filter(e=>e.selfApprovalRequired===true && e.createdBy!==me.uid);
-  const returned = fyEntries().filter(e=>e.status==='returned');
+  const treasurerActionable = isT() ? submitted.filter(e=>e.selfApprovalRequired!==true) : [];
+  const viewerActionable = isViewer() ? visibleBookEntries().filter(e=>e.fy===curFY && entryIsMyApproval(e)) : [];
+  // 会計は全体の差戻し状況を管理。会計以外は「自分の申請が差し戻された」場合だけ表示する。
+  const returned = isT()
+    ? fyEntries().filter(e=>e.status==='returned')
+    : visibleBookEntries().filter(e=>e.fy===curFY && e.status==='returned' && entryIsMine(e));
   const people = settlePeople().filter(p=>p.ready);
   const toPay = people.filter(p=>p.net>0).reduce((s,p)=>s+p.net,0);
   const toBack = people.filter(p=>p.net<0).reduce((s,p)=>s-p.net,0);
@@ -1434,7 +1439,8 @@ function renderHome(){
   if (isT()) html += `<button class="btn btn-navy full" id="homeBatchBtn" style="margin:4px 0 12px">📚 レシート・領収証をまとめて読み込む</button>`;
   html += budgetPanel(ap);
 
-  const recent = fyEntries().sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0)).slice(0,5);
+  const recentSource = (isT() || isA()) ? fyEntries() : visibleBookEntries().filter(e=>e.fy===curFY);
+  const recent = recentSource.sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0)).slice(0,5);
   html += `<h2 class="section-title" style="margin-top:18px;">最近の登録</h2>`;
   html += recent.length ? recent.map(slipHTML).join('') : `<div class="empty"><div class="mark-big">記録<br>なし</div>${isT()?'右下の＋から収入・支出を登録しましょう':'まだ記録がありません'}</div>`;
   el.innerHTML = html;
@@ -1972,7 +1978,13 @@ async function persistEntry(prev, f, photos, photosChanged){
   if (photosChanged) await R(`photos/${ref.key}`).set(photos.length ? photos : null);
   const st = data.storageLocation;
   if (st && !storageTags.includes(st)) { storageTags.push(st); R('storageTags').push().set({name:st}).catch(()=>{}); }
-  writeLog(prev ? '修正' : (canOwnSubmit() ? '申請' : '登録'), data, prev ? diffText(prev, data) : `${data.purpose||data.payee}${f._via?`（${f._via}）`:''}`);
+  const changes = prev ? diffText(prev, data) : '';
+  // 会計が承認前の申請内容を直した場合は、伝票内にも構造化した訂正履歴を残す。
+  if (prev && isT() && prev.status==='submitted' && changes) {
+    const h = R(`entries/${ref.key}/accountingEdits`).push();
+    await h.set({ at:TS(), by:me.uid, byName:me.name, changes });
+  }
+  writeLog(prev ? (isT() && prev.status==='submitted' ? '会計修正' : '修正') : (canOwnSubmit() ? '申請' : '登録'), data, prev ? changes : `${data.purpose||data.payee}${f._via?`（${f._via}）`:''}`);
   return { ...data, id: ref.key };
 }
 
@@ -2037,8 +2049,8 @@ async function renderDetail(id){
   const acc = accById(e.accountId), m = methodById(e.methodId);
   const inc = e.type==='income';
   const stl = e.settlementId ? settlements.find(s=>s.id===e.settlementId) : null;
-  const canEditT = isT() && !e.cashFeeRequest;
-  const canAccountingCorrect = isT() && !e.cashFeeRequest && e.status==='submitted' && e.selfApprovalRequired!==true;
+  // 会計の通常編集は承認前だけ。承認済み・精算済みを通常フォームから書き換えない。
+  const canEditT = isT() && !e.cashFeeRequest && e.status==='submitted';
   const canEditP = !e.cashFeeRequest && (isP() || (isViewer() && e.createdBy===me.uid)) && e.status!=='approved';
   const canFixCashFee = e.cashFeeRequest && isGroupLeader() && e.createdBy===me.uid && e.status==='returned' && cashFeeCollectionOpen();
   const keepAudit = $('auditComment') ? $('auditComment').value : '';
@@ -2089,22 +2101,7 @@ async function renderDetail(id){
   }
   if (isT() && e.status==='submitted' && e.selfApprovalRequired!==true) {
     if(e.cashFeeRequest) html += `<div class="audit-box" style="border-color:var(--stamp-navy);margin-bottom:10px"><div style="font-weight:700;margin-bottom:5px">現金会費の受取確認</div><p class="hint">申告：${esc(e.cashFeeBranch||'')} ${esc(e.cashFeeGroup||'')}／${Number(e.cashFeeCount)||0}世帯／${yen(e.cashFeeDeclaredAmount||e.amount)}。現金を実際に数えてから確認してください。</p><div class="btn-row"><button class="btn btn-danger" id="dReturn">差し戻す</button><button class="btn btn-moss" id="cashFeeConfirmBtn">現金を数えて受取確認</button></div></div>`;
-    else html += `<div class="audit-box" style="border-color:var(--moss);margin-bottom:10px">
-      <div style="font-weight:700;font-size:13.5px;margin-bottom:4px">支払い内容の確認</div>
-      <p class="hint" style="margin:0 0 8px">科目・摘要・支払先など、会計上の軽微な誤りは会計担当が修正してから承認できます。申請内容そのものに確認が必要な場合は「差し戻す」を使ってください。</p>
-      <div class="btn-row" style="margin-bottom:8px"><button class="btn btn-ghost" id="accountingCorrectBtn">内容を修正</button></div>
-      <div id="accountingCorrectBox" style="display:none;border-top:1px solid var(--line);padding-top:10px;margin-top:6px">
-        <div class="field"><label>支払日</label><input id="acDate" type="date" value="${esc(e.date||'')}"></div>
-        <div class="field"><label>金額</label><input id="acAmount" type="number" min="1" step="1" value="${Number(e.amount)||0}"></div>
-        <div class="field"><label>科目</label><select id="acAccount">${accounts.filter(a=>a.type==='expense' && (a.active||a.id===e.accountId)).map(a=>`<option value="${a.id}" ${a.id===e.accountId?'selected':''}>${esc(a.name)}</option>`).join('')}</select></div>
-        <div class="field"><label>用途・行事（摘要）</label><input id="acPurpose" value="${esc(e.purpose||'')}"></div>
-        <div class="field"><label>支払先</label><input id="acPayee" value="${esc(e.payee||'')}"></div>
-        <div class="field"><label>支払方法</label><select id="acMethod">${methods.filter(m=>m.active||m.id===e.methodId).map(m=>`<option value="${m.id}" ${m.id===e.methodId?'selected':''}>${esc(m.name)}</option>`).join('')}</select></div>
-        <p class="hint">修正前後の内容・修正者・修正日時は操作履歴に残ります。金額を変更した場合も履歴に記録されます。</p>
-        <div class="btn-row"><button class="btn btn-navy" id="accountingCorrectSave">修正を保存</button></div>
-      </div>
-      <div class="btn-row"><button class="btn btn-danger" id="dReturn">差し戻す</button><button class="btn btn-moss" id="dApprove">${pv&&pv.provisional?'本登録して承認する':'承認する'}</button></div>
-    </div>`;
+    else html += `<div class="btn-row" style="margin-bottom:10px"><button class="btn btn-danger" id="dReturn">差し戻す</button><button class="btn btn-moss" id="dApprove">${pv&&pv.provisional?'本登録して承認する':'承認する'}</button></div>`;
   }
   if (isViewer() && e.status==='submitted' && e.selfApprovalRequired===true && e.createdBy!==me.uid) {
     html += `<div class="audit-box" style="border-color:var(--amber);margin-bottom:10px"><div style="font-weight:700;font-size:13.5px;margin-bottom:4px">会計担当本人の支出です</div><p class="hint" style="margin:0 0 8px">自己承認を防ぐため、役員が内容と領収証を確認して承認します。</p><div class="btn-row"><button class="btn btn-danger" id="dReturn">差し戻す</button><button class="btn btn-moss" id="dApprove">承認する</button></div></div>`;
@@ -2126,7 +2123,7 @@ async function renderDetail(id){
     html += `<div class="audit-box" style="border-color:var(--stamp-red);margin-bottom:10px"><div style="font-weight:700;margin-bottom:5px">現金会費を修正して再申告</div><p class="hint">差戻し理由：${esc(e.returnReason||'内容を確認してください')}</p><div class="btn-row"><button class="btn btn-navy" id="cashFeeResubmitBtn">世帯数・金額を修正して再申告</button></div></div>`;
   }
   if (canEditT || canEditP) {
-    html += `<div class="btn-row"><button class="btn btn-ghost" id="dEdit">${isP()&&e.status==='returned'?'修正して再申請':'修正する'}</button></div>
+    html += `<div class="btn-row"><button class="btn btn-ghost" id="dEdit">${isT()&&e.status==='submitted'?'申請内容を修正':(isP()&&e.status==='returned'?'修正して再申請':'修正する')}</button></div>
       <div class="btn-row"><button class="btn btn-danger" id="dDelete">${isP()?'申請を取り下げる':'この伝票を削除'}</button></div>`;
   }
   el.innerHTML = html;
@@ -2134,8 +2131,6 @@ async function renderDetail(id){
   $('detailBack').onclick = () => showScreen(isP() ? 'homeScreen' : 'bookScreen');
   if ($('dEdit')) $('dEdit').onclick = () => openForm(e);
   if ($('dDelete')) $('dDelete').onclick = () => deleteEntry(e);
-  if ($('accountingCorrectBtn')) $('accountingCorrectBtn').onclick = () => { const b=$('accountingCorrectBox'); b.style.display=b.style.display==='none'?'block':'none'; };
-  if ($('accountingCorrectSave')) $('accountingCorrectSave').onclick = () => saveAccountingCorrection(e);
   if ($('dApprove')) $('dApprove').onclick = () => approveEntry(e, $('gTarget') ? $('gTarget').value : null, $('gRole') ? $('gRole').value : null);
   if ($('cashFeeConfirmBtn')) $('cashFeeConfirmBtn').onclick = () => confirmCashFee(e);
   if ($('cashFeeResubmitBtn')) $('cashFeeResubmitBtn').onclick = () => resubmitCashFee(e);
@@ -2188,39 +2183,6 @@ async function rejectGuest(e){
   showToast('利用停止にしました');
 }
 
-
-async function saveAccountingCorrection(e){
-  if (!isT() || e.cashFeeRequest || e.status!=='submitted' || e.selfApprovalRequired===true) return showToast('この伝票は会計修正できません');
-  const next={
-    date:$('acDate').value,
-    amount:Math.round(Number($('acAmount').value)||0),
-    accountId:$('acAccount').value,
-    purpose:$('acPurpose').value.trim(),
-    payee:$('acPayee').value.trim(),
-    methodId:$('acMethod').value
-  };
-  if(!next.date) return showToast('支払日を入力してください');
-  if(next.amount<=0) return showToast('金額を入力してください');
-  if(!next.accountId) return showToast('科目を選んでください');
-  if(!next.methodId) return showToast('支払方法を選んでください');
-  if(e.settleState==='settled' && Number(e.amount)!==next.amount) return showToast('精算済みの伝票は金額を変更できません');
-  const after={...e,...next};
-  const diff=diffText(e,after);
-  if(diff==='内容の修正') return showToast('変更された項目はありません');
-  if(Number(e.amount)!==next.amount && !confirm(`金額を ${yen(e.amount)} → ${yen(next.amount)} に変更します。
-申請者が入力した金額を変更するため、操作履歴に記録します。よろしいですか？`)) return;
-  const correction={at:TS(),by:me.uid,byName:me.name,detail:diff,before:{date:e.date||'',amount:Number(e.amount)||0,accountId:e.accountId||'',purpose:e.purpose||'',payee:e.payee||'',methodId:e.methodId||''},after:next};
-  const key=R(`entries/${e.id}/accountingCorrections`).push().key;
-  const ups={...next,updatedAt:TS(),updatedByName:me.name,auditStale:e.audit?true:(e.auditStale||false)};
-  ups[`accountingCorrections/${key}`]=correction;
-  try{
-    await R(`entries/${e.id}`).update(ups);
-    writeLog('会計修正',e,diff);
-    showToast('修正を保存しました。内容を確認して承認してください');
-    openDetail(e.id);
-  }catch(err){ console.error(err); showToast('修正を保存できませんでした'); }
-}
-
 async function approveEntry(e, guestTarget, guestRole){
   const pv = payerById(e.payerId);
   if (pv && pv.provisional) {
@@ -2235,7 +2197,9 @@ async function approveEntry(e, guestTarget, guestRole){
   }
   await approveOne(e);
   showToast('承認しました');
-  const next = fyEntries().find(x=>x.status==='submitted' && x.id!==e.id);
+  const next = isT()
+    ? fyEntries().find(x=>x.status==='submitted' && x.selfApprovalRequired!==true && x.id!==e.id)
+    : (isViewer() ? visibleBookEntries().find(x=>entryIsMyApproval(x) && x.id!==e.id) : null);
   if (next && confirm('次の承認待ちを開きますか？')) openDetail(next.id);
 }
 async function approveOne(e){
