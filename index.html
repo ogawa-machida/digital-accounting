@@ -597,7 +597,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.01-42';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.01-43';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -4158,7 +4158,7 @@ function computeImport(){
     const ak = `${r.type}|${r.accName}`;
     if (d.accMap[ak]===undefined) {
       if (!r.accName) { const fb = accounts.find(a=>a.type===r.type && a.active && /雑/.test(a.name)) || accounts.find(a=>a.type===r.type && a.active); d.accMap[ak] = fb ? fb.id : 'new'; }
-      else { const ex = accounts.find(a=>a.type===r.type && normKey(a.name)===normKey(r.accName)); d.accMap[ak] = ex ? ex.id : matchAccount(r.type, r.accName); }
+      else { const ex = accounts.find(a=>a.type===r.type && normKey(a.name)===normKey(r.accName)); const m=matchAccount(r.type,r.accName); d.accMap[ak] = ex ? ex.id : (m&&m!=='new'?m:'add'); }
     }
     const mk = `${r.type}|${r.methodName}`;
     if (d.methMap[mk]===undefined) {
@@ -4215,7 +4215,7 @@ function renderImport(){
   html += `<div class="form-card"><h3 style="font-size:14.5px;margin-bottom:4px">③ 科目の対応</h3>` +
     accKeys.map(k=>{ const [type,name]=[k.split('|')[0], k.slice(k.indexOf('|')+1)];
       return mapRow(`${type==='income'?'［収］':'［支］'}${esc(name||'（科目なし）')}`, cnt(r=>`${r.type}|${r.accName}`===k), 'data-acc', k,
-        cur => (name?`<option value="new" ${cur==='new'?'selected':''}>＋ 新しい科目「${esc(name)}」</option>`:'') + accounts.filter(a=>a.type===type).map(a=>`<option value="${a.id}" ${cur===a.id?'selected':''}>${esc(a.name)}${a.active?'':'（停止中）'}</option>`).join(''), d.accMap[k]); }).join('') + `</div>`;
+        cur => `<option value="add" ${cur==='add'?'selected':''}>＋ 新しい科目を追加…</option>` + accounts.filter(a=>a.type===type).map(a=>`<option value="${a.id}" ${cur===a.id?'selected':''}>${esc(a.name)}${a.active?'':'（停止中）'}</option>`).join(''), d.accMap[k]); }).join('') + `</div>`;
   html += `<div class="form-card"><h3 style="font-size:14.5px;margin-bottom:4px">④ 支払方法の対応</h3>` +
     methKeys.map(k=>{ const [type,name]=[k.split('|')[0], k.slice(k.indexOf('|')+1)];
       return mapRow(`${type==='income'?'［収］':'［支］'}${esc(name||'（記載なし）')}`, cnt(r=>`${r.type}|${r.methodName}`===k), 'data-meth', k,
@@ -4255,7 +4255,27 @@ function renderImport(){
     }
     d.accMap={}; d.methMap={}; d.payerMap={}; renderImport();
   });
-  el.querySelectorAll('[data-acc]').forEach(s=>s.onchange=()=>{ d.accMap[s.dataset.acc]=s.value; renderImport(); });
+  el.querySelectorAll('[data-acc]').forEach(sel=>sel.onchange=async()=>{
+    const k=sel.dataset.acc, v=sel.value;
+    if(v!=='add'){ d.accMap[k]=v; renderImport(); return; }
+    const type=k.split('|')[0], srcName=k.slice(k.indexOf('|')+1);
+    const suggested=/^仮払い?\s*\d*$/u.test(srcName)||/^仮払\s*\d*$/u.test(srcName)?'仮払い':srcName;
+    const name=prompt(`新しく追加する${type==='income'?'収入':'支出'}科目名`,suggested);
+    if(!name||!name.trim()){ renderImport(); return; }
+    const clean=name.trim();
+    const existing=accounts.find(a=>a.type===type&&normKey(a.name)===normKey(clean));
+    if(existing){ d.accMap[k]=existing.id; renderImport(); return; }
+    const id='a_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,6);
+    const acc={id,name:clean,type,active:true,color:type==='income'?'#356b82':'#b84a32',budget:{}};
+    await R(`accounts/${id}`).set(acc); accounts.push(acc); d.accMap[k]=id;
+    const canonical=x=>normKey(x).replace(/[0-9０-９]+$/u,'').replace(/い$/u,'');
+    const base=canonical(clean);
+    Object.keys(d.accMap).forEach(kk=>{
+      if(kk===k||kk.split('|')[0]!==type)return;
+      if(canonical(kk.slice(kk.indexOf('|')+1))===base && (d.accMap[kk]==='add'||d.accMap[kk]==='new')) d.accMap[kk]=id;
+    });
+    showToast(`科目「${clean}」を追加しました`); renderImport();
+  });
   el.querySelectorAll('[data-meth]').forEach(s=>s.onchange=()=>{ d.methMap[s.dataset.meth]=s.value; renderImport(); });
   el.querySelectorAll('[data-payer]').forEach(s=>s.onchange=()=>{ d.payerMap[s.dataset.payer]=s.value; renderImport(); });
   $('ipSettled').onchange = e => { d.settledDefault = e.target.checked; };
@@ -4267,6 +4287,8 @@ function closeImport(){ imp = null; showScreen('settingsScreen'); }
 
 async function runImport(list){
   const d = imp;
+  const unresolved=[...new Set(list.map(r=>`${r.type}|${r.accName}`).filter(k=>d.accMap[k]==='add'))];
+  if(unresolved.length){ showToast(`科目の対応が未確定です（${unresolved.length}件）。「新しい科目を追加…」から科目を作成するか、既存科目を選んでください`); return; }
   const fys = [...new Set(list.map(r=>fyOf(r.date)))].sort();
   if (!confirm(`${list.length}件（${fys.map(y=>y+'年度').join('、')}）を取り込みます。よろしいですか？`)) return;
   const btn = $('ipDo'); btn.disabled = true; btn.textContent = '取り込み中…';
