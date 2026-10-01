@@ -568,6 +568,7 @@ p,.hint,.notice,.slip-title,.slip-memo,.person-row,.cat-row,.settings-task-btn,
     <section id="importScreen" class="screen"></section>
     <input type="file" id="importInput" accept=".csv,.tsv,.txt,.xlsx,.xls,text/csv" style="display:none;">
     <input type="file" id="kaihipayInput" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none;">
+    <input type="file" id="kaihipayStatementInput" accept=".pdf,application/pdf" style="display:none;">
     <input type="file" id="batchInput" accept="image/*" multiple style="display:none;">
     <input type="file" id="batchCamera" accept="image/*" capture="environment" style="display:none;">
     <input type="file" id="budgetInput" accept="image/*" multiple style="display:none;">
@@ -596,7 +597,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.01-31';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.01-33';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -2654,18 +2655,28 @@ function renderSettings(){
     const reconIncome = approvedFY().filter(e=>e.type==='income').reduce((n,e)=>n+(Number(e.amount)||0),0);
     const reconExpense = approvedFY().filter(e=>e.type==='expense').reduce((n,e)=>n+(Number(e.amount)||0),0);
     const reconBook = reconOpening + reconIncome - reconExpense;
+    const kpCard = approvedFY().filter(e=>e.type==='income' && methodById(e.methodId)?.name==='会費ペイ（カード決済）').reduce((n,e)=>n+(Number(e.amount)||0),0);
+    const kpDebit = approvedFY().filter(e=>e.type==='income' && methodById(e.methodId)?.name==='会費ペイ（口座引き落とし）').reduce((n,e)=>n+(Number(e.amount)||0),0);
+    const kpSettledGross = Object.values(settings.kaihipaySettlements||{}).filter(x=>Number(x.fy)===Number(curFY)).reduce((n,x)=>n+(Number(x.grossAmount)||0),0);
+    const kpUnlinked = Math.max(0, kpCard + kpDebit - kpSettledGross);
+    const reconPhysicalBook = reconBook - kpUnlinked;
     const reconAdv = advances.filter(a=>a.settleState==='pending').reduce((n,a)=>n+(Number(a.amount)||0),0);
     const reconHist = Object.entries((((settings.balanceChecks||{})[curFY])||{})).map(([id,v])=>({id,...v})).sort((a,b)=>(b.at||0)-(a.at||0));
     html += `<h2 class="section-title" style="margin-top:20px">現預金残高の確認</h2><div class="form-card">
-      <p class="hint" style="margin-top:0">通帳と手元現金の実際の残高を入力し、帳簿残高と照合します。未清算の仮払金はアプリから自動集計します。</p>
-      <div class="total-check"><span>帳簿残高</span><b>${yen(reconBook)}</b></div>
+      <p class="hint" style="margin-top:0">JA口座と手元現金を、帳簿上の現預金と照合します。会費ペイは実際の振込・手数料データが未連携のため、JA・現金とは分けて表示し、照合対象から除外します。</p>
+      <div class="total-check"><span>会計帳簿の総残高</span><b>${yen(reconBook)}</b></div>
+      <div class="total-check"><span>会費ペイ（カード決済）<small style="display:block;font-weight:400">精算データ未連携</small></span><b>${yen(kpCard)}</b></div>
+      <div class="total-check"><span>会費ペイ（口座引き落とし）<small style="display:block;font-weight:400">CSV取込累計</small></span><b>${yen(kpDebit)}</b></div>
+      <div class="total-check"><span>支払通知書で精算済み<small style="display:block;font-weight:400">決済金額ベース</small></span><b>${yen(kpSettledGross)}</b></div>
+      <div class="total-check"><span>会費ペイ未精算残高</span><b>${yen(kpUnlinked)}</b></div>
+      <div class="total-check"><span>JA＋現金として照合する帳簿残高</span><b>${yen(reconPhysicalBook)}</b></div>
       <div class="field" style="margin-top:12px"><label>JA普通預金の実残高</label><input type="number" id="reconBank" class="amount-input" inputmode="numeric" placeholder="通帳の残高"></div>
       <div class="field"><label>手元現金の実残高</label><input type="number" id="reconCash" class="amount-input" inputmode="numeric" placeholder="実際に数えた現金"></div>
       <div class="total-check"><span>未清算の仮払金（自動）</span><b>${yen(reconAdv)}</b></div>
       <div class="field" style="margin-top:12px"><label>確認メモ（任意）</label><input type="text" id="reconMemo" placeholder="例）9月末残高確認"></div>
-      <div id="reconPreview" class="total-check" style="margin-top:10px"><span>実残高合計との差額</span><b>金額を入力してください</b></div>
+      <div id="reconPreview" class="total-check" style="margin-top:10px"><span>JA＋現金＋仮払金との差額</span><b>金額を入力してください</b></div>
       <button class="btn btn-primary full" id="reconSave" style="margin-top:10px">残高確認を記録する</button>
-      ${reconHist.length?`<div style="font-weight:700;font-size:13.5px;margin:16px 0 6px">確認履歴</div>`+reconHist.slice(0,12).map(x=>`<div class="cat-row"><span class="cname">${fmtTs(x.at)}<small>${esc(x.byName||'')}・帳簿 ${yen(Number(x.bookBalance)||0)}／実残高 ${yen(Number(x.actualTotal)||0)}${x.memo?`・${esc(x.memo)}`:''}</small></span><span class="stamp-tag" style="border-color:${Number(x.diff)===0?'var(--moss)':'var(--stamp-red)'};color:${Number(x.diff)===0?'var(--moss)':'var(--stamp-red)'}">${Number(x.diff)===0?'一致':'差額 '+yen(Number(x.diff)||0)}</span></div>`).join(''):''}
+      ${reconHist.length?`<div style="font-weight:700;font-size:13.5px;margin:16px 0 6px">確認履歴</div>`+reconHist.slice(0,12).map(x=>`<div class="cat-row"><span class="cname">${fmtTs(x.at)}<small>${esc(x.byName||'')}・照合帳簿 ${yen(Number(x.physicalBookBalance??x.bookBalance)||0)}／実残高 ${yen(Number(x.actualTotal)||0)}${Number(x.kaihipayUnlinked||0)?`・会費ペイ未連携 ${yen(Number(x.kaihipayUnlinked)||0)}`:''}${x.memo?`・${esc(x.memo)}`:''}</small></span><span class="stamp-tag" style="border-color:${Number(x.diff)===0?'var(--moss)':'var(--stamp-red)'};color:${Number(x.diff)===0?'var(--moss)':'var(--stamp-red)'}">${Number(x.diff)===0?'一致':'差額 '+yen(Number(x.diff)||0)}</span></div>`).join(''):''}
     </div>`;
 
     html += `<h2 class="section-title" style="margin-top:20px">科目と${curFY}年度の予算</h2>`;
@@ -2716,6 +2727,11 @@ function renderSettings(){
       <p class="hint" style="margin-top:0">会費ペイのエクスポートファイル（CSV／Excel）を端末内で解析し、「入金済」の件数と合計額だけを会計へ登録します。氏名・会員番号・決済SID・支払番号などの個人情報や元ファイルはFirebaseへ保存しません。</p>
       <button class="btn btn-navy full" id="kaihipayBtn">📥 会費ペイCSV／Excelを選ぶ</button>
       <div id="kaihipayPreview" style="margin-top:12px"></div>
+      <hr style="border:0;border-top:1px solid var(--line);margin:20px 0">
+      <div style="font-weight:700;margin-bottom:6px">会費ペイ支払通知書を取り込む</div>
+      <p class="hint" style="margin-top:0">会費ペイの支払通知書PDFから、決済金額・手数料・振込日・振込金額・処理番号を読み取り、CSVで計上した会費ペイ残高をJA口座へ精算します。決済金額を収入として二重計上しません。</p>
+      <button class="btn btn-navy full" id="kaihipayStatementBtn">📄 支払通知書PDFを選ぶ</button>
+      <div id="kaihipayStatementPreview" style="margin-top:12px"></div>
     </div>`;
 
     html += `<h2 class="section-title" style="margin-top:20px">データの取り込み・バックアップ</h2><div class="form-card">
@@ -2867,9 +2883,12 @@ function bindSettings(){
     const inc=approvedFY().filter(e=>e.type==='income').reduce((n,e)=>n+(Number(e.amount)||0),0);
     const exp=approvedFY().filter(e=>e.type==='expense').reduce((n,e)=>n+(Number(e.amount)||0),0);
     const book=opening+inc-exp;
+    const kp=approvedFY().filter(e=>e.type==='income' && ['会費ペイ（カード決済）','会費ペイ（口座引き落とし）'].includes(methodById(e.methodId)?.name)).reduce((n,e)=>n+(Number(e.amount)||0),0);
+    const kpSettled=Object.values(settings.kaihipaySettlements||{}).filter(x=>Number(x.fy)===Number(curFY)).reduce((n,x)=>n+(Number(x.grossAmount)||0),0);
+    const kpUnlinked=Math.max(0,kp-kpSettled), physicalBook=book-kpUnlinked;
     const adv=advances.filter(a=>a.settleState==='pending').reduce((n,a)=>n+(Number(a.amount)||0),0);
     const actual=Math.round(Number(bank.value)||0)+Math.round(Number(cash.value)||0)+adv;
-    const diff=actual-book;
+    const diff=actual-physicalBook;
     out.classList.toggle('ng',diff!==0);
     out.innerHTML=`<span>実残高合計 ${yen(actual)}</span><b>${diff===0?'✓ 一致':'差額 '+yen(diff)}</b>`;
   };
@@ -2881,10 +2900,14 @@ function bindSettings(){
     const inc=approvedFY().filter(e=>e.type==='income').reduce((n,e)=>n+(Number(e.amount)||0),0);
     const exp=approvedFY().filter(e=>e.type==='expense').reduce((n,e)=>n+(Number(e.amount)||0),0);
     const book=opening+inc-exp;
+    const kpCard=approvedFY().filter(e=>e.type==='income' && methodById(e.methodId)?.name==='会費ペイ（カード決済）').reduce((n,e)=>n+(Number(e.amount)||0),0);
+    const kpDebit=approvedFY().filter(e=>e.type==='income' && methodById(e.methodId)?.name==='会費ペイ（口座引き落とし）').reduce((n,e)=>n+(Number(e.amount)||0),0);
+    const kpSettled=Object.values(settings.kaihipaySettlements||{}).filter(x=>Number(x.fy)===Number(curFY)).reduce((n,x)=>n+(Number(x.grossAmount)||0),0);
+    const kp=Math.max(0,kpCard+kpDebit-kpSettled), physicalBook=book-kp;
     const adv=advances.filter(a=>a.settleState==='pending').reduce((n,a)=>n+(Number(a.amount)||0),0);
-    const bank=Math.round(Number($('reconBank').value)||0), cash=Math.round(Number($('reconCash').value)||0), actual=bank+cash+adv, diff=actual-book;
+    const bank=Math.round(Number($('reconBank').value)||0), cash=Math.round(Number($('reconCash').value)||0), actual=bank+cash+adv, diff=actual-physicalBook;
     const ref=R(`settings/balanceChecks/${curFY}`).push();
-    await ref.set({at:TS(),by:me.uid,byName:me.name,bank,cash,pendingAdvance:adv,actualTotal:actual,bookBalance:book,diff,memo:$('reconMemo').value.trim()});
+    await ref.set({at:TS(),by:me.uid,byName:me.name,bank,cash,pendingAdvance:adv,actualTotal:actual,bookBalance:book,physicalBookBalance:physicalBook,kaihipayCard:kpCard,kaihipayDebit:kpDebit,kaihipaySettledGross:kpSettled,kaihipayUnlinked:kp,diff,memo:$('reconMemo').value.trim()});
     writeLog('残高確認',null,`${curFY}年度 帳簿${yen(book)} 実残高${yen(actual)} 差額${yen(diff)}`);
     showToast(diff===0?'帳簿残高と一致しました':'残高確認を記録しました（差額あり）');
   };
@@ -2972,6 +2995,7 @@ function bindSettings(){
   $('nEntry').onchange = e => R('settings/notifyOnEntry').set(e.target.checked);
   $('impBtn').onclick = openImport;
   if ($('kaihipayBtn')) $('kaihipayBtn').onclick = () => $('kaihipayInput').click();
+  if ($('kaihipayStatementBtn')) $('kaihipayStatementBtn').onclick = () => $('kaihipayStatementInput').click();
   $('bkEntries').onclick = async () => { await exportBackupCsv(); R('settings/lastBackupAt').set(TS()); };
   $('bkAccounts').onclick = exportAccountsCsv;
   q('[data-undoimp]').forEach(b => b.onclick = () => undoImport(b.dataset.undoimp));
@@ -3667,6 +3691,113 @@ async function saveKaihipayIncome(){
     }
     kaihipayImport=null; showToast(`会費ペイを登録しました：${created.join('／')}`); renderSettings();
   }catch(err){ console.error(err); btn.disabled=false; btn.textContent='未取込分だけ会費収入として登録する'; showToast(`登録できませんでした：${String(err.message||err)}`); }
+}
+
+
+/* =========================================================
+   会費ペイ支払通知書PDF取込
+   - PDFは端末内で解析し、元PDF・口座情報・会社コード等は保存しない
+   - 決済金額はCSV側で収入計上済みのため再計上しない
+   - 手数料だけを支出計上し、決済金額分を「会費ペイ精算済み」として記録する
+   ========================================================= */
+let kaihipayStatement = null;
+function kpStmtMoney(v){ return Number(String(v||'').replace(/[^0-9-]/g,''))||0; }
+function kpStmtDate(v){
+  const m=String(v||'').match(/(20\d{2})\D+(\d{1,2})\D+(\d{1,2})/);
+  return m?`${m[1]}-${String(m[2]).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}`:'';
+}
+async function extractPdfText(file){
+  await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js');
+  if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  const pdf=await pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise;
+  let text='';
+  for(let i=1;i<=pdf.numPages;i++){
+    const page=await pdf.getPage(i), tc=await page.getTextContent();
+    text += '\n' + tc.items.map(x=>x.str).join(' ');
+  }
+  return text.replace(/\s+/g,' ').trim();
+}
+function parseKaihipayStatement(text){
+  const norm=String(text||'').replace(/，/g,',').replace(/￥/g,'¥');
+  const pick=(re)=>{const m=norm.match(re); return m?m[1]:'';};
+  // PAYMENT FOR支払通知書の定型ラベルを基準に抽出。PDFの文字順差に備え複数パターンを許容する。
+  let gross=kpStmtMoney(pick(/決済金額\s*[（(]?A[）)]?\s*([0-9,]+)/));
+  let fee=kpStmtMoney(pick(/請求金額\s*[（(]?B[）)]?\s*([0-9,]+)/));
+  let carry=kpStmtMoney(pick(/前回繰越額\s*[（(]?C[）)]?\s*([0-9,]+)/));
+  let transfer=kpStmtMoney(pick(/振込金額\s*[（(]?A[）)]?\s*[-−]\s*[（(]?B[）)]?\s*\+\s*[（(]?C[）)]?\s*([0-9,]+)/));
+  if(!transfer) transfer=kpStmtMoney(pick(/振込金額\s*[:：]?\s*([0-9,]+)\s*円/));
+  const processNo=pick(/処理番号\s*[:：]?\s*([0-9A-Za-z-]+)/) || pick(/(\d{6}-[A-Za-z0-9-]+)/);
+  let transferDate=kpStmtDate(pick(/振込日\s*[:：]?\s*((?:20)?\d{2}\D+\d{1,2}\D+\d{1,2})/));
+  const period=pick(/集計対象期間\s*[:：]?\s*(20\d{2}\D+\d{1,2}\D+\d{1,2}\D*\s*[〜～~\-]\s*20\d{2}\D+\d{1,2}\D+\d{1,2})/);
+  // テキスト抽出順がラベルと値で離れるPDFでは、末尾付近の日付・金額から補完する。
+  if(!gross || !fee || !transfer){
+    const eq=norm.match(/決済金額[^0-9]{0,30}([0-9,]+).*?請求金額[^0-9]{0,30}([0-9,]+).*?振込金額[^0-9]{0,50}([0-9,]+)/);
+    if(eq){ gross=gross||kpStmtMoney(eq[1]); fee=fee||kpStmtMoney(eq[2]); transfer=transfer||kpStmtMoney(eq[3]); }
+  }
+  return {gross,fee,carry,transfer,processNo,transferDate,period};
+}
+$('kaihipayStatementInput').onchange = async e=>{
+  const file=e.target.files[0]; e.target.value=''; if(!file) return;
+  const box=$('kaihipayStatementPreview');
+  if(!/\.pdf$/i.test(file.name)) return showToast('会費ペイの支払通知書PDFを選んでください');
+  if(box) box.innerHTML='<p class="hint">PDFを端末内で解析しています…</p>';
+  try{
+    const text=await extractPdfText(file), d=parseKaihipayStatement(text);
+    if(!(d.gross>0) || !(d.transfer>=0) || !(d.fee>=0)) throw new Error('支払通知書の主要金額を読み取れませんでした');
+    if(Math.abs((d.gross-d.fee+d.carry)-d.transfer)>1) throw new Error('決済金額－請求金額＋繰越額と振込金額が一致しません');
+    const key=await kaihipayHash(d.processNo||[d.period,d.transferDate,d.gross,d.fee,d.transfer].join('|'));
+    kaihipayStatement={...d,key,fileName:file.name}; renderKaihipayStatementPreview();
+  }catch(err){ console.error(err); kaihipayStatement=null; if(box) box.innerHTML=`<p class="hint" style="color:var(--stamp-red)">${esc(String(err.message||err))}</p>`; }
+};
+function renderKaihipayStatementPreview(){
+  const d=kaihipayStatement, box=$('kaihipayStatementPreview'); if(!d||!box) return;
+  const done=(settings.kaihipaySettlements||{})[d.key];
+  const expAcc=accounts.find(a=>a.type==='expense'&&a.active&&/手数料|通信|事務|諸費/.test(a.name)) || accounts.find(a=>a.type==='expense'&&a.active);
+  box.innerHTML=`
+    <div class="total-check"><span>決済金額（CSVで収入計上済み）</span><b>${yen(d.gross)}</b></div>
+    <div class="total-check"><span>会費ペイ請求金額・手数料等</span><b>${yen(d.fee)}</b></div>
+    <div class="total-check"><span>JA口座への振込金額</span><b>${yen(d.transfer)}</b></div>
+    ${d.carry?`<div class="total-check"><span>前回繰越額</span><b>${yen(d.carry)}</b></div>`:''}
+    <p class="hint">${d.period?`集計対象：${esc(d.period)}<br>`:''}${d.transferDate?`振込日：${esc(d.transferDate)}<br>`:''}${d.processNo?`処理番号：${esc(d.processNo)}`:''}</p>
+    ${done?`<p class="hint" style="color:var(--moss);font-weight:700">この支払通知書は取込済みです（${fmtTs(done.at)}）。</p>`:`
+      <div class="field"><label>手数料の支出科目</label><select id="kpStmtAccount">${accounts.filter(a=>a.type==='expense'&&a.active).map(a=>`<option value="${a.id}" ${a.id===expAcc?.id?'selected':''}>${esc(a.name)}</option>`).join('')}</select></div>
+      <p class="hint">登録すると、決済金額は再収入計上せず、${yen(d.fee)}だけを支出として計上します。同時に決済金額${yen(d.gross)}を会費ペイ精算済みとして記録し、JA＋現金の照合対象へ移します。</p>
+      <button class="btn btn-primary full" id="kpStmtDo">支払通知書を精算登録する</button>`}`;
+  const b=$('kpStmtDo'); if(b) b.onclick=saveKaihipayStatement;
+}
+async function ensureKaihipaySettlementMethod(){
+  const snap=await R('methods').get(), list=toArr(snap.val());
+  let m=list.find(x=>x.name==='会費ペイ精算');
+  if(!m){ const ref=R('methods').push(); m={id:ref.key,name:'会費ペイ精算',use:'expense',settle:false,active:true,order:list.length}; await ref.set({name:m.name,use:m.use,settle:false,active:true,order:m.order}); }
+  else if(!m.active || !(m.use==='expense'||m.use==='both')){ await R(`methods/${m.id}`).update({active:true,use:'expense',settle:false}); m={...m,active:true,use:'expense',settle:false}; }
+  return m;
+}
+async function saveKaihipayStatement(){
+  const d=kaihipayStatement; if(!d) return;
+  const accountId=$('kpStmtAccount')?.value; if(!accountId) return showToast('手数料の支出科目を選んでください');
+  if((settings.kaihipaySettlements||{})[d.key]) return showToast('この支払通知書はすでに取込済みです');
+  const kpIncome=approvedFY().filter(e=>e.type==='income'&&['会費ペイ（カード決済）','会費ペイ（口座引き落とし）'].includes(methodById(e.methodId)?.name)).reduce((n,e)=>n+(Number(e.amount)||0),0);
+  const already=Object.values(settings.kaihipaySettlements||{}).filter(x=>Number(x.fy)===Number(curFY)).reduce((n,x)=>n+(Number(x.grossAmount)||0),0);
+  if(d.gross > Math.max(0,kpIncome-already)+1 && !confirm(`現在の会費ペイ未精算額 ${yen(Math.max(0,kpIncome-already))} より、この通知書の決済金額 ${yen(d.gross)} が大きくなっています。\nCSVが未取込の期間を含む可能性があります。それでも登録しますか？`)) return;
+  if(!confirm(`支払通知書を登録します。\n\n決済金額 ${yen(d.gross)}（再収入計上しない）\n手数料等 ${yen(d.fee)}（支出計上）\nJA振込 ${yen(d.transfer)}\n\nよろしいですか？`)) return;
+  const btn=$('kpStmtDo'); btn.disabled=true; btn.textContent='登録中…';
+  try{
+    const latest=(await R(`settings/kaihipaySettlements/${d.key}`).get()).val(); if(latest) throw new Error('この支払通知書は別端末ですでに登録されています');
+    const date=d.transferDate||localDate(), fy=fyOf(date), now=TS();
+    const method=await ensureKaihipaySettlementMethod();
+    let entryId='', voucherNo='';
+    if(d.fee>0){
+      const tx=await R(`counters/${fy}`).transaction(n=>(n||0)+1); voucherNo=`${fy}-${pad(tx.snapshot.val(),3)}`;
+      const ref=R('entries').push(); entryId=ref.key;
+      await ref.set({type:'expense',date,fy,voucherNo,amount:d.fee,accountId,methodId:method.id,payerId:null,
+        purpose:'会費ペイ利用料・振込手数料等',payee:'会費ペイ',memo:`支払通知書による精算${d.processNo?'／処理番号 '+d.processNo:''}${d.period?'／'+d.period:''}／決済金額 ${d.gross}円／JA振込 ${d.transfer}円`,
+        storageLocation:'会費ペイ支払通知書',noReceipt:true,noReceiptReason:'会費ペイ支払通知書による精算',addressee:'',excludePublic:false,
+        thumb:null,photoCount:0,status:'approved',settleState:'none',auditStale:false,createdBy:me.uid,createdByName:me.name,createdAt:now,updatedAt:now,updatedByName:me.name,approvedBy:me.uid,approvedByName:`${me.name}（会費ペイ支払通知書取込）`,approvedAt:now});
+    }
+    await R(`settings/kaihipaySettlements/${d.key}`).set({at:now,by:me.uid,byName:me.name,fy,grossAmount:d.gross,feeAmount:d.fee,transferAmount:d.transfer,carryAmount:d.carry||0,transferDate:date,period:d.period||'',processNo:d.processNo||'',entryId,voucherNo});
+    writeLog('会費ペイ支払通知書取込',{voucherNo,amount:d.fee,purpose:'会費ペイ精算'},`決済 ${d.gross}円／手数料等 ${d.fee}円／JA振込 ${d.transfer}円${d.processNo?'／'+d.processNo:''}`);
+    kaihipayStatement=null; showToast(`支払通知書を登録しました：JA振込 ${yen(d.transfer)}／手数料等 ${yen(d.fee)}`); renderSettings();
+  }catch(err){ console.error(err); btn.disabled=false; btn.textContent='支払通知書を精算登録する'; showToast(`登録できませんでした：${String(err.message||err)}`); }
 }
 
 const IMPORT_FIELDS = [
