@@ -596,7 +596,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.01-28';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.01-29';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -840,6 +840,13 @@ function notifyCashFeeComplete(entryId){
   if (!entryId) return Promise.resolve({ok:false, error:'現金会費の伝票IDがありません'});
   return notify('cashFeeComplete', { entryId }).then(r => {
     if (r && r.ok===false) console.warn('現金会費の受取完了メール通知に失敗', r.error||'');
+    return r;
+  });
+}
+function notifySettlementConfirm(settlementId){
+  if (!settlementId) return Promise.resolve({ok:false, error:'精算IDがありません'});
+  return notify('settlementConfirm', { settlementId }).then(r => {
+    if (r && r.ok===false) console.warn('精算の受取確認依頼メール通知に失敗', r.error||'');
     return r;
   });
 }
@@ -2385,7 +2392,8 @@ async function doSettlement(pid, recalc){
     aIds.forEach(id=>{ ups[`advances/${id}/settleState`]='settled'; ups[`advances/${id}/settlementId`]=sid; });
     await db.ref(ROOT).update(ups);
     writeLog('精算', null, `${no} ${payerName(pid)} ${directionText(spent-adv,'')} ${yen(Math.abs(spent-adv))}`);
-    showToast('精算を記録しました');
+    notifySettlementConfirm(sid);
+    showToast('精算を記録し、該当者へ受取確認のメール通知を送信しました');
     if (confirm('精算書を印刷しますか？（受領印をもらう場合）')) printSettlement({...ups[`settlements/${sid}`], id:sid, createdAt:Date.now()});
   } catch(e){ console.error(e); showToast('精算の記録に失敗しました'); btn.disabled=false; }
 }
