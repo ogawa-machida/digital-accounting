@@ -597,7 +597,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.01-44';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.01-45';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -2320,7 +2320,13 @@ function renderSettle(){
 function settlementHistory(list){
   if (!list.length) return `<div class="empty" style="padding:20px">まだ精算の記録はありません</div>`;
   return list.map(s=>{
-    const name = payerName(s.payerId);
+    const name = s.legacyPayeeName || payerName(s.payerId);
+    if(s.legacy) return `<div class="settle-card" data-sid="${s.id}">
+      <div class="s-top"><div><div style="font-weight:700">${esc(s.no||'旧帳簿の精算')}</div>
+      <div class="hint" style="margin:2px 0 0">${fmtDateFull(s.date)}・${esc(name||'相手不明')}・旧帳簿から移行</div></div>
+      <div style="text-align:right"><div class="num" style="font-size:17px">${yen(Number(s.adv)||0)}</div><div class="direction">参考記録</div></div></div>
+      <div class="tags"><span class="stamp-tag" style="border-color:var(--ink-soft);color:var(--ink-soft)">履歴のみ・現在の精算対象外</span></div>
+    </div>`;
     return `<div class="settle-card" data-sid="${s.id}">
       <div class="s-top">
         <div><div style="font-weight:700">${esc(s.no||'')} ${(isP()||isViewer())?'':esc(name)+'さん'}</div>
@@ -2339,6 +2345,7 @@ function settlementHistory(list){
 function bindSettlementCards(el){
   el.querySelectorAll('.settle-card').forEach(card=>{
     const s = settlements.find(x=>x.id===card.dataset.sid);
+    if(!s || s.legacy) return;
     card.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>{
       if (b.dataset.act==='print') printSettlement(s);
       if (b.dataset.act==='confirm') confirmSettlement(s);
@@ -4160,8 +4167,8 @@ function computeImport(){
       if (!r.accName) { const fb = accounts.find(a=>a.type===r.type && a.active && /雑/.test(a.name)) || accounts.find(a=>a.type===r.type && a.active); d.accMap[ak] = fb ? fb.id : 'new'; }
       else {
         const ex = accounts.find(a=>a.type===r.type && normKey(a.name)===normKey(r.accName));
-        if(r.type==='expense' && /^仮払い?\s*\d*$/u.test(r.accName)) d.accMap[ak]='__advance__';
-        else if(r.type==='income' && /仮払い?精算/u.test(r.accName)) d.accMap[ak]='__advance_settle__';
+        if(/仮払い?精算/u.test(r.accName)) d.accMap[ak]='__advance_settle__';
+        else if(r.type==='expense' && /^(?:仮払金|仮払い?\s*\d*)$/u.test(r.accName)) d.accMap[ak]='__advance__';
         else { const m=matchAccount(r.type,r.accName); d.accMap[ak] = ex ? ex.id : (m&&m!=='new'?m:'add'); }
       }
     }
@@ -4220,7 +4227,7 @@ function renderImport(){
   html += `<div class="form-card"><h3 style="font-size:14.5px;margin-bottom:4px">③ 科目の対応</h3>` +
     accKeys.map(k=>{ const [type,name]=[k.split('|')[0], k.slice(k.indexOf('|')+1)];
       return mapRow(`${type==='income'?'［収］':'［支］'}${esc(name||'（科目なし）')}`, cnt(r=>`${r.type}|${r.accName}`===k), 'data-acc', k,
-        cur => `${type==='expense'&&/^仮払い?\s*\d*$/u.test(name)?`<option value="__advance__" ${cur==='__advance__'?'selected':''}>仮払金として管理（費用にしない）</option>`:''}${type==='income'&&/仮払い?精算/u.test(name)?`<option value="__advance_settle__" ${cur==='__advance_settle__'?'selected':''}>仮払金の精算履歴として扱う（収入にしない）</option>`:''}<option value="add" ${cur==='add'?'selected':''}>＋ 新しい科目を追加…</option>` + accounts.filter(a=>a.type===type).map(a=>`<option value="${a.id}" ${cur===a.id?'selected':''}>${esc(a.name)}${a.active?'':'（停止中）'}</option>`).join(''), d.accMap[k]); }).join('') + `</div>`;
+        cur => `${type==='expense'&&/^(?:仮払金|仮払い?\s*\d*)$/u.test(name)?`<option value="__advance__" ${cur==='__advance__'?'selected':''}>仮払金として管理（費用にしない）</option>`:''}${/仮払い?精算/u.test(name)?`<option value="__advance_settle__" ${cur==='__advance_settle__'?'selected':''}>仮払金の精算履歴として扱う（収入にしない）</option>`:''}<option value="add" ${cur==='add'?'selected':''}>＋ 新しい科目を追加…</option>` + accounts.filter(a=>a.type===type).map(a=>`<option value="${a.id}" ${cur===a.id?'selected':''}>${esc(a.name)}${a.active?'':'（停止中）'}</option>`).join(''), d.accMap[k]); }).join('') + `</div>`;
   html += `<div class="form-card"><h3 style="font-size:14.5px;margin-bottom:4px">④ 支払方法の対応</h3>` +
     methKeys.map(k=>{ const [type,name]=[k.split('|')[0], k.slice(k.indexOf('|')+1)];
       return mapRow(`${type==='income'?'［収］':'［支］'}${esc(name||'（記載なし）')}`, cnt(r=>`${r.type}|${r.methodName}`===k), 'data-meth', k,
@@ -4353,7 +4360,7 @@ async function runImport(list){
     advanceList.forEach(r=>{
       const key=R('advances').push().key;
       ups[`advances/${key}`]={ payerId:null, legacyPayeeName:r.payerName||r.purpose||r.payee||'', date:r.date, amount:r.amount,
-        memo:[r.purpose,r.memo,'旧Excelから移行'].filter(Boolean).join('／'), settleState:'pending',
+        memo:[r.purpose,r.memo,'旧Excelから移行'].filter(Boolean).join('／'), settleState:'legacy', legacy:true,
         imported:true, importBatch:batchId, importLine:r.line, createdBy:me.uid, createdByName:me.name, createdAt:TS() };
     });
     advanceSettleList.forEach(r=>{
@@ -4366,16 +4373,23 @@ async function runImport(list){
     ups[`imports/${batchId}`] = { fileName:d.fileName, count:list.length, normalCount:normalList.length, advanceCount:advanceList.length,
       advanceSettlementCount:advanceSettleList.length, fys, byName:me.name, at:TS(),
       income:normalList.filter(r=>r.type==='income').reduce((s,r)=>s+r.amount,0), expense:normalList.filter(r=>r.type==='expense').reduce((s,r)=>s+r.amount,0) };
-    // 大量でも失敗しないよう分けて書き込む
-    const keys = Object.keys(ups); const nonEntry = keys.filter(k=>!k.startsWith('entries/')); const entryKeys = keys.filter(k=>k.startsWith('entries/'));
-    await db.ref(ROOT).update(Object.fromEntries(nonEntry.map(k=>[k,ups[k]])));
-    for (let i=0;i<entryKeys.length;i+=300) {
-      btn.textContent = `取り込み中… ${Math.min(i+300,entryKeys.length)}／${entryKeys.length}`;
-      await db.ref(ROOT).update(Object.fromEntries(entryKeys.slice(i,i+300).map(k=>[k,ups[k]])));
+    // 通常規模の取り込みは一括更新し、途中失敗で「履歴だけ残る／一部だけ入る」を防ぐ。
+    const keys = Object.keys(ups);
+    if(keys.length<=500){
+      await db.ref(ROOT).update(ups);
+    } else {
+      // 大規模時は本体を先に分割し、取り込み履歴は最後に確定する。
+      const importKey=`imports/${batchId}`, importMeta=ups[importKey]; delete ups[importKey];
+      const bodyKeys=Object.keys(ups);
+      for(let i=0;i<bodyKeys.length;i+=300){
+        btn.textContent=`取り込み中… ${Math.min(i+300,bodyKeys.length)}／${bodyKeys.length}`;
+        await db.ref(ROOT).update(Object.fromEntries(bodyKeys.slice(i,i+300).map(k=>[k,ups[k]])));
+      }
+      await R(importKey).set(importMeta);
     }
     writeLog('CSV取込', null, `${d.fileName}：${list.length}件（${fys.map(y=>y+'年度').join('、')}）`);
     d.state = 'done';
-    d.doneMsg = `${list.length}件を取り込みました。<br>${fys.map(y=>y+'年度').join('、')}の出納帳で確認できます。${Object.keys(newAcc).length?`<br>新しい科目 ${Object.keys(newAcc).length}件、`:''}${Object.keys(newPayer).length?`名簿 ${Object.keys(newPayer).length}人を追加しました。`:''}`;
+    d.doneMsg = `${list.length}件を取り込みました。<br>通常伝票 ${normalList.length}件${advanceList.length?`・仮払履歴 ${advanceList.length}件`:''}${advanceSettleList.length?`・仮払精算履歴 ${advanceSettleList.length}件`:''}。<br>通常伝票は${fys.map(y=>y+'年度').join('、')}の出納帳で確認できます。${Object.keys(newAcc).length?`<br>新しい科目 ${Object.keys(newAcc).length}件、`:''}${Object.keys(newPayer).length?`名簿 ${Object.keys(newPayer).length}人を追加しました。`:''}`;
     if (fys.length) { curFY = fys[fys.length-1]; subscribeFY(); }
     renderImport();
   } catch(e){ console.error(e); showToast('取り込みに失敗しました：' + (e.message||e)); btn.disabled=false; btn.textContent='もう一度取り込む'; }
@@ -4384,17 +4398,25 @@ async function runImport(list){
 /* 取り込みの取り消し（その回に取り込んだ伝票だけを削除） */
 async function undoImport(id){
   const info = importsList.find(x=>x.id===id); if (!info) return;
-  const snap = await R('entries').orderByChild('importBatch').equalTo(id).get();
-  const list = toArr(snap.val());
+  const [es,as,ss] = await Promise.all([
+    R('entries').orderByChild('importBatch').equalTo(id).get(),
+    R('advances').orderByChild('importBatch').equalTo(id).get(),
+    R('settlements').orderByChild('importBatch').equalTo(id).get()
+  ]);
+  const list=toArr(es.val()), alist=toArr(as.val()), slist=toArr(ss.val());
   const locked = list.filter(e=>e.settlementId);
-  if (locked.length) return showToast(`${locked.length}件がアプリ上で精算済みのため取り消せません。先に精算を取り消してください`);
-  if (!confirm(`「${info.fileName}」で取り込んだ ${list.length}件を削除します。\n（取り込み後に修正した伝票も含みます）よろしいですか？`)) return;
+  const changedAdv = alist.filter(a=>a.settlementId && !a.legacy);
+  if (locked.length || changedAdv.length) return showToast(`${locked.length+changedAdv.length}件がアプリ上の精算に使われているため取り消せません。先に精算を取り消してください`);
+  const total=list.length+alist.length+slist.length;
+  if (!confirm(`「${info.fileName}」で取り込んだ ${total}件（伝票${list.length}・仮払${alist.length}・精算履歴${slist.length}）を削除します。\n（取り込み後に修正した伝票も含みます）よろしいですか？`)) return;
   const ups = {};
   list.forEach(e => { ups[`entries/${e.id}`] = null; ups[`photos/${e.id}`] = null; });
+  alist.forEach(a => { ups[`advances/${a.id}`]=null; });
+  slist.forEach(x => { ups[`settlements/${x.id}`]=null; });
   ups[`imports/${id}`] = null;
   await db.ref(ROOT).update(ups);
-  writeLog('CSV取込の取消', null, `${info.fileName}：${list.length}件を削除`);
-  showToast(`${list.length}件を取り消しました`);
+  writeLog('CSV取込の取消', null, `${info.fileName}：${total}件を削除`);
+  showToast(`${total}件を取り消しました`);
 }
 
 /* =========================================================
