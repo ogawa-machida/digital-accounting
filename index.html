@@ -597,7 +597,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.01-41';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.01-42';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -4116,6 +4116,7 @@ function parseImportDate(r, get, fyForNoYear){
 function computeImport(){
   const d = imp; const col = k => (d.map[k]===undefined || d.map[k]==='') ? -1 : Number(d.map[k]);
   const rows = [];
+  let footerReached = false;
   d.table.slice(d.headerRow+1).forEach((r, i) => {
     if (!r || r.every(c=>!String(c??'').trim())) return;
     const get = k => col(k)>=0 ? String(r[col(k)]??'').trim() : '';
@@ -4136,7 +4137,10 @@ function computeImport(){
     const purpose = get('purpose');
     const date = parseImportDate(r, get, Number(d.noYearFy));
     let skip = '', err = '';
-    if (/繰越|合計|小計|累計|^計$|月計$|年計$|度計$|期計$/.test((accName+' '+purpose).trim()) || /繰越|合計|小計/.test(get('date'))) skip = '繰越・合計の行';
+    const rowText = r.map(v=>String(v??'').trim()).join(' ');
+    if (/次期へ繰越|次年度へ繰越|翌年度へ繰越/.test(rowText)) footerReached = true;
+    if (footerReached) skip = '決算・残高欄';
+    else if (/繰越|合計|小計|累計|^計$|月計$|年計$|度計$|期計$/.test((accName+' '+purpose).trim()) || /繰越|合計|小計/.test(get('date'))) skip = '繰越・合計の行';
     else if (!date && !amount) skip = '空の行';
     else if (!date) err = `日付を読めません（${get('date')||[get('month'),get('day')].filter(Boolean).join('/')||'空欄'}）`;
     else if (!amount) err = '金額がありません';
@@ -4229,14 +4233,14 @@ function renderImport(){
   const inc = willImport.filter(r=>r.type==='income').reduce((s,r)=>s+r.amount,0), exp = willImport.filter(r=>r.type==='expense').reduce((s,r)=>s+r.amount,0);
   const fyList = [...new Set(willImport.map(r=>fyOf(r.date)))].sort();
   html += `<div class="summary-strip"><div><div class="lbl">取り込む</div><div class="val">${willImport.length}件</div></div><div><div class="lbl">収入</div><div class="val" style="color:var(--stamp-navy)">${yen(inc)}</div></div><div><div class="lbl">支出</div><div class="val" style="color:var(--stamp-red)">${yen(exp)}</div></div></div>
-    <p class="hint" style="margin-top:-4px">対象年度：${fyList.map(y=>y+'年度').join('、')||'－'}　／　読み飛ばし ${skipN}行（繰越・合計・空行）　重複 ${dupN}行　エラー ${errN}行</p>`;
+    <p class="hint" style="margin-top:-4px">対象年度：${fyList.map(y=>y+'年度').join('、')||'－'}　／　読み飛ばし ${skipN}行（繰越・合計・決算欄・空行）　重複 ${dupN}行　エラー ${errN}行</p>`;
   const shown = d.showAll ? rows : rows.slice(0,60);
   html += `<div class="tbl-wrap panel" style="padding:8px"><table class="pub"><thead><tr><th>行</th><th>日付</th><th>科目</th><th>用途・支払先</th><th class="r">金額</th><th>判定</th></tr></thead><tbody>
     ${shown.map(r=>`<tr style="${r.skip||r.err||(r.dup&&d.skipDup)?'opacity:.5':''}"><td>${r.line}</td><td style="white-space:nowrap">${r.date?fmtDate(r.date):'－'}</td><td>${r.type==='income'?'［収］':''}${esc(r.accName)}</td><td>${esc(r.purpose||r.payee)}</td>
       <td class="r" style="color:${r.type==='income'?'var(--stamp-navy)':'inherit'}">${r.amount?yen(r.amount):''}</td>
       <td style="font-size:11px;color:${r.err?'var(--stamp-red)':'var(--ink-soft)'}">${r.err?esc(r.err):r.skip?esc(r.skip):r.dup?'重複':'✓'}</td></tr>`).join('')}
     </tbody></table>${rows.length>60&&!d.showAll?`<button class="text-link" id="ipAll">残り${rows.length-60}行も表示</button>`:''}</div>`;
-  html += `<button class="btn btn-primary full" id="ipDo" ${willImport.length&&d.map.date!==undefined&&d.map.date!==''?'':'disabled'}>${willImport.length}件を取り込む</button>
+  html += `<button class="btn btn-primary full" id="ipDo" ${willImport.length&&((d.map.date!==undefined&&d.map.date!=='')||(d.map.month!==undefined&&d.map.month!==''&&d.map.day!==undefined&&d.map.day!==''))?'':'disabled'}>${willImport.length}件を取り込む</button>
     <p class="hint">取り込み後でも、設定画面の「取り込みの履歴」からこの取り込み分だけをまとめて取り消せます。</p>`;
   el.innerHTML = html;
 
