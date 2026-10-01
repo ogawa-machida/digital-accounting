@@ -339,6 +339,10 @@ p,.hint,.notice,.slip-title,.slip-memo,.person-row,.cat-row,.settings-task-btn,
 .readable-multiline{text-align:left!important;}
 
 </style>
+<style>
+#newMSettle{width:24px;height:24px;flex:0 0 auto;margin:0 12px 0 0;vertical-align:middle}
+label[for="newMSettle"]{display:flex;align-items:center;justify-content:flex-start;text-align:left;gap:0;cursor:pointer;width:100%}
+</style>
 </head>
 <body>
 
@@ -597,7 +601,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.02-52';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.02-53';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -2836,7 +2840,7 @@ function renderSettings(){
         <span class="cname">${esc(m.name)}<small>${m.use==='income'?'収入用':m.use==='both'?'収支共通':'支出用'}・${m.settle?'支払った人との精算が必要':'精算不要'}</small></span>
         <button class="lnk" data-settle="${m.id}">${m.settle?'精算不要に':'要精算に'}</button><button class="lnk" data-togglem="${m.id}">${m.active?'停止':'再開'}</button></div>`).join('') +
       `<div class="inline-add"><input id="newMName" placeholder="例）PayPay（町内会アカウント）"><select id="newMUse" style="flex:0 0 76px"><option value="expense">支出</option><option value="income">収入</option></select></div>
-       <div class="inline-add"><label class="check-line" style="flex:1"><input type="checkbox" id="newMSettle"> 個人のお金で払う（要精算）</label><button class="btn btn-navy sm" id="addM">追加</button></div>`;
+       <div class="inline-add"><label class="check-line" style="flex:1"><input type="checkbox" id="newMSettle"> 個人のお金で払う（あとで自治会から精算）</label><button class="btn btn-navy sm" id="addM">追加</button></div>`;
 
     html += `<h2 class="section-title" style="margin-top:20px">支払者名簿</h2><p class="hint" style="margin-top:-4px">立替や仮払をする可能性のある人（役員・班長・防災支隊長など）を登録します。アカウントがない人も、会計が代わりに入力できます。</p>` +
       payers.map(p=>{ const linked = members.find(m=>m.payerId===p.id && m.role!=='removed');
