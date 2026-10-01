@@ -597,7 +597,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.01-39';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.01-41';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -2721,7 +2721,8 @@ function renderSettings(){
     const opening = Number((settings.opening||{})[curFY])||0;
     html += `<h2 class="section-title">団体の情報</h2><div class="form-card">
       <div class="field"><label>団体名</label><input type="text" id="sOrg" value="${esc(settings.orgName||'')}"></div>
-      <div class="field"><label>会計年度の始まり</label><select id="sStart">${Array.from({length:12},(_,i)=>`<option value="${i+1}" ${startMonth()===i+1?'selected':''}>${i+1}月</option>`).join('')}</select></div>
+      <div class="field"><label>会計年度の締め</label><select id="sClose">${Array.from({length:12},(_,i)=>{const close=i+1,start=close===12?1:close+1;return `<option value="${close}" ${startMonth()===start?'selected':''}>${close}月末締め（翌${start}月から新年度）</option>`}).join('')}</select>
+      <div class="hint">小川自治会は「1月末締め」を選択すると、2026年度は2026/2/1～2027/1/31として扱います。過去データ取込、出納帳、予算・決算、監査で共通して使用します。</div></div>
       <div class="field"><label>${curFY}年度の前年度繰越金</label><input type="number" id="sOpening" class="amount-input" value="${opening}" inputmode="numeric"></div>
       <button class="btn btn-primary full" id="sSaveOrg">保存する</button></div>`;
 
@@ -2943,7 +2944,8 @@ function bindSettings(){
   $('budgetImportBtn').onclick = () => { if (!getApiKey()) return showToast('先にClaude APIキーを登録してください'); $('budgetInput').click(); };
 
   $('sSaveOrg').onclick = async () => {
-    await R('settings').update({ orgName:$('sOrg').value.trim()||'町内会', fiscalStartMonth:Number($('sStart').value) });
+    const closeMonth=Number($('sClose').value)||12; const fiscalStartMonth=closeMonth===12?1:closeMonth+1;
+    await R('settings').update({ orgName:$('sOrg').value.trim()||'町内会', fiscalStartMonth });
     await R(`settings/opening/${curFY}`).set(Math.round(Number($('sOpening').value)||0));
     writeLog('設定変更', null, `団体名・年度・${curFY}年度繰越金`);
     showToast('保存しました');
@@ -3987,13 +3989,13 @@ async function saveKaihipayStatement(){
 }
 
 const IMPORT_FIELDS = [
-  ['date','日付','必須'], ['type','区分（収入／支出）',''], ['amount','金額',''], ['income','収入の金額（収入列）',''], ['expense','支出の金額（支出列）',''],
+  ['date','日付',''], ['month','月',''], ['day','日',''], ['type','区分（収入／支出）',''], ['amount','金額',''], ['income','収入の金額（収入列）',''], ['expense','支出の金額（支出列）',''],
   ['account','科目',''], ['purpose','用途・摘要',''], ['payee','支払先・入金元',''], ['method','支払方法',''], ['payer','支払った人',''],
   ['memo','メモ・備考',''], ['voucher','伝票番号',''], ['storage','原本保管場所',''], ['settle','精算状況',''],
   ['noReceiptReason','領収証なし理由',''], ['addressee','宛名',''], ['exclude','公開除外',''], ['id','伝票ID（バックアップ）','']
 ];
 const IMPORT_GUESS = [
-  ['id', /^伝票ID$/], ['voucher', /伝票番号|伝票No|^No\.?$|^番号$/i], ['date', /日付|年月日|支払日|入金日|取引日/], ['type', /^区分$|収支|^種別$/],
+  ['id', /^伝票ID$/], ['voucher', /伝票番号|伝票No|^No\.?$|^番号$/i], ['date', /日付|年月日|支払日|入金日|取引日/], ['month', /^月$/], ['day', /^日$/], ['type', /^区分$|収支|^種別$/],
   ['income', /^収入$|入金額|^入金$|収入金額/], ['expense', /^支出$|出金額|^出金$|支出金額/], ['amount', /^金額|^額$|税込/],
   ['account', /科目|費目/], ['method', /支払方法|決済|受取方法|^方法$/], ['payer', /支払った人|支払者|立替者|担当/],
   ['payee', /支払先|入金元|相手先|取引先|店名/], ['purpose', /用途|摘要|内容|行事|件名/], ['settle', /精算状況/],
@@ -4099,6 +4101,18 @@ function parseDateCell(v, fyForNoYear){
 }
 function normKey(s){ return String(s||'').normalize('NFKC').replace(/\s/g,''); }
 
+function parseImportDate(r, get, fyForNoYear){
+  const direct=parseDateCell(get('date'), Number(fyForNoYear));
+  if(direct) return direct;
+  const mo=Number(String(get('month')).replace(/[^\d]/g,''));
+  const da=Number(String(get('day')).replace(/[^\d]/g,''));
+  if(!(mo>=1&&mo<=12&&da>=1&&da<=31)) return null;
+  const base=Number(fyForNoYear);
+  const y = mo>=startMonth() ? base : base+1;
+  return isoDate(y,mo,da);
+}
+
+
 function computeImport(){
   const d = imp; const col = k => (d.map[k]===undefined || d.map[k]==='') ? -1 : Number(d.map[k]);
   const rows = [];
@@ -4120,11 +4134,11 @@ function computeImport(){
     if (!type) type = 'expense';
     if (amount!==null && amount<0) amount = -amount;
     const purpose = get('purpose');
-    const date = parseDateCell(get('date'), Number(d.noYearFy));
+    const date = parseImportDate(r, get, Number(d.noYearFy));
     let skip = '', err = '';
     if (/繰越|合計|小計|累計|^計$|月計$|年計$|度計$|期計$/.test((accName+' '+purpose).trim()) || /繰越|合計|小計/.test(get('date'))) skip = '繰越・合計の行';
     else if (!date && !amount) skip = '空の行';
-    else if (!date) err = `日付を読めません（${get('date')||'空欄'}）`;
+    else if (!date) err = `日付を読めません（${get('date')||[get('month'),get('day')].filter(Boolean).join('/')||'空欄'}）`;
     else if (!amount) err = '金額がありません';
     rows.push({ line: d.headerRow+2+i, date, type, amount: amount||0, accName, purpose, payee:get('payee'), methodName:get('method'),
       payerName:get('payer'), memo:get('memo'), voucherNo:get('voucher'), storage:get('storage'), settleText:get('settle'),
@@ -4175,7 +4189,8 @@ function renderImport(){
   html += `<div class="form-card"><h3 style="font-size:14.5px;margin-bottom:10px">① 表の読み方</h3>
     ${d.sheets && d.sheets.length>1 ? `<div class="field"><label>シート</label><select id="ipSheet">${d.sheets.map((s,i)=>`<option value="${i}" ${i===d.sheetIdx?'selected':''}>${esc(s.name)}</option>`).join('')}</select></div>` : ''}
     <div class="field"><label>見出し（列名）の行</label><select id="ipHead">${d.table.slice(0,20).map((r,i)=>`<option value="${i}" ${i===d.headerRow?'selected':''}>${i+1}行目：${esc(r.filter(Boolean).slice(0,4).join('／').slice(0,40))}</option>`).join('')}</select></div>
-    <div class="field" style="margin:0"><label>「4/1」のように年のない日付の年度</label><select id="ipNoYear">${[curFY-3,curFY-2,curFY-1,curFY,curFY+1].map(y=>`<option value="${y}" ${Number(d.noYearFy)===y?'selected':''}>${y}年度</option>`).join('')}</select></div>
+    <div class="field"><label>年のない日付の年度</label><select id="ipNoYear">${[curFY-3,curFY-2,curFY-1,curFY,curFY+1].map(y=>`<option value="${y}" ${Number(d.noYearFy)===y?'selected':''}>${y}年度</option>`).join('')}</select>
+      <div class="hint">設定の「年度締め」に従って日付を確定します。現在は <b>${startMonth()===1?'12':startMonth()-1}月末締め</b>（${curFY}年度：${curFY}/${startMonth()}/1 ～ ${startMonth()===1?curFY:curFY+1}/${startMonth()===1?12:startMonth()-1}/${new Date(startMonth()===1?curFY:curFY+1,startMonth()===1?12:startMonth()-1,0).getDate()}）です。</div></div>
   </div>`;
 
   html += `<div class="form-card"><h3 style="font-size:14.5px;margin-bottom:4px">② 列の対応</h3>
