@@ -495,15 +495,15 @@ p,.hint,.notice,.slip-title,.slip-memo,.person-row,.cat-row,.settings-task-btn,
           </div>
         </div>
         <div class="field">
-          <label>領収証・レシート・振込控えの写真（3枚まで）</label>
+          <label>領収証・レシート・振込控え（画像またはPDF・3ページまで）</label>
           <div class="photo-strip" id="photoStrip"></div>
           <div class="btn-row" style="margin-top:8px;">
             <button type="button" class="btn btn-ghost" id="cameraBtn">📷 撮影する</button>
             <button type="button" class="btn btn-ghost" id="fileBtn">🖼️ ファイルから</button>
           </div>
           <input type="file" id="cameraInput" accept="image/*" capture="environment" style="display:none;">
-          <input type="file" id="fileInput" accept="image/*" style="display:none;">
-          <button type="button" class="btn btn-ghost full" id="aiReadBtn" style="margin-top:8px; display:none;">✨ AIで写真から自動入力</button>
+          <input type="file" id="fileInput" accept="image/*,.pdf,application/pdf" style="display:none;">
+          <button type="button" class="btn btn-ghost full" id="aiReadBtn" style="margin-top:8px; display:none;">✨ AIで画像・PDFから自動入力</button>
           <label class="check-line" style="margin-top:10px;"><input type="checkbox" id="fNoReceipt"> 領収証がない支出（慶弔金・会費の手渡し等）</label>
           <input type="text" id="fNoReceiptReason" placeholder="領収証がない理由（例：香典のため）" style="display:none; margin-top:8px; width:100%; border:1px solid var(--line); border-radius:8px; padding:10px 12px; font-size:14px; font-family:inherit;">
         </div>
@@ -569,7 +569,7 @@ p,.hint,.notice,.slip-title,.slip-memo,.person-row,.cat-row,.settings-task-btn,
     <input type="file" id="importInput" accept=".csv,.tsv,.txt,.xlsx,.xls,text/csv" style="display:none;">
     <input type="file" id="kaihipayInput" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none;">
     <input type="file" id="kaihipayStatementInput" accept=".pdf,application/pdf" style="display:none;">
-    <input type="file" id="batchInput" accept="image/*" multiple style="display:none;">
+    <input type="file" id="batchInput" accept="image/*,.pdf,application/pdf" multiple style="display:none;">
     <input type="file" id="batchCamera" accept="image/*" capture="environment" style="display:none;">
     <input type="file" id="budgetInput" accept="image/*" multiple style="display:none;">
   </main>
@@ -597,7 +597,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.01-33';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.01-35';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1807,13 +1807,46 @@ function renderStorageChips(){
 $('cameraBtn').onclick = () => $('cameraInput').click();
 $('fileBtn').onclick = () => $('fileInput').click();
 $('cameraInput').onchange = e => { handlePhoto(e.target.files[0]); e.target.value=''; };
-$('fileInput').onchange = e => { handlePhoto(e.target.files[0]); e.target.value=''; };
+$('fileInput').onchange = async e => { await handleDocument(e.target.files[0]); e.target.value=''; };
 function renderPhotoStrip(){
   const strip = $('photoStrip');
   if (!formPhotos.length) { strip.innerHTML = `<div class="photo-empty">まだ写真がありません</div>`; $('aiReadBtn').style.display='none'; return; }
   strip.innerHTML = formPhotos.map((p,i)=>`<div class="photo-item"><img src="${p}" alt="写真${i+1}"><button type="button" data-i="${i}" aria-label="削除">×</button></div>`).join('');
   strip.querySelectorAll('button').forEach(b=>b.onclick=()=>{ formPhotos.splice(Number(b.dataset.i),1); photosChanged=true; renderPhotoStrip(); });
   $('aiReadBtn').style.display = 'block';
+}
+async function pdfToImages(file, maxPages=3){
+  await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs', true).catch(()=>{});
+  // pdf.js のESM版は通常のscript読込ができないため、安定したUMD版へフォールバックする。
+  if (!window.pdfjsLib) await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js');
+  if (!window.pdfjsLib) throw new Error('PDFLIB');
+  pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  const pdf=await pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise;
+  const n=Math.min(pdf.numPages,maxPages), out=[];
+  for(let i=1;i<=n;i++){
+    const page=await pdf.getPage(i), vp0=page.getViewport({scale:1});
+    const scale=Math.min(2, 1600/Math.max(vp0.width,vp0.height));
+    const vp=page.getViewport({scale});
+    const c=document.createElement('canvas'); c.width=Math.ceil(vp.width); c.height=Math.ceil(vp.height);
+    await page.render({canvasContext:c.getContext('2d'),viewport:vp}).promise;
+    out.push(c.toDataURL('image/jpeg',0.82));
+  }
+  return {images:out,totalPages:pdf.numPages};
+}
+async function handleDocument(file){
+  if(!file) return;
+  if(file.type==='application/pdf' || /\.pdf$/i.test(file.name)){
+    try{
+      const room=3-formPhotos.length;
+      if(room<=0) return showToast('画像・PDFは3ページまでです');
+      const r=await pdfToImages(file,room);
+      formPhotos.push(...r.images); photosChanged=true; renderPhotoStrip();
+      if(r.totalPages>room) showToast(`PDFは先頭${room}ページを読み込みました（最大3ページ）`);
+      if(getApiKey()) runAi(formPhotos);
+    }catch(e){ console.error(e); showToast('PDFの読み込みに失敗しました'); }
+    return;
+  }
+  return handlePhoto(file);
 }
 async function handlePhoto(file){
   if (!file) return;
@@ -1822,7 +1855,7 @@ async function handlePhoto(file){
     const dataUrl = await compressImage(file, 1100, 0.65);
     formPhotos.push(dataUrl); photosChanged = true;
     renderPhotoStrip();
-    if (formPhotos.length===1 && getApiKey()) runAi(dataUrl);
+    if (formPhotos.length===1 && getApiKey()) runAi(formPhotos);
   } catch(e){ showToast('写真の読み込みに失敗しました'); }
 }
 function compressImage(src, maxSize, quality){
@@ -1882,10 +1915,11 @@ function aiErrorText(e){
 const nullish = v => (v===null || v===undefined || v==='null' || v==='') ? null : v;
 
 /* レシート・領収証・振込控え 1枚を読み取る */
-async function recognizeReceipt(dataUrl, type){
+async function recognizeReceipt(dataUrls, type){
+  const images = Array.isArray(dataUrls) ? dataUrls : [dataUrls];
   const accNames = accounts.filter(a=>a.type===(type||'expense') && a.active).map(a=>a.desc?`${a.name}（${a.desc}）`:a.name);
-  const r = await callClaude([dataUrl],
-    'あなたは町内会・自治会の会計担当を手伝うアシスタントです。レシート・領収証・振込控え・請求書の画像から情報を抽出し、JSONオブジェクトのみを出力します。前後の説明文やコードブロック記号は付けません。',
+  const r = await callClaude(images,
+    'あなたは町内会・自治会の会計担当を手伝うアシスタントです。レシート・領収証・振込控え・請求書の画像（PDFをページ画像化したものを含む）から情報を抽出し、JSONオブジェクトのみを出力します。前後の説明文やコードブロック記号は付けません。',
     `次の形式のJSONのみで出力してください。
 {"date":"支払日 YYYY-MM-DD（不明ならnull）","payee":"店名・支払先（不明ならnull）","amount":税込合計の数値（不明なら0）,"items":"品目の簡潔なメモ（30文字程度）","purpose":"町内会の用途として自然な短い説明（例：役員会の茶菓子、防災倉庫の備品）","account":"次の科目名から最も近いものを1つ（括弧内は各科目に含まれる支出の例。科目名だけを出力）：${accNames.join('、')}","payMethod":"支払手段。cash / credit / qr / emoney / transfer / unknown のいずれか","addressee":"領収証の宛名（上様・空欄ならその文字、なければnull）","docType":"receipt / invoice / transfer / other のいずれか"}
 和暦は西暦に変換してください。金額は値引き後・税込の支払総額です。お預り・お釣りの金額と取り違えないでください。`);
@@ -1915,13 +1949,13 @@ function suggestMethod(payMethod, withPayer){
   return m ? m.id : '';
 }
 
-$('aiReadBtn').onclick = () => { if (formPhotos[0]) runAi(formPhotos[0]); };
-async function runAi(dataUrl){
+$('aiReadBtn').onclick = () => { if (formPhotos[0]) runAi(formPhotos); };
+async function runAi(dataUrls){
   if (!getApiKey()) { showToast('設定画面でClaude APIキーを登録するとAI読み取りが使えます'); return; }
   const btn = $('aiReadBtn'); const orig = btn.textContent;
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> AIが読み取り中…';
   try {
-    const r = await recognizeReceipt(dataUrl, formType);
+    const r = await recognizeReceipt(dataUrls, formType);
     if (r.date) $('fDate').value = r.date;
     if (r.payee) $('fPayee').value = r.payee;
     if (r.amount) $('fAmount').value = r.amount;
@@ -2884,8 +2918,7 @@ function bindSettings(){
     const exp=approvedFY().filter(e=>e.type==='expense').reduce((n,e)=>n+(Number(e.amount)||0),0);
     const book=opening+inc-exp;
     const kp=approvedFY().filter(e=>e.type==='income' && ['会費ペイ（カード決済）','会費ペイ（口座引き落とし）'].includes(methodById(e.methodId)?.name)).reduce((n,e)=>n+(Number(e.amount)||0),0);
-    const kpSettled=Object.values(settings.kaihipaySettlements||{}).filter(x=>Number(x.fy)===Number(curFY)).reduce((n,x)=>n+(Number(x.grossAmount)||0),0);
-    const kpUnlinked=Math.max(0,kp-kpSettled), physicalBook=book-kpUnlinked;
+    const physicalBook=book-kp;
     const adv=advances.filter(a=>a.settleState==='pending').reduce((n,a)=>n+(Number(a.amount)||0),0);
     const actual=Math.round(Number(bank.value)||0)+Math.round(Number(cash.value)||0)+adv;
     const diff=actual-physicalBook;
@@ -2902,12 +2935,11 @@ function bindSettings(){
     const book=opening+inc-exp;
     const kpCard=approvedFY().filter(e=>e.type==='income' && methodById(e.methodId)?.name==='会費ペイ（カード決済）').reduce((n,e)=>n+(Number(e.amount)||0),0);
     const kpDebit=approvedFY().filter(e=>e.type==='income' && methodById(e.methodId)?.name==='会費ペイ（口座引き落とし）').reduce((n,e)=>n+(Number(e.amount)||0),0);
-    const kpSettled=Object.values(settings.kaihipaySettlements||{}).filter(x=>Number(x.fy)===Number(curFY)).reduce((n,x)=>n+(Number(x.grossAmount)||0),0);
-    const kp=Math.max(0,kpCard+kpDebit-kpSettled), physicalBook=book-kp;
+    const kp=kpCard+kpDebit, physicalBook=book-kp;
     const adv=advances.filter(a=>a.settleState==='pending').reduce((n,a)=>n+(Number(a.amount)||0),0);
     const bank=Math.round(Number($('reconBank').value)||0), cash=Math.round(Number($('reconCash').value)||0), actual=bank+cash+adv, diff=actual-physicalBook;
     const ref=R(`settings/balanceChecks/${curFY}`).push();
-    await ref.set({at:TS(),by:me.uid,byName:me.name,bank,cash,pendingAdvance:adv,actualTotal:actual,bookBalance:book,physicalBookBalance:physicalBook,kaihipayCard:kpCard,kaihipayDebit:kpDebit,kaihipaySettledGross:kpSettled,kaihipayUnlinked:kp,diff,memo:$('reconMemo').value.trim()});
+    await ref.set({at:TS(),by:me.uid,byName:me.name,bank,cash,pendingAdvance:adv,actualTotal:actual,bookBalance:book,physicalBookBalance:physicalBook,kaihipayCard:kpCard,kaihipayDebit:kpDebit,kaihipayUnlinked:kp,diff,memo:$('reconMemo').value.trim()});
     writeLog('残高確認',null,`${curFY}年度 帳簿${yen(book)} 実残高${yen(actual)} 差額${yen(diff)}`);
     showToast(diff===0?'帳簿残高と一致しました':'残高確認を記録しました（差額あり）');
   };
@@ -3119,8 +3151,8 @@ function renderBatch(){
   const el = $('batchScreen');
   const keyOk = !!getApiKey();
   el.innerHTML = `<button class="text-link" id="bBack" style="padding-left:0">‹ ホームへ戻る</button>
-    <p class="hint" style="margin-top:0">レシート・領収証・振込控えの写真を何枚でも選ぶと、AIが日付・金額・支払先・科目・支払方法を読み取って下書きを作ります。内容を確認して「まとめて登録」を押してください。${keyOk?'':'<br><b style="color:var(--stamp-red)">APIキーが未設定のため、今は手入力の下書きになります。</b>'}</p>
-    <div class="btn-row" style="margin-bottom:12px"><button class="btn btn-ghost" id="bCam">📷 撮影して追加</button><button class="btn btn-navy" id="bPick">🖼️ 写真を選ぶ（複数可）</button></div>
+    <p class="hint" style="margin-top:0">レシート・領収証・振込控えの画像またはPDFを何件でも選ぶと、AIが日付・金額・支払先・科目・支払方法を読み取って下書きを作ります。内容を確認して「まとめて登録」を押してください。${keyOk?'':'<br><b style="color:var(--stamp-red)">APIキーが未設定のため、今は手入力の下書きになります。</b>'}</p>
+    <div class="btn-row" style="margin-bottom:12px"><button class="btn btn-ghost" id="bCam">📷 撮影して追加</button><button class="btn btn-navy" id="bPick">📎 画像・PDFを選ぶ（複数可）</button></div>
     <div class="panel"><h3>全件共通の設定 <small>個別に変えることもできます</small></h3>
       <div class="field"><label>支払方法</label><select id="bcMethod" style="width:100%">${batchMethodOptions(batchCommon.methodId, true)}</select></div>
       ${isT()?`<div class="field"><label>支払った人</label><select id="bcPayer" style="width:100%">${batchPayerOptions(batchCommon.payerId)}</select></div>`:''}
@@ -3153,7 +3185,7 @@ function renderBatch(){
 function renderBatchList(){
   const list = $('bList'); if (!list) return;
   const live = batchItems.filter(i=>i.state!=='saved');
-  list.innerHTML = live.length ? live.map(batchCardHTML).join('') : `<div class="empty"><div class="mark-big">写真<br>待ち</div>上のボタンから写真を追加してください</div>`;
+  list.innerHTML = live.length ? live.map(batchCardHTML).join('') : `<div class="empty"><div class="mark-big">写真<br>待ち</div>上のボタンから画像・PDFを追加してください</div>`;
   live.forEach(bindBatchCard);
   renderBatchFoot();
 }
@@ -3174,7 +3206,7 @@ function batchCardHTML(it){
   const dupIn = f.amount && f.date && batchItems.some(o=>o!==it && o.state!=='saved' && o.f.date===f.date && Number(o.f.amount)===Number(f.amount));
   const warn = [dup?'同じ日付・金額の伝票が登録済みです（二重登録に注意）':'', dupIn?'この中に同じ日付・金額のものがあります（同じ写真の重複？）':'', addresseeWarning(f.addressee)].filter(Boolean).join('／');
   return `<div class="batch-card ${it.on?'':'off'} ${it.invalid?'invalid':''}" id="bc-${it.id}">
-    <div class="b-img"><img src="${it.photo}" alt="" data-zoom="${it.id}">
+    <div class="b-img"><img src="${it.photo}" alt="" data-zoom="${it.id}">${(it.photos||[]).length>1?`<div class="hint" style="font-size:10px;text-align:center">PDF ${(it.photos||[]).length}ページ</div>`:''}
       <label class="check-line" style="font-size:11px;white-space:nowrap"><input type="checkbox" data-k="on" ${it.on?'checked':''}>登録</label>
       <button class="text-link" data-del="${it.id}" style="font-size:11px;padding:0">削除</button></div>
     <div class="b-body">
@@ -3221,13 +3253,17 @@ async function addBatchFiles(files){
   if (!arr.length) return;
   for (const file of arr) {
     try {
-      const photo = await compressImage(file, 1100, 0.65);
-      const it = { id: ++batchSeq, photo, state: getApiKey() ? 'reading' : 'done', msg: getApiKey() ? '' : '手入力してください', on:true,
+      let photos, pageNote='';
+      if(file.type==='application/pdf' || /\.pdf$/i.test(file.name)){
+        const pr=await pdfToImages(file,3); photos=pr.images; pageNote=pr.totalPages>3?'（先頭3ページ）':'';
+      } else photos=[await compressImage(file, 1100, 0.65)];
+      const photo=photos[0];
+      const it = { id: ++batchSeq, photo, photos, state: getApiKey() ? 'reading' : 'done', msg: getApiKey() ? pageNote : '手入力してください', on:true,
         f:{ date:localDate(), amount:0, payee:'', purpose:batchCommon.purpose, memo:'', accountId:'', methodId:batchCommon.methodId,
             payerId: isP() ? me.payerId : batchCommon.payerId, storageLocation:batchCommon.storageLocation, addressee:'' } };
       batchItems.push(it);
       if (getApiKey()) batchQueue.push(it);
-    } catch(e){ showToast('読み込めない画像がありました'); }
+    } catch(e){ console.error(e); showToast('読み込めない画像・PDFがありました'); }
   }
   renderBatchList();
   pumpBatch();
@@ -3238,7 +3274,7 @@ $('batchCamera').onchange = e => { addBatchFiles(e.target.files); e.target.value
 function pumpBatch(){
   while (batchRunning < 2 && batchQueue.length) {
     const it = batchQueue.shift(); batchRunning++;
-    recognizeReceipt(it.photo, 'expense').then(r => {
+    recognizeReceipt(it.photos||[it.photo], 'expense').then(r => {
       const f = it.f;
       if (r.date) f.date = r.date;
       if (r.amount) f.amount = r.amount;
@@ -3277,7 +3313,7 @@ async function saveBatch(){
         accountId:f.accountId, methodId:f.methodId, payerId: isP() ? me.payerId : (f.payerId||null),
         storageLocation:(f.storageLocation||'').trim(), noReceipt:false, noReceiptReason:'', excludePublic:false,
         addressee:f.addressee||'', _via:'まとめて読み込み'
-      }, [it.photo], true);
+      }, it.photos||[it.photo], true);
       it.state = 'saved'; ok++;
       if (saved.status==='submitted') submittedIds.push(saved.id);
     } catch(e){ console.error(e); it.state='error'; it.msg='保存に失敗しました'; }
@@ -3710,21 +3746,31 @@ async function extractPdfText(file){
   await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js');
   if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
   const pdf=await pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise;
-  let text='';
+  let pages=[];
   for(let i=1;i<=pdf.numPages;i++){
     const page=await pdf.getPage(i), tc=await page.getTextContent();
-    text += '\n' + tc.items.map(x=>x.str).join(' ');
+    const items=tc.items.filter(x=>String(x.str||'').trim()).map(x=>({
+      str:String(x.str||'').trim(), x:Number(x.transform?.[4]||0), y:Number(x.transform?.[5]||0)
+    })).sort((a,b)=>(b.y-a.y)||(a.x-b.x));
+    const lines=[];
+    for(const it of items){
+      let line=lines.find(l=>Math.abs(l.y-it.y)<=2.5);
+      if(!line){ line={y:it.y,items:[]}; lines.push(line); }
+      line.items.push(it);
+    }
+    lines.sort((a,b)=>b.y-a.y);
+    pages.push(lines.map(l=>l.items.sort((a,b)=>a.x-b.x).map(x=>x.str).join(' ')).join('\n'));
   }
-  return text.replace(/\s+/g,' ').trim();
+  return pages.join('\n').replace(/[ \t]+/g,' ').replace(/\n{2,}/g,'\n').trim();
 }
 function parseKaihipayStatement(text){
   const norm=String(text||'').replace(/，/g,',').replace(/￥/g,'¥');
   const pick=(re)=>{const m=norm.match(re); return m?m[1]:'';};
   // PAYMENT FOR支払通知書の定型ラベルを基準に抽出。PDFの文字順差に備え複数パターンを許容する。
-  let gross=kpStmtMoney(pick(/決済金額\s*[（(]?A[）)]?\s*([0-9,]+)/));
-  let fee=kpStmtMoney(pick(/請求金額\s*[（(]?B[）)]?\s*([0-9,]+)/));
-  let carry=kpStmtMoney(pick(/前回繰越額\s*[（(]?C[）)]?\s*([0-9,]+)/));
-  let transfer=kpStmtMoney(pick(/振込金額\s*[（(]?A[）)]?\s*[-−]\s*[（(]?B[）)]?\s*\+\s*[（(]?C[）)]?\s*([0-9,]+)/));
+  let gross=kpStmtMoney(pick(/決済金額\s*[（(]?\s*A\s*[）)]?\s*([0-9,]+)/));
+  let fee=kpStmtMoney(pick(/請求金額\s*[（(]?\s*B\s*[）)]?\s*([0-9,]+)/));
+  let carry=kpStmtMoney(pick(/前回繰越額\s*[（(]?\s*C\s*[）)]?\s*([0-9,]+)/));
+  let transfer=kpStmtMoney(pick(/振込金額\s*[（(]?\s*A\s*[）)]?\s*[-−]\s*[（(]?\s*B\s*[）)]?\s*\+\s*[（(]?\s*C\s*[）)]?\s*([0-9,]+)/));
   if(!transfer) transfer=kpStmtMoney(pick(/振込金額\s*[:：]?\s*([0-9,]+)\s*円/));
   const processNo=pick(/処理番号\s*[:：]?\s*([0-9A-Za-z-]+)/) || pick(/(\d{6}-[A-Za-z0-9-]+)/);
   let transferDate=kpStmtDate(pick(/振込日\s*[:：]?\s*((?:20)?\d{2}\D+\d{1,2}\D+\d{1,2})/));
