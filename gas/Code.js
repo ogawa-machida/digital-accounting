@@ -1,6 +1,6 @@
 /**
  * 町内会 会計簿 ― 承認依頼のメール通知（Google Apps Script）
- * 2026.10.01-26 対応版
+ * 2026.10.01-29 対応版
  *
  * 通知先：
  *  ・役員／支払者からの通常申請 → 会計担当
@@ -31,6 +31,7 @@ function doPost(e) {
       case 'entry':    return json_(entry_(user, req.entryIds || [], appUrl));
       case 'cashFeeReturn': return json_(cashFeeReturn_(user, req.entryId || '', appUrl));
       case 'cashFeeComplete': return json_(cashFeeComplete_(user, req.entryId || '', appUrl));
+      case 'settlementConfirm': return json_(settlementConfirm_(user, req.settlementId || '', appUrl));
       case 'member':   return json_(member_(user, appUrl));
       default:         return json_({ ok:false, error:'不明な操作です' });
     }
@@ -266,6 +267,51 @@ function cashFeeComplete_(user, entryId, appUrl) {
     '',
     '会計確認者：' + (ent.cashFeeCheckedByName || ent.approvedByName || user.name || '会計担当')
   ], appUrl + '?open=' + encodeURIComponent(entryId), '受取確認内容を見る');
+
+  cache.put(dedupeKey, '1', 21600);
+  return { ok:true, sent:1 };
+}
+
+function settlementConfirm_(user, settlementId, appUrl) {
+  if (user.role !== 'treasurer') throw new Error('精算の受取確認依頼を送れるのは会計担当のみです');
+  if (!settlementId) throw new Error('精算対象が指定されていません');
+
+  const st = read_('settlements/' + settlementId, user.token);
+  if (!st) throw new Error('精算データを確認できません');
+  if (st.createdBy && st.createdBy !== user.uid) throw new Error('精算を記録した会計担当を確認できません');
+  if (st.payerConfirm) return { ok:true, sent:0, alreadyConfirmed:true };
+  if (!st.payerId) throw new Error('精算対象者を確認できません');
+
+  const payer = read_('payers/' + st.payerId, user.token) || {};
+  const membersObj = read_('members', user.token) || {};
+  const member = Object.keys(membersObj).map(k => ({ uid:k, ...(membersObj[k] || {}) }))
+    .find(m => m.payerId === st.payerId) || {};
+  const email = member.email || payer.email || '';
+  const to = uniqueEmails_([email]);
+  if (!to.length) throw new Error('精算対象者のメールアドレスが登録されていません');
+
+  const name = member.name || payer.name || 'ご本人';
+  const net = Number(st.net) || 0;
+  const amount = Math.abs(net);
+  const actionText = net >= 0 ? '会計からの支払いを受け取った' : '会計へ返金した';
+  const buttonLabel = net >= 0 ? '受け取りを確認する' : '返金を確認する';
+  const cache = CacheService.getScriptCache();
+  const dedupeKey = 'settlementConfirm_' + settlementId + '_' + String(st.createdAt || st.date || '');
+  if (cache.get(dedupeKey)) return { ok:true, sent:0, duplicate:true };
+
+  send_(to, '【デジタル会計】精算の確認をお願いします ' + (st.no || ''), [
+    name + 'さん',
+    '',
+    '会計担当が精算を記録しました。',
+    'デジタル会計を開き、内容をご確認のうえ「' + (net >= 0 ? '受け取りました' : '返金しました') + '」を押してください。',
+    '',
+    '精算番号：' + (st.no || '－'),
+    '精算日：' + (st.date || '－'),
+    '金額：' + yen_(amount),
+    '精算方法：' + (st.way || '－'),
+    '確認内容：' + actionText + 'ことの確認',
+    st.memo ? 'メモ：' + st.memo : ''
+  ].filter(Boolean), appUrl, buttonLabel);
 
   cache.put(dedupeKey, '1', 21600);
   return { ok:true, sent:1 };
