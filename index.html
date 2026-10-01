@@ -596,7 +596,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.01-24';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.01-25';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -766,19 +766,37 @@ async function notify(action, extra, url){
   if (!target || !auth || !auth.currentUser) return { ok:false, error:'通知先URLが未設定です' };
   try {
     const idToken = await auth.currentUser.getIdToken();
-    /* Apps Script Web App は ContentService の応答時に googleusercontent.com へ
-       リダイレクトするため、GitHub Pages から通常の CORS fetch で応答本文を
-       読もうとすると Chrome で Failed to fetch になることがある。
-       メール通知は GAS 側で Firebase ID トークンを再検証するので、送信自体は
-       no-cors で行い、レスポンス本文には依存しない。 */
-    await fetch(target, {
-      method:'POST',
-      mode:'no-cors',
-      headers:{ 'Content-Type':'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action, idToken, appUrl: location.origin + location.pathname, ...(extra||{}) })
-    });
+    const payload = JSON.stringify({ action, idToken, appUrl: location.origin + location.pathname, ...(extra||{}) });
+
+    /* GitHub Pages → Apps Script は fetch/CORS の相性で POST 自体が届かない端末がある。
+       HTML form の通常POSTはブラウザ標準のクロスオリジン送信なので、CORSに阻まれず
+       GAS の doPost まで確実に届けられる。応答は hidden iframe に受ける。 */
+    let frame = document.getElementById('gasNotifyFrame');
+    if (!frame) {
+      frame = document.createElement('iframe');
+      frame.id = 'gasNotifyFrame';
+      frame.name = 'gasNotifyFrame';
+      frame.style.display = 'none';
+      document.body.appendChild(frame);
+    }
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = target;
+    form.target = 'gasNotifyFrame';
+    form.style.display = 'none';
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = 'payload';
+    input.value = payload;
+    form.appendChild(input);
+    document.body.appendChild(form);
+    form.submit();
+    setTimeout(()=>form.remove(), 1500);
     return { ok:true, dispatched:true };
-  } catch(e) { console.warn('メール通知に失敗', e); return { ok:false, error:String(e.message||e) }; }
+  } catch(e) {
+    console.warn('メール通知の送信依頼に失敗', e);
+    return { ok:false, error:String(e.message||e) };
+  }
 }
 function notifyEntries(ids){
   if (!ids.length || settings.notifyOnEntry===false) return Promise.resolve({ok:false, skipped:true, error:'支出申請のメール通知がOFFです'});
@@ -1496,7 +1514,7 @@ async function saveCashFeeRequest(mode,e,branch,group){
         console.warn('現金会費の再申告メール通知に失敗', mailResult?.error||'');
         showToast(`再申告は保存しましたが、会計へのメール通知に失敗しました${mailResult?.error?'：'+mailResult.error:''}`);
       }else{
-        showToast('修正して再申告し、会計担当へメール通知しました');
+        showToast('修正して再申告しました（会計担当へメール通知を送信中です）');
       }
       openDetail(e.id); return;
     }
@@ -1508,7 +1526,7 @@ async function saveCashFeeRequest(mode,e,branch,group){
       console.warn('現金会費の申告メール通知に失敗', mailResult?.error||'');
       showToast(`申告は保存しましたが、会計へのメール通知に失敗しました${mailResult?.error?'：'+mailResult.error:''}`);
     }else{
-      showToast('会計担当へ受取確認を依頼し、メール通知しました');
+      showToast('会計担当へ受取確認を依頼しました（メール通知を送信中です）');
     }
     showScreen('homeScreen');
   }catch(err){console.error(err);showToast('登録できませんでした（Firebase権限を確認してください）');} finally{if(btn){btn.disabled=false;}}
