@@ -601,7 +601,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.02-53';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.02-54';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -3096,7 +3096,7 @@ async function resetTrialData(){
     setTimeout(()=>location.reload(),700);
   }catch(e){
     console.error(e); if(btn) btn.disabled=false;
-    showToast(`初期化に失敗しました：${e?.message||e}。Firebaseルール -53 と会計権限を確認してください`);
+    showToast(`初期化に失敗しました：${e?.message||e}。Firebaseルール -54 と会計権限を確認してください`);
   }
 }
 
