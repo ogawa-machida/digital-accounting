@@ -602,7 +602,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.03-55';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.03-56';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1287,7 +1287,6 @@ function showScreen(id){
   const enteringBook = id==='bookScreen' && currentScreen!=='bookScreen';
   if (enteringBook) bookFilter.status = actionableBookStatus();
   currentScreen = id;
-  metricStart(id);
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
   $(id).classList.add('active');
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active', b.dataset.screen===id));
@@ -1721,6 +1720,7 @@ let formAccount = '', formMethod = '', formAddressee = '';
 async function openForm(e){
   if (canOwnSubmit() && !me.payerId) { showToast('支払者名簿との紐付けが済んでいません'); return; }
   editing = e || null;
+  metricBegin(e ? 'entry_edit' : 'expense_application', e?.id||'');
   formType = e ? e.type : 'expense';
   formAccount = e ? e.accountId : '';
   formMethod = e ? e.methodId : '';
@@ -1930,10 +1930,8 @@ async function compressImage(src,maxSize=1400,quality=0.76){
 }
 
 /* ---------- AI読み取り ----------
-   APIキーは「この端末だけのキー」→「町内会共通キー」の順に使う */
-const API_KEY_STORAGE = 'chokaiKaikei_claudeApiKey';
-function getLocalKey(){ try { return localStorage.getItem(API_KEY_STORAGE); } catch(e){ return null; } }
-function getApiKey(){ return getLocalKey() || sharedKey || null; }
+   APIキーは管理者が設定した町内会共通キーのみを使用する */
+function getApiKey(){ return sharedKey || null; }
 
 async function callClaude(images, system, prompt, maxTokens){
   const key = getApiKey();
@@ -2035,7 +2033,7 @@ function addresseeWarning(a){
 }
 
 /* ---------- 保存 ---------- */
-$('formCancelBtn').onclick = () => { editing ? openDetail(editing.id) : showScreen('homeScreen'); };
+$('formCancelBtn').onclick = () => { metricCancel(); editing ? openDetail(editing.id) : showScreen('homeScreen'); };
 /* 伝票を1件保存する（フォームとまとめて読み込みで共通） */
 async function persistEntry(prev, f, photos, photosChanged){
   const m = methodById(f.methodId);
@@ -2106,6 +2104,7 @@ $('formSaveBtn').onclick = async () => {
       excludePublic: $('fExclude').checked, addressee: formAddressee
     }, formPhotos, photosChanged);
     if (saved.status==='submitted' && (!editing || editing.status!=='submitted')) notifyEntries([saved.id]);
+    await metricEnd(editing?'resubmitted':'submitted');
     showToast(canOwnSubmit() || saved.selfApprovalRequired ? '申請しました。承認をお待ちください' : '保存しました');
     openDetail(saved.id, saved);
   } catch(e) {
@@ -2131,6 +2130,7 @@ function diffText(a,b){
 let detailFallback = null;
 const photoCache = {};
 function openDetail(id, fallback){
+  const mx=entryById(id)||fallback; if(mx && mx.status==='submitted' && (isT() || entryIsMyApproval(mx))) metricBegin('entry_approval',id);
   detailId = id; detailFallback = fallback || null;
   showScreen('detailScreen');
 }
@@ -2228,8 +2228,8 @@ async function renderDetail(id){
   if ($('cashFeeResubmitBtn')) $('cashFeeResubmitBtn').onclick = () => resubmitCashFee(e);
   if ($('gReject')) $('gReject').onclick = () => rejectGuest(e);
   if ($('dReturn')) $('dReturn').onclick = () => e.cashFeeRequest ? openCashFeeForm('return',e) : returnEntry(e);
-  if ($('aOk')) $('aOk').onclick = () => auditEntry(e, 'ok');
-  if ($('aIssue')) $('aIssue').onclick = () => auditEntry(e, 'issue');
+  if ($('aOk')) $('aOk').onclick = () => { metricBegin('audit',e.id); auditEntry(e, 'ok'); };
+  if ($('aIssue')) $('aIssue').onclick = () => { metricBegin('audit',e.id); auditEntry(e, 'issue'); };
   if ($('aResp')) $('aResp').onclick = async () => { await R(`entries/${e.id}/audit/response`).set($('auditResp').value.trim()); writeLog('監査回答', e, $('auditResp').value.trim()); showToast('回答を記録しました'); };
 
   if (e.photoCount) {
@@ -2281,6 +2281,7 @@ async function approveEntry(e, guestTarget, guestRole){
     const pid = await approveGuest(pv, guestTarget || null, guestRole || 'payer');
     const rest = allEntries().filter(x=>x.payerId===pv.id && x.status==='submitted' && x.id!==e.id);
     await approveOne(e);
+    await metricEnd('approved');
     if (rest.length && confirm(`${pv.name}さんを本登録しました。\n同じ人のほかの申請 ${rest.length}件（${yen(rest.reduce((s,x)=>s+(Number(x.amount)||0),0))}）もまとめて承認しますか？`)) {
       for (const x of rest) await approveOne(x);
       showToast(`${rest.length+1}件を承認しました`);
@@ -2288,6 +2289,7 @@ async function approveEntry(e, guestTarget, guestRole){
     return;
   }
   await approveOne(e);
+  await metricEnd('approved');
   showToast('承認しました');
   const next = isT()
     ? fyEntries().find(x=>x.status==='submitted' && x.selfApprovalRequired!==true && x.id!==e.id)
@@ -2307,6 +2309,7 @@ async function returnEntry(e){
   if (reason===null) return;
   await R(`entries/${e.id}`).update({ status:'returned', returnReason: reason.trim() || '内容を確認してください' });
   writeLog('差戻し', e, reason);
+  await metricEnd('returned');
   showToast('差し戻しました');
 }
 async function deleteEntry(e){
@@ -2326,6 +2329,7 @@ async function auditEntry(e, result){
   await R(`entries/${e.id}/audit`).set({ result, comment, by:me.uid, byName:me.name, at:TS() });
   await R(`entries/${e.id}/auditStale`).set(false);
   writeLog(result==='ok'?'監査OK':'監査指摘', e, comment);
+  await metricEnd(result==='ok'?'audit_ok':'audit_issue');
   showToast(result==='ok' ? '確認済みにしました' : '指摘を記録しました');
   const next = approvedFY().sort((a,b)=>(a.voucherNo||'')<(b.voucherNo||'')?-1:1).find(x=>(!x.audit || x.auditStale) && x.id!==e.id);
   if (next) openDetail(next.id); else showScreen('auditScreen');
@@ -2338,7 +2342,7 @@ function renderSettle(){
   const el = $('settleScreen');
   if (isP() || isViewer()) return renderPayerSettle(el);
   if (!isT()) { el.innerHTML = '<div class="empty">精算は会計担当が行います</div>'; return; }
-  if (settleView) return renderSettlePerson(el, settleView);
+  if (settleView) { metricBegin('settlement',settleView); return renderSettlePerson(el, settleView); }
 
   const people = settlePeople();
   let html = `<p class="hint" style="margin-top:0">支払った人ごとに、たまった立替と仮払金を相殺して一度に精算できます。会う日に合わせて、承認済みの分をまとめて清算してください。</p>`;
@@ -2491,6 +2495,7 @@ async function doSettlement(pid, recalc){
     aIds.forEach(id=>{ ups[`advances/${id}/settleState`]='settled'; ups[`advances/${id}/settlementId`]=sid; });
     await db.ref(ROOT).update(ups);
     writeLog('精算', null, `${no} ${payerName(pid)} ${directionText(spent-adv,'')} ${yen(Math.abs(spent-adv))}`);
+    await metricEnd('settled');
     notifySettlementConfirm(sid);
     showToast('精算を記録し、該当者へ受取確認のメール通知を送信しました');
     if (confirm('精算書を印刷しますか？（受領印をもらう場合）')) printSettlement({...ups[`settlements/${sid}`], id:sid, createdAt:Date.now()});
@@ -2508,9 +2513,11 @@ async function cancelSettlement(s){
   showToast('精算を取り消しました');
 }
 async function confirmSettlement(s){
+  metricBegin('settlement_confirm',s.id);
   if (!confirm(`${s.net>=0?`${yen(s.net)} を受け取りました`:`${yen(-s.net)} を返金しました`}。よろしいですか？`)) return;
   await R(`settlements/${s.id}/payerConfirm`).set({ at:TS(), name:me.name, uid:me.uid });
   writeLog('精算確認', null, `${s.no} ${me.name}`);
+  await metricEnd('confirmed');
   showToast('確認しました。ありがとうございました');
 }
 
@@ -2783,22 +2790,6 @@ function printReport(){
    ========================================================= */
 let workMetricSession=null, workMetricLastTouch=0, workMetricActiveMs=0;
 const WORK_IDLE_MS=60000;
-function metricTypeForScreen(id){
-  return ({
-    formScreen:'expense_application',
-    detailScreen:'entry_review_approval',
-    settleScreen:'settlement',
-    auditScreen:'audit_closing',
-    cashFeeScreen:'cash_fee',
-    batchScreen:'batch_entry',
-    budgetImportScreen:'budget_import',
-    importScreen:'data_import',
-    settingsScreen:'accounting_settings',
-    adminScreen:'system_admin',
-    bookScreen:'ledger_review',
-    homeScreen:'home'
-  })[id]||'other';
-}
 function metricTouch(){
   if(!workMetricSession || document.hidden) return;
   const now=Date.now();
@@ -2808,33 +2799,26 @@ function metricTouch(){
   }
   workMetricLastTouch=now;
 }
-async function metricFinish(result='completed'){
+function metricBegin(eventType, refId=''){
+  if(!me || !auth.currentUser) return;
+  if(workMetricSession && workMetricSession.eventType===eventType && workMetricSession.refId===refId){ metricTouch(); return; }
+  if(workMetricSession) metricEnd('abandoned');
+  workMetricActiveMs=0; workMetricLastTouch=Date.now();
+  workMetricSession={eventType,refId,startedAt:Date.now()};
+}
+async function metricEnd(result='completed'){
   const x=workMetricSession;
   if(!x || !me || !auth.currentUser) return;
-  metricTouch();
-  workMetricSession=null; workMetricLastTouch=0;
-  const ended=Date.now();
-  const rec={
-    uid:me.uid, role:me.role||'', eventType:x.eventType, screen:x.screen,
-    startedAt:x.startedAt, endedAt:ended,
-    elapsedSec:Math.max(0,Math.round((ended-x.startedAt)/1000)),
-    activeSec:Math.max(0,Math.round(workMetricActiveMs/1000)),
-    result, fiscalYear:curFY, version:1
-  };
-  workMetricActiveMs=0;
-  try{ await R('workMetrics').push().set(rec); }catch(e){ console.warn('workMetrics',e); }
+  metricTouch(); workMetricSession=null; workMetricLastTouch=0;
+  const ended=Date.now(), active=Math.max(0,Math.round(workMetricActiveMs/1000)); workMetricActiveMs=0;
+  const rec={uid:me.uid,role:me.role||'',eventType:x.eventType,refId:x.refId||null,
+    startedAt:x.startedAt,endedAt:ended,elapsedSec:Math.max(0,Math.round((ended-x.startedAt)/1000)),
+    activeSec:active,result,fiscalYear:curFY,version:2};
+  try{await R('workMetrics').push().set(rec);}catch(e){console.warn('workMetrics',e);}
 }
-function metricStart(screen){
-  if(!me || !auth.currentUser) return;
-  if(workMetricSession && workMetricSession.screen===screen){ metricTouch(); return; }
-  if(workMetricSession) metricFinish('screen_change');
-  workMetricActiveMs=0; workMetricLastTouch=Date.now();
-  workMetricSession={screen,eventType:metricTypeForScreen(screen),startedAt:Date.now()};
-}
-['pointerdown','keydown','input','change','scroll'].forEach(ev=>
-  document.addEventListener(ev,metricTouch,{passive:true,capture:true})
-);
-document.addEventListener('visibilitychange',()=>{ if(document.hidden) metricTouch(); else workMetricLastTouch=Date.now(); });
+function metricCancel(){ if(workMetricSession) metricEnd('cancelled'); }
+['pointerdown','keydown','input','change','scroll'].forEach(ev=>document.addEventListener(ev,metricTouch,{passive:true,capture:true}));
+document.addEventListener('visibilitychange',()=>{if(document.hidden)metricTouch();else if(workMetricSession)workMetricLastTouch=Date.now();});
 
 let adminMetrics=[];
 function fmtDur(sec){
@@ -2863,10 +2847,10 @@ async function renderAdmin(){
     const k=x.eventType||'other'; (groups[k]||(groups[k]=[])).push(Number(x.activeSec)||0);
   });
   const labels={
-    expense_application:'支払申請・登録',entry_review_approval:'伝票確認・承認',
-    settlement:'精算',audit_closing:'監査・決算',cash_fee:'現金会費',
-    batch_entry:'まとめて登録',budget_import:'予算取込',data_import:'データ取込',
-    accounting_settings:'会計設定',system_admin:'管理者設定',ledger_review:'出納帳確認',home:'ホーム',other:'その他'
+    expense_application:'支払申請・登録',entry_edit:'申請修正・再申請',entry_approval:'支払承認・差戻し',
+    settlement:'精算',settlement_confirm:'精算確認',audit:'監査確認',cash_fee:'現金会費',
+    batch_entry:'まとめて登録',budget_import:'予算取込',data_import:'データ取込',balance_reconciliation:'残高照合',
+    closing:'決算作業',other:'その他'
   };
   const total=adminMetrics.reduce((n,x)=>n+(Number(x.activeSec)||0),0);
   const rows=Object.entries(groups).sort((a,b)=>b[1].reduce((n,v)=>n+v,0)-a[1].reduce((n,v)=>n+v,0))
@@ -2879,6 +2863,13 @@ async function renderAdmin(){
       <p class="hint">60秒以上の無操作時間とバックグラウンド時間を除いた推定値です。個人ランキングではなく、業務別の導入効果測定に使用します。</p>
     </div>
     ${rows||'<div class="empty">計測データはまだありません</div>'}
+    <h2 class="section-title" style="margin-top:20px">管理者業務</h2>
+    <div class="form-card">
+      <div class="cat-row"><span class="cname">データ取り込み<small>Excel・CSV、会費ペイ等の管理</small></span><button class="btn btn-navy sm" id="adminImport">開く</button></div>
+      <div class="cat-row"><span class="cname">バックアップ<small>Firebaseバックアップ・初期化等</small></span><button class="btn btn-navy sm" id="adminBackup">実行</button></div>
+      <div class="cat-row"><span class="cname">メール通知<small>Apps Script URL・通知設定</small></span><button class="btn btn-navy sm" id="adminNotify">設定</button></div>
+    </div>
+    <div id="adminToolPanel"></div>
     <h2 class="section-title" style="margin-top:20px">AI・システム管理</h2>
     <div class="form-card">
       <div style="font-weight:700;font-size:13.5px;margin-bottom:6px">Claude API 共通キー</div>
@@ -2887,6 +2878,12 @@ async function renderAdmin(){
       <p class="hint">${sharedKey?'設定済み（値は再表示しません）':'未設定'}</p>
       <div class="btn-row"><button class="btn btn-ghost" id="adminDelShared">削除</button><button class="btn btn-primary" id="adminSaveShared">共通キーを保存</button></div>
     </div>`;
+
+  const tool=$('adminToolPanel');
+  if($('adminImport')) $('adminImport').onclick=()=>{ tool.innerHTML=`<div class="form-card"><b>データ取り込み</b><p class="hint">過去データ（CSV・Excel）または会費ペイのファイルを選択します。</p><div class="btn-row"><button class="btn btn-navy" id="admExcel">CSV・Excel</button><button class="btn btn-navy" id="admKaihi">会費ペイ</button></div><button class="btn btn-navy full" style="margin-top:8px" id="admStmt">会費ペイ支払通知書PDF</button></div>`;$('admExcel').onclick=()=>$('importInput').click();$('admKaihi').onclick=()=>$('kaihipayInput').click();$('admStmt').onclick=()=>$('kaihipayStatementInput').click();};
+  if($('adminBackup')) $('adminBackup').onclick=async()=>{ if(!confirm('今すぐFirebaseバックアップを作成しますか？'))return; try{await createFirebaseBackup('manual');showToast('バックアップを作成しました');renderAdmin();}catch(e){console.error(e);showToast('バックアップに失敗しました');}};
+  if($('adminNotify')) $('adminNotify').onclick=()=>{tool.innerHTML=`<div class="form-card"><b>メール通知</b><div class="field"><label>通知用 Apps Script URL</label><input type="text" id="admNUrl" value="${esc(settings.notifyUrl||'')}"></div><label class="check-line"><input type="checkbox" id="admNEntry" ${settings.notifyOnEntry!==false?'checked':''}> 支出申請の承認依頼を通知</label><div class="btn-row" style="margin-top:12px"><button class="btn btn-ghost" id="admNTest">テスト送信</button><button class="btn btn-primary" id="admNSave">保存</button></div></div>`;$('admNSave').onclick=async()=>{await R('settings').update({notifyUrl:$('admNUrl').value.trim(),notifyOnEntry:$('admNEntry').checked});settings.notifyUrl=$('admNUrl').value.trim();settings.notifyOnEntry=$('admNEntry').checked;await syncRecipients();showToast('通知設定を保存しました');};$('admNTest').onclick=async()=>{const u=$('admNUrl').value.trim();if(!u)return showToast('URLを入力してください');await notify('test',{},u);showToast('テスト送信を依頼しました');};};
+
   const save=$('adminSaveShared'), del=$('adminDelShared');
   if(save) save.onclick=async()=>{const v=$('adminSharedKeyInput').value.trim();if(!v)return showToast('APIキーを入力してください');await R('secrets/claudeKey').set(v);writeLog('共通キー設定',null,'管理者がClaude APIキーを登録');showToast('保存しました');sharedKey=v;renderAdmin();};
   if(del) del.onclick=async()=>{if(!confirm('共通キーを削除しますか？'))return;await R('secrets/claudeKey').remove();writeLog('共通キー削除',null,'管理者が削除');sharedKey=null;showToast('削除しました');renderAdmin();};
@@ -3048,23 +3045,17 @@ function renderSettings(){
       <h2 class="section-title" style="margin-top:16px">会員向けの会計報告</h2><div class="form-card"><div class="inline-add" style="margin:0"><input readonly value="${esc(publicUrl())}" id="pubUrl"><button class="btn btn-ghost sm" id="pubCopy">コピー</button></div></div>`;
   }
 
-  html += `<h2 class="section-title" style="margin-top:20px">AI自動読み取り（Claude APIキー）</h2>`;
-  if (isAdmin()) html += `<div class="form-card">
-    <div style="font-weight:700;font-size:13.5px;margin-bottom:6px">町内会の共通キー</div>
-    <p class="hint" style="margin-top:0">ここに登録すると、班長・役員など<b>アプリを使う全員</b>が自分でキーを用意せずにAI読み取りを使えます。利用者はキーを読み出せる状態になるため、Anthropicのコンソールで<b>月の利用上限</b>を必ず設定してください。</p>
-    <div class="field"><input type="password" id="sharedKeyInput" placeholder="sk-ant-..." style="width:100%;border:1px solid var(--line);border-radius:8px;padding:11px 12px;font-size:15px"></div>
-    <p class="hint" style="margin-top:-6px">${sharedKey?`設定済み（${esc(sharedKey.slice(0,10))}…）`:'未設定'}</p>
-    <div class="btn-row"><button class="btn btn-ghost" id="delShared">削除</button><button class="btn btn-primary" id="saveShared">共通キーを保存</button></div></div>`;
-  else html += `<div class="form-card" style="padding:12px 14px"><p class="hint" style="margin:0">${sharedKey?'✓ 町内会の共通キーが設定されているので、そのままAI読み取りが使えます。':'町内会の共通キーは未設定です。自分のキーを下に登録するか、会計担当に相談してください。'}</p></div>`;
-  html += `<div class="form-card">
-    <div style="font-weight:700;font-size:13.5px;margin-bottom:6px">この端末だけのキー（任意）</div>
-    <p class="hint" style="margin-top:0">この端末のブラウザ内にだけ保存され、町内会のデータベースには送られません。登録すると共通キーより優先して使われます。</p>
-    <div class="field"><input type="password" id="apiKeyInput" placeholder="sk-ant-..." style="width:100%;border:1px solid var(--line);border-radius:8px;padding:11px 12px;font-size:15px"></div>
-    <p class="hint" style="margin-top:-6px">${getLocalKey()?`設定済み（${esc(getLocalKey().slice(0,10))}…）`:'未設定'}</p>
-    <div class="btn-row"><button class="btn btn-ghost" id="delKey">削除</button><button class="btn btn-primary" id="saveKey">保存</button></div></div>
-    <button class="btn btn-ghost full" style="margin-top:6px" onclick="if(confirm('ログアウトしますか？'))auth.signOut()">ログアウト</button>
+  html += `<button class="btn btn-ghost full" style="margin-top:6px" onclick="if(confirm('ログアウトしますか？'))auth.signOut()">ログアウト</button>
     <p class="hint" style="text-align:center;margin-top:12px">バージョン ${APP_VERSION}</p>`;
   el.innerHTML = html;
+  // システム管理項目は会計設定から完全に分離し、管理者画面へ寄せる。
+  ['会費ペイから会費収入を取り込む','データの取り込み・バックアップ','承認依頼のメール通知'].forEach(title=>{
+    const heads=[...el.querySelectorAll(':scope > h2.section-title')];
+    const h=heads.find(x=>x.textContent.trim()===title); if(!h)return;
+    const next=heads[heads.indexOf(h)+1]||null; let n=h;
+    while(n&&n!==next){const nx=n.nextSibling;n.remove();n=nx;}
+  });
+
   if (isT()) organizeTreasurerSettings();
   bindSettings();
 }
@@ -3230,9 +3221,7 @@ function organizeTreasurerSettings(){
   const defs=[
     {id:'people', icon:'👥', title:'利用者・名簿', sub:'権限、支部・班、支払者名簿', heads:['支払者名簿','アプリの利用者と権限']},
     {id:'money', icon:'💰', title:'会計の基本設定', sub:'団体情報、会費徴収期間、科目・予算、支払方法', heads:['団体の情報','会費徴収期間','現預金残高の確認',`科目と${curFY}年度の予算`,'支払方法']},
-    {id:'report', icon:'📊', title:'会員向け会計報告', sub:'公開内容の設定・報告の更新', heads:['会員向けの会計報告']},
-    {id:'data', icon:'💾', title:'データ管理', sub:'Excel取込、会費ペイ、バックアップ', heads:['会費ペイから会費収入を取り込む','データの取り込み・バックアップ']},
-    {id:'notice', icon:'✉️', title:'メール通知', sub:'承認依頼の通知設定・テスト', heads:['承認依頼のメール通知']}
+    {id:'report', icon:'📊', title:'会員向け会計報告', sub:'公開内容の設定・報告の更新', heads:['会員向けの会計報告']}
   ];
   const heads=[...root.querySelectorAll(':scope > h2.section-title')];
   const groups={};
@@ -3259,8 +3248,6 @@ function bindSettings(){
   const q = s => $('settingsScreen').querySelectorAll(s);
   if ($('newPBranch')) fillBranchGroup($('newPBranch'), $('newPGroup'), '', '');
   if ($('pubCopy')) $('pubCopy').onclick = () => { navigator.clipboard?.writeText(publicUrl()).then(()=>showToast('URLをコピーしました')).catch(()=>{ $('pubUrl').select(); }); };
-  $('saveKey').onclick = () => { const v=$('apiKeyInput').value.trim(); if(!v) return showToast('APIキーを入力してください'); try{localStorage.setItem(API_KEY_STORAGE,v);}catch(e){} showToast('保存しました'); renderSettings(); };
-  $('delKey').onclick = () => { try{localStorage.removeItem(API_KEY_STORAGE);}catch(e){} showToast('削除しました'); renderSettings(); };
   if (!isT()) return;
 
   // 利用者ごとの所属（支部・班）は、会計側でも連動プルダウンから変更できる。
@@ -3286,15 +3273,6 @@ function bindSettings(){
     writeLog('利用者削除', null, `${m.name}（${m.email||''}）`); showToast(`${m.name}さんの登録を削除しました`);
     if(['treasurer','viewer'].includes(m.role)) setTimeout(()=>syncRecipients(),800);
   });
-
-  if ($('saveShared')) $('saveShared').onclick = async () => {
-    const v = $('sharedKeyInput').value.trim(); if (!v) return showToast('APIキーを入力してください');
-    await R('secrets/claudeKey').set(v); writeLog('共通キー設定', null, 'Claude APIキーを登録'); showToast('共通キーを保存しました'); setTimeout(renderSettings, 300);
-  };
-  if ($('delShared')) $('delShared').onclick = async () => {
-    if (!confirm('町内会の共通キーを削除しますか？')) return;
-    await R('secrets/claudeKey').remove(); writeLog('共通キー削除', null, ''); showToast('共通キーを削除しました'); setTimeout(renderSettings, 300);
-  };
   $('budgetImportBtn').onclick = () => { if (!getApiKey()) return showToast('先にClaude APIキーを登録してください'); $('budgetInput').click(); };
 
   $('sSaveOrg').onclick = async () => {
