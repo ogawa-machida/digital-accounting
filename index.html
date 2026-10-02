@@ -567,6 +567,7 @@ label[for="newMSettle"]{display:flex;align-items:center;justify-content:flex-sta
     <section id="settleScreen" class="screen"></section>
     <section id="auditScreen" class="screen"></section>
     <section id="settingsScreen" class="screen"></section>
+    <section id="adminScreen" class="screen"></section>
     <section id="batchScreen" class="screen"></section>
     <section id="budgetImportScreen" class="screen"></section>
     <section id="importScreen" class="screen"></section>
@@ -601,7 +602,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.02-54';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.03-55';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -661,7 +662,8 @@ const TS = () => firebase.database.ServerValue.TIMESTAMP;
 /* ---------- 定数 ---------- */
 const PALETTE = ['#B4432C','#2E5E7C','#7A8450','#9C6B3E','#7D5A8C','#3E7C6B','#B47C2C','#5E6B7C','#A0526B','#4F7F9E'];
 const ROLES = {
-  treasurer:{ name:'会計', desc:'すべての登録・承認・精算・設定' },
+  admin:    { name:'管理者', desc:'会計と同等の業務権限＋システム管理・導入効果の確認' },
+  treasurer:{ name:'会計', desc:'すべての登録・承認・精算・会計設定' },
   auditor:  { name:'監査', desc:'全件の閲覧と監査チェック' },
   viewer:   { name:'役員', desc:'本部役員または班長。全件の閲覧・会計本人申請の承認・自分の支出申請と精算確認' },
   payer:    { name:'支払者', desc:'自分の支出の申請と精算の確認' },
@@ -706,8 +708,9 @@ function fyRangeLabel(fy){
   return `${fy}年${s}月〜${endY}年${endM}月`;
 }
 function fyMonths(fy){ const s=startMonth(); return Array.from({length:12},(_,i)=>{ const m=((s-1+i)%12)+1; const y = (s-1+i)>=12 ? fy+1 : fy; return {y,m,key:`${y}-${pad(m)}`}; }); }
-function isStaff(){ return me && ['treasurer','auditor','viewer'].includes(me.role); }
-function isT(){ return me && me.role==='treasurer'; }
+function isStaff(){ return me && ['admin','treasurer','auditor','viewer'].includes(me.role); }
+function isT(){ return me && ['admin','treasurer'].includes(me.role); }
+function isAdmin(){ return me && me.role==='admin'; }
 function isA(){ return me && me.role==='auditor'; }
 function isP(){ return me && (me.role==='payer' || me.role==='guest'); }
 function canOwnSubmit(){ return me && ['payer','guest','viewer'].includes(me.role) && !!me.payerId; }
@@ -1261,6 +1264,7 @@ const ICONS = {
   settings:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>'
 };
 function navItems(){
+  if (isAdmin()) return [['homeScreen','home','ホーム'],['bookScreen','book','出納帳'],['settleScreen','settle','精算'],['auditScreen','audit','監査'],['settingsScreen','settings','会計設定'],['adminScreen','settings','管理']];
   if (isT()) return [['homeScreen','home','ホーム'],['bookScreen','book','出納帳'],['settleScreen','settle','精算'],['auditScreen','audit','監査'],['settingsScreen','settings','設定']];
   if (isA()) return [['auditScreen','audit','監査']];
   if (isP()) return [['homeScreen','home','ホーム'],['bookScreen','book','申請一覧'],['settleScreen','settle','精算']];
@@ -1278,11 +1282,12 @@ function buildNav(){
   if (!navItems().some(n=>n[0]===currentScreen)) currentScreen=navItems()[0][0];
   showScreen(currentScreen);
 }
-const TITLES = { homeScreen:'ホーム', bookScreen:'出納帳', settleScreen:'精算', auditScreen:'監査', settingsScreen:'設定', formScreen:'登録', cashFeeScreen:'現金会費', detailScreen:'伝票', batchScreen:'まとめて読み込み', budgetImportScreen:'予算の取り込み', importScreen:'データ取り込み' };
+const TITLES = { homeScreen:'ホーム', bookScreen:'出納帳', settleScreen:'精算', auditScreen:'監査', settingsScreen:'設定', adminScreen:'管理者', formScreen:'登録', cashFeeScreen:'現金会費', detailScreen:'伝票', batchScreen:'まとめて読み込み', budgetImportScreen:'予算の取り込み', importScreen:'データ取り込み' };
 function showScreen(id){
   const enteringBook = id==='bookScreen' && currentScreen!=='bookScreen';
   if (enteringBook) bookFilter.status = actionableBookStatus();
   currentScreen = id;
+  metricStart(id);
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
   $(id).classList.add('active');
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active', b.dataset.screen===id));
@@ -1308,6 +1313,7 @@ function renderCurrent(){
     case 'cashFeeScreen': renderCashFeeScreen(); break;
     case 'settleScreen': renderSettle(); break;
     case 'auditScreen': renderAudit(); break;
+    case 'adminScreen': renderAdmin(); break;
     case 'settingsScreen': { const a=document.activeElement; const typing = a && $('settingsScreen').contains(a) && ['INPUT','TEXTAREA','SELECT'].includes(a.tagName) && a.type!=='checkbox'; if (!typing) renderSettings(); break; }
     case 'detailScreen': if (detailId) renderDetail(detailId); break;
   }
@@ -2768,6 +2774,124 @@ function printReport(){
   `);
 }
 
+
+/* =========================================================
+   管理者・業務時間自動計測
+   - 既存操作を増やさず、画面滞在中の実操作時間を計測
+   - 60秒以上無操作、バックグラウンド中は activeSec に加算しない
+   - 計測失敗は会計処理を止めない
+   ========================================================= */
+let workMetricSession=null, workMetricLastTouch=0, workMetricActiveMs=0;
+const WORK_IDLE_MS=60000;
+function metricTypeForScreen(id){
+  return ({
+    formScreen:'expense_application',
+    detailScreen:'entry_review_approval',
+    settleScreen:'settlement',
+    auditScreen:'audit_closing',
+    cashFeeScreen:'cash_fee',
+    batchScreen:'batch_entry',
+    budgetImportScreen:'budget_import',
+    importScreen:'data_import',
+    settingsScreen:'accounting_settings',
+    adminScreen:'system_admin',
+    bookScreen:'ledger_review',
+    homeScreen:'home'
+  })[id]||'other';
+}
+function metricTouch(){
+  if(!workMetricSession || document.hidden) return;
+  const now=Date.now();
+  if(workMetricLastTouch){
+    const d=now-workMetricLastTouch;
+    if(d>0 && d<=WORK_IDLE_MS) workMetricActiveMs+=d;
+  }
+  workMetricLastTouch=now;
+}
+async function metricFinish(result='completed'){
+  const x=workMetricSession;
+  if(!x || !me || !auth.currentUser) return;
+  metricTouch();
+  workMetricSession=null; workMetricLastTouch=0;
+  const ended=Date.now();
+  const rec={
+    uid:me.uid, role:me.role||'', eventType:x.eventType, screen:x.screen,
+    startedAt:x.startedAt, endedAt:ended,
+    elapsedSec:Math.max(0,Math.round((ended-x.startedAt)/1000)),
+    activeSec:Math.max(0,Math.round(workMetricActiveMs/1000)),
+    result, fiscalYear:curFY, version:1
+  };
+  workMetricActiveMs=0;
+  try{ await R('workMetrics').push().set(rec); }catch(e){ console.warn('workMetrics',e); }
+}
+function metricStart(screen){
+  if(!me || !auth.currentUser) return;
+  if(workMetricSession && workMetricSession.screen===screen){ metricTouch(); return; }
+  if(workMetricSession) metricFinish('screen_change');
+  workMetricActiveMs=0; workMetricLastTouch=Date.now();
+  workMetricSession={screen,eventType:metricTypeForScreen(screen),startedAt:Date.now()};
+}
+['pointerdown','keydown','input','change','scroll'].forEach(ev=>
+  document.addEventListener(ev,metricTouch,{passive:true,capture:true})
+);
+document.addEventListener('visibilitychange',()=>{ if(document.hidden) metricTouch(); else workMetricLastTouch=Date.now(); });
+
+let adminMetrics=[];
+function fmtDur(sec){
+  sec=Math.max(0,Math.round(Number(sec)||0));
+  if(sec<60) return `${sec}秒`;
+  const h=Math.floor(sec/3600), m=Math.floor((sec%3600)/60);
+  return h?`${h}時間${m}分`:`${m}分`;
+}
+function median(a){
+  if(!a.length)return 0; const b=[...a].sort((x,y)=>x-y),i=Math.floor(b.length/2);
+  return b.length%2?b[i]:Math.round((b[i-1]+b[i])/2);
+}
+async function loadAdminMetrics(){
+  if(!isAdmin()) return;
+  try{
+    const snap=await R('workMetrics').orderByChild('fiscalYear').equalTo(curFY).once('value');
+    adminMetrics=toArr(snap.val());
+  }catch(e){ console.warn(e); adminMetrics=[]; }
+}
+async function renderAdmin(){
+  const el=$('adminScreen'); if(!el) return;
+  if(!isAdmin()){ el.innerHTML='<div class="empty"><b>管理者専用です</b></div>'; return; }
+  await loadAdminMetrics();
+  const groups={};
+  adminMetrics.forEach(x=>{
+    const k=x.eventType||'other'; (groups[k]||(groups[k]=[])).push(Number(x.activeSec)||0);
+  });
+  const labels={
+    expense_application:'支払申請・登録',entry_review_approval:'伝票確認・承認',
+    settlement:'精算',audit_closing:'監査・決算',cash_fee:'現金会費',
+    batch_entry:'まとめて登録',budget_import:'予算取込',data_import:'データ取込',
+    accounting_settings:'会計設定',system_admin:'管理者設定',ledger_review:'出納帳確認',home:'ホーム',other:'その他'
+  };
+  const total=adminMetrics.reduce((n,x)=>n+(Number(x.activeSec)||0),0);
+  const rows=Object.entries(groups).sort((a,b)=>b[1].reduce((n,v)=>n+v,0)-a[1].reduce((n,v)=>n+v,0))
+    .map(([k,a])=>`<div class="cat-row"><span class="cname">${esc(labels[k]||k)}<small>${a.length}件・中央値 ${fmtDur(median(a))}</small></span><b>${fmtDur(a.reduce((n,v)=>n+v,0))}</b></div>`).join('');
+  el.innerHTML=`
+    <h2 class="section-title">業務時間・導入効果</h2>
+    <div class="form-card">
+      <div class="total-check"><span>${curFY}年度 自動計測</span><b>${adminMetrics.length}件</b></div>
+      <div class="total-check"><span>推定実作業時間</span><b>${fmtDur(total)}</b></div>
+      <p class="hint">60秒以上の無操作時間とバックグラウンド時間を除いた推定値です。個人ランキングではなく、業務別の導入効果測定に使用します。</p>
+    </div>
+    ${rows||'<div class="empty">計測データはまだありません</div>'}
+    <h2 class="section-title" style="margin-top:20px">AI・システム管理</h2>
+    <div class="form-card">
+      <div style="font-weight:700;font-size:13.5px;margin-bottom:6px">Claude API 共通キー</div>
+      <p class="hint" style="margin-top:0">管理者のみ設定できます。現在は既存AI機能との互換性のため利用端末へキーを配信する方式です。GAS側へ移す対応は本格導入前の必須課題です。</p>
+      <div class="field"><input type="password" id="adminSharedKeyInput" placeholder="sk-ant-..." style="width:100%;border:1px solid var(--line);border-radius:8px;padding:11px 12px;font-size:15px"></div>
+      <p class="hint">${sharedKey?'設定済み（値は再表示しません）':'未設定'}</p>
+      <div class="btn-row"><button class="btn btn-ghost" id="adminDelShared">削除</button><button class="btn btn-primary" id="adminSaveShared">共通キーを保存</button></div>
+    </div>`;
+  const save=$('adminSaveShared'), del=$('adminDelShared');
+  if(save) save.onclick=async()=>{const v=$('adminSharedKeyInput').value.trim();if(!v)return showToast('APIキーを入力してください');await R('secrets/claudeKey').set(v);writeLog('共通キー設定',null,'管理者がClaude APIキーを登録');showToast('保存しました');sharedKey=v;renderAdmin();};
+  if(del) del.onclick=async()=>{if(!confirm('共通キーを削除しますか？'))return;await R('secrets/claudeKey').remove();writeLog('共通キー削除',null,'管理者が削除');sharedKey=null;showToast('削除しました');renderAdmin();};
+}
+
 /* =========================================================
    設定
    ========================================================= */
@@ -2925,7 +3049,7 @@ function renderSettings(){
   }
 
   html += `<h2 class="section-title" style="margin-top:20px">AI自動読み取り（Claude APIキー）</h2>`;
-  if (isT()) html += `<div class="form-card">
+  if (isAdmin()) html += `<div class="form-card">
     <div style="font-weight:700;font-size:13.5px;margin-bottom:6px">町内会の共通キー</div>
     <p class="hint" style="margin-top:0">ここに登録すると、班長・役員など<b>アプリを使う全員</b>が自分でキーを用意せずにAI読み取りを使えます。利用者はキーを読み出せる状態になるため、Anthropicのコンソールで<b>月の利用上限</b>を必ず設定してください。</p>
     <div class="field"><input type="password" id="sharedKeyInput" placeholder="sk-ant-..." style="width:100%;border:1px solid var(--line);border-radius:8px;padding:11px 12px;font-size:15px"></div>
@@ -3108,8 +3232,7 @@ function organizeTreasurerSettings(){
     {id:'money', icon:'💰', title:'会計の基本設定', sub:'団体情報、会費徴収期間、科目・予算、支払方法', heads:['団体の情報','会費徴収期間','現預金残高の確認',`科目と${curFY}年度の予算`,'支払方法']},
     {id:'report', icon:'📊', title:'会員向け会計報告', sub:'公開内容の設定・報告の更新', heads:['会員向けの会計報告']},
     {id:'data', icon:'💾', title:'データ管理', sub:'Excel取込、会費ペイ、バックアップ', heads:['会費ペイから会費収入を取り込む','データの取り込み・バックアップ']},
-    {id:'notice', icon:'✉️', title:'メール通知', sub:'承認依頼の通知設定・テスト', heads:['承認依頼のメール通知']},
-    {id:'ai', icon:'✨', title:'AI読み取り', sub:'Claude APIキーの設定', heads:['AI自動読み取り（Claude APIキー）']}
+    {id:'notice', icon:'✉️', title:'メール通知', sub:'承認依頼の通知設定・テスト', heads:['承認依頼のメール通知']}
   ];
   const heads=[...root.querySelectorAll(':scope > h2.section-title')];
   const groups={};
@@ -3164,11 +3287,11 @@ function bindSettings(){
     if(['treasurer','viewer'].includes(m.role)) setTimeout(()=>syncRecipients(),800);
   });
 
-  $('saveShared').onclick = async () => {
+  if ($('saveShared')) $('saveShared').onclick = async () => {
     const v = $('sharedKeyInput').value.trim(); if (!v) return showToast('APIキーを入力してください');
     await R('secrets/claudeKey').set(v); writeLog('共通キー設定', null, 'Claude APIキーを登録'); showToast('共通キーを保存しました'); setTimeout(renderSettings, 300);
   };
-  $('delShared').onclick = async () => {
+  if ($('delShared')) $('delShared').onclick = async () => {
     if (!confirm('町内会の共通キーを削除しますか？')) return;
     await R('secrets/claudeKey').remove(); writeLog('共通キー削除', null, ''); showToast('共通キーを削除しました'); setTimeout(renderSettings, 300);
   };
