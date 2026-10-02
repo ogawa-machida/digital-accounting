@@ -2863,6 +2863,13 @@ async function renderAdmin(){
       <p class="hint">60秒以上の無操作時間とバックグラウンド時間を除いた推定値です。個人ランキングではなく、業務別の導入効果測定に使用します。</p>
     </div>
     ${rows||'<div class="empty">計測データはまだありません</div>'}
+    <h2 class="section-title" style="margin-top:20px">管理者管理</h2>
+    <div class="form-card">
+      <p class="hint" style="margin-top:0">管理者は、会計業務に加えてシステム設定・データ管理・業務時間分析を行えます。管理者の追加・解除は管理者だけが行えます。</p>
+      <div id="adminMemberList"></div>
+      <button class="btn btn-navy full" id="adminAddBtn" style="margin-top:10px">＋ 管理者を追加</button>
+      <div id="adminAddPanel" style="margin-top:10px"></div>
+    </div>
     <h2 class="section-title" style="margin-top:20px">管理者業務</h2>
     <div class="form-card">
       <div class="cat-row"><span class="cname">データ取り込み<small>Excel・CSV、会費ペイ等の管理</small></span><button class="btn btn-navy sm" id="adminImport">開く</button></div>
@@ -2878,6 +2885,29 @@ async function renderAdmin(){
       <p class="hint">${sharedKey?'設定済み（値は再表示しません）':'未設定'}</p>
       <div class="btn-row"><button class="btn btn-ghost" id="adminDelShared">削除</button><button class="btn btn-primary" id="adminSaveShared">共通キーを保存</button></div>
     </div>`;
+
+
+  const adminList=$('adminMemberList'), addPanel=$('adminAddPanel');
+  const admins=members.filter(m=>m.role==='admin');
+  if(adminList) adminList.innerHTML=admins.length?admins.map(m=>`<div class="cat-row"><span class="cname">${esc(m.name||m.email)}<small>${esc(m.email||'')}${m.id===me.uid?'・あなた':''}</small></span>${m.id===me.uid?'<span class="hint">本人</span>':`<button class="btn btn-ghost sm" data-admin-remove="${m.id}">管理者を解除</button>`}</div>`).join(''):'<p class="hint">管理者が登録されていません</p>';
+  q('[data-admin-remove]').forEach(b=>b.onclick=async()=>{
+    const m=members.find(x=>x.id===b.dataset.adminRemove); if(!m)return;
+    if(members.filter(x=>x.role==='admin').length<=1)return showToast('最後の管理者は解除できません');
+    if(!confirm(`${m.name||m.email}さんの管理者権限を解除し、会計に変更しますか？`))return;
+    try{await R(`members/${m.id}/role`).set('treasurer');writeLog('管理者解除',null,`${m.name||m.email}：admin→treasurer`);showToast('管理者権限を解除し、会計に変更しました');setTimeout(()=>location.reload(),500);}
+    catch(e){console.error(e);showToast('管理者権限を変更できませんでした');}
+  });
+  if($('adminAddBtn')) $('adminAddBtn').onclick=()=>{
+    const candidates=members.filter(m=>m.role!=='admin' && m.role!=='pending' && m.role!=='report');
+    if(!candidates.length){addPanel.innerHTML='<p class="hint">管理者に変更できる登録済み利用者がいません。</p>';return;}
+    addPanel.innerHTML=`<div class="field"><label>管理者にする利用者</label><select id="adminCandidate">${candidates.map(m=>`<option value="${m.id}">${esc(m.name||m.email)}（${esc(ROLES[m.role]?.name||m.role)}）</option>`).join('')}</select></div><button class="btn btn-primary full" id="adminPromoteBtn">この人を管理者にする</button>`;
+    $('adminPromoteBtn').onclick=async()=>{
+      const id=$('adminCandidate').value, m=members.find(x=>x.id===id); if(!m)return;
+      if(!confirm(`${m.name||m.email}さんを管理者にしますか？\n\n管理者は会計データの全操作に加え、利用者管理、データ取込、バックアップ、メール通知、API設定、業務時間データを管理できます。`))return;
+      try{await R(`members/${id}/role`).set('admin');writeLog('管理者追加',null,`${m.name||m.email}：${m.role}→admin`);showToast('管理者に変更しました');setTimeout(()=>location.reload(),500);}
+      catch(e){console.error(e);showToast('管理者に変更できませんでした');}
+    };
+  };
 
   const tool=$('adminToolPanel');
   if($('adminImport')) $('adminImport').onclick=()=>{ tool.innerHTML=`<div class="form-card"><b>データ取り込み</b><p class="hint">過去データ（CSV・Excel）または会費ペイのファイルを選択します。</p><div class="btn-row"><button class="btn btn-navy" id="admExcel">CSV・Excel</button><button class="btn btn-navy" id="admKaihi">会費ペイ</button></div><button class="btn btn-navy full" style="margin-top:8px" id="admStmt">会費ペイ支払通知書PDF</button></div>`;$('admExcel').onclick=()=>$('importInput').click();$('admKaihi').onclick=()=>$('kaihipayInput').click();$('admStmt').onclick=()=>$('kaihipayStatementInput').click();};
@@ -2975,7 +3005,7 @@ function renderSettings(){
     html += `<h2 class="section-title" id="membersSection" style="margin-top:20px;scroll-margin-top:70px">アプリの利用者と権限</h2><p class="hint" style="margin-top:-4px">ログインして名前・役職を登録した人は「仮登録」で表示されます。最初の申請を承認すると支払者になります。監査・役員にする人はここで権限を変更してください。</p>` +
       ms.map(m=>`<div class="cat-row" style="flex-wrap:wrap;${m.role==='pending'||m.role==='guest'?'border-color:var(--amber)':''}">
         <span class="cname" style="flex-basis:100%">${esc(m.name)}<small>${esc(m.email)}${m.branch?`・${esc(m.branch)} ${esc(m.group||'')}`:''}${m.requestType==='report'?'・会計報告閲覧申請':''}${m.id===me.uid?'（あなた）':''}</small></span>
-        <select data-role="${m.id}" ${m.id===me.uid?'disabled':''}>${Object.entries(ROLES).map(([k,r])=>`<option value="${k}" ${m.role===k?'selected':''}>${r.name}</option>`).join('')}</select>
+        <select data-role="${m.id}" ${(m.id===me.uid||m.role==='admin')?'disabled':''}>${Object.entries(ROLES).filter(([k])=>k!=='admin' || m.role==='admin').map(([k,r])=>`<option value="${k}" ${m.role===k?'selected':''}>${r.name}</option>`).join('')}</select>
         ${m.role==='viewer'?`<select data-officertype="${m.id}" title="役員区分"><option value="headquarters" ${(m.officerType||'headquarters')==='headquarters'?'selected':''}>本部役員</option><option value="leader" ${m.officerType==='leader'?'selected':''}>班長</option></select>`:''}
         <select data-link="${m.id}"><option value="">名簿と紐付けない</option>${payers.map(p=>`<option value="${p.id}" ${m.payerId===p.id?'selected':''}>${esc(payerLabel(p.id))}</option>`).join('')}</select>
         <div class="inline-add" style="flex-basis:100%;margin:4px 0 0">
