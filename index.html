@@ -602,7 +602,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.03-56';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.03-57';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -662,7 +662,7 @@ const TS = () => firebase.database.ServerValue.TIMESTAMP;
 /* ---------- 定数 ---------- */
 const PALETTE = ['#B4432C','#2E5E7C','#7A8450','#9C6B3E','#7D5A8C','#3E7C6B','#B47C2C','#5E6B7C','#A0526B','#4F7F9E'];
 const ROLES = {
-  admin:    { name:'管理者', desc:'会計と同等の業務権限＋システム管理・導入効果の確認' },
+  admin:    { name:'管理者', desc:'会計と同等の業務権限＋システム管理・導入効果・テストモード' },
   treasurer:{ name:'会計', desc:'すべての登録・承認・精算・会計設定' },
   auditor:  { name:'監査', desc:'全件の閲覧と監査チェック' },
   viewer:   { name:'役員', desc:'本部役員または班長。全件の閲覧・会計本人申請の承認・自分の支出申請と精算確認' },
@@ -677,7 +677,9 @@ const SETTLE_WAYS = ['現金手渡し','口座振込','その他'];
 const BRANCH_GROUPS = {"下小川1支部":["1班","2班","3班","4班","5班"],"下小川2支部":["1班","2班","3班","4班","5班"],"下小川3支部":["1班","2班","3班","4班","5班","6班"],"せんげん1支部":["1班","2班","3班","4班","5班"],"せんげん2支部":["1班","2班","3班","4班","5班","6班"],"蜂谷戸1支部":["1班","2班","3班","4班","5班","6班"],"蜂谷戸2支部":["1班","2班","3班","4班","5班"],"柳谷戸1支部":["1班","2班","3班","4班","5班"],"柳谷戸2支部":["1班","2班","3班","4班"],"柳谷戸3支部":["1班","2班","3班","4班","5班"],"かえで支部":["1班","2班","3班","4班","5班"]};
 
 /* ---------- 状態 ---------- */
-let me = null;                 // {uid,name,email,role,payerId}
+let me = null;                 // 現在アプリ上で操作しているプロフィール
+let realMe = null;             // Firebase members に登録された実プロフィール（テスト切替中も保持）
+let testProfile = null;        // 管理者専用テストモードの仮想プロフィール
 let settings = { orgName:'町内会', fiscalStartMonth:4, opening:{}, publicDetail:'items' };
 let accounts = [], methods = [], payers = [], members = [], storageTags = [];
 let fyMap = {}, pendingMap = {}, mineMap = {};
@@ -711,6 +713,60 @@ function fyMonths(fy){ const s=startMonth(); return Array.from({length:12},(_,i)
 function isStaff(){ return me && ['admin','treasurer','auditor','viewer'].includes(me.role); }
 function isT(){ return me && ['admin','treasurer'].includes(me.role); }
 function isAdmin(){ return me && me.role==='admin'; }
+function isRealAdmin(){ return realMe && realMe.role==='admin'; }
+function isTestMode(){ return !!(testProfile && isRealAdmin()); }
+const TEST_ROLE_OPTIONS=[
+  ['treasurer','会計'],['viewer_hq','本部役員'],['viewer_leader','班長'],
+  ['payer','支払者'],['auditor','監査'],['guest','仮登録']
+];
+function testRoleProfile(code){
+  if(!realMe) return null;
+  let role=code, officerType=null;
+  if(code==='viewer_hq'){role='viewer';officerType='hq';}
+  if(code==='viewer_leader'){role='viewer';officerType='leader';}
+  const label=TEST_ROLE_OPTIONS.find(x=>x[0]===code)?.[1]||code;
+  return {
+    ...realMe,
+    uid:`test:${auth.currentUser?.uid||realMe.uid}:${code}`,
+    role, officerType,
+    name:`${realMe.name}（${label}）`,
+    testMode:true, testRoleCode:code, testRoleLabel:label
+  };
+}
+function applyEffectiveProfile(){
+  if(!realMe) return;
+  me = testProfile ? testRoleProfile(testProfile) : {...realMe};
+}
+function closeTestChooser(){
+  const x=document.getElementById('testRoleOverlay'); if(x)x.remove();
+}
+function showTestRoleChooser(force=false){
+  if(!isRealAdmin()) return;
+  closeTestChooser();
+  const ov=document.createElement('div'); ov.id='testRoleOverlay';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.48);z-index:99999;display:flex;align-items:center;justify-content:center;padding:18px';
+  ov.innerHTML=`<div class="form-card" style="width:min(460px,100%);max-height:90vh;overflow:auto;margin:0">
+    <div style="font-size:18px;font-weight:800;margin-bottom:6px">利用する役割を選択</div>
+    <p class="hint" style="margin-top:0">管理者専用テストモードです。同じGoogleアカウントで各役割の画面・操作フローを確認できます。</p>
+    <button class="btn btn-primary full" data-test-role="admin">管理者として利用</button>
+    <div style="height:8px"></div>
+    ${TEST_ROLE_OPTIONS.map(([k,n])=>`<button class="btn btn-ghost full" style="margin-top:7px" data-test-role="${k}">${esc(realMe.name)}（${n}・テスト）</button>`).join('')}
+    <p class="hint" style="margin:12px 0 0">テストモードは画面・業務フロー確認用です。Firebase上の実権限は管理者のままなので、Firebase Rulesそのものの権限試験は別途、実アカウントで行います。</p>
+  </div>`;
+  document.body.appendChild(ov);
+  ov.querySelectorAll('[data-test-role]').forEach(b=>b.onclick=()=>{
+    const code=b.dataset.testRole;
+    testProfile = code==='admin' ? null : code;
+    try{sessionStorage.setItem('kaikei_test_profile',code);}catch(e){}
+    applyEffectiveProfile(); closeTestChooser();
+    detachData(); attachData(); buildNav(); hideAllRoots(); $('mainWrap').style.display='block';
+    $('roleBadge').textContent = testProfile ? `${me.testRoleLabel}・テスト` : '管理者';
+    $('userName').textContent = me.name||'';
+    showScreen('homeScreen'); renderAll();
+    showToast(testProfile?`${me.testRoleLabel}のテストモードに切り替えました`:'管理者に戻りました');
+  });
+}
+
 function isA(){ return me && me.role==='auditor'; }
 function isP(){ return me && (me.role==='payer' || me.role==='guest'); }
 function canOwnSubmit(){ return me && ['payer','guest','viewer'].includes(me.role) && !!me.payerId; }
@@ -1000,6 +1056,7 @@ function startAuth(){
     });
   };
   $('logoutBtn').onclick = () => { if (confirm('ログアウトしますか？')) auth.signOut(); };
+  $('roleBadge').onclick = () => { if(isRealAdmin()) showTestRoleChooser(true); };
   auth.onAuthStateChanged(async user => {
     detachAll();
     if (!user) { me=null; hideAllRoots(); $('loginScreen').style.display='block'; handleInAppBrowser(); return; }
@@ -1121,7 +1178,10 @@ async function enterAs(user){
   const h = mref.on('value', s => {
     const v = s.val(); if (!v) return;
     const prevRole = me && me.role, prevPayer = me && me.payerId;
-    me = { uid:user.uid, ...v };
+    realMe = { uid:user.uid, ...v };
+    // 実権限が管理者でなくなった場合はテストモードを即解除する。
+    if(realMe.role!=='admin') testProfile=null;
+    applyEffectiveProfile();
     if (v.role==='pending' || v.role==='removed') {
       detachData(); hideAllRoots();
       $('pendingText').innerHTML = v.role==='removed'
@@ -1135,9 +1195,20 @@ async function enterAs(user){
     }
     if (prevRole !== v.role || prevPayer !== v.payerId) { detachData(); attachData(); buildNav(); }
     hideAllRoots(); $('mainWrap').style.display='block';
-    $('roleBadge').textContent = ROLES[v.role]?.name || '';
-    $('userName').textContent = v.name || '';
+    $('roleBadge').textContent = testProfile ? `${me.testRoleLabel}・テスト` : (ROLES[me.role]?.name || '');
+    $('userName').textContent = me.name || '';
     renderAll();
+    if(realMe.role==='admin' && !window.__testRoleAsked){
+      window.__testRoleAsked=true;
+      let saved=''; try{saved=sessionStorage.getItem('kaikei_test_profile')||'';}catch(e){}
+      // 再読み込み時は前回の選択を復元。未選択ならログイン直後に選択画面を出す。
+      if(saved){
+        testProfile = saved==='admin' ? null : saved;
+        applyEffectiveProfile(); detachData(); attachData(); buildNav();
+        $('roleBadge').textContent = testProfile ? `${me.testRoleLabel}・テスト` : '管理者';
+        $('userName').textContent = me.name||''; renderAll();
+      }else setTimeout(()=>showTestRoleChooser(),120);
+    }
     // メールのリンクから開いたとき：?open=伝票ID ／ ?screen=approvals（承認待ち一覧）／ ?screen=settings（利用者と権限）
     const openId = params.get('open'), scr = params.get('screen');
     if ((openId || scr) && !window.__opened) {
@@ -1299,6 +1370,11 @@ function showScreen(id){
 }
 function renderAll(){
   if (!me || curFY===null) return;
+  let tb=document.getElementById('testModeBanner');
+  if(isTestMode()){
+    if(!tb){tb=document.createElement('div');tb.id='testModeBanner';tb.style.cssText='position:sticky;top:0;z-index:9998;background:#fff3cd;border-bottom:1px solid #e0b44c;padding:6px 10px;text-align:center;font-size:12px;font-weight:800';document.getElementById('mainWrap').prepend(tb);}
+    tb.textContent=`テストモード：${realMe.name}（${me.testRoleLabel}）｜役割名をタップして切替`;
+  }else if(tb)tb.remove();
   $('fyLabel').textContent = `${curFY}年度`;
   $('fySub').textContent = fyRangeLabel(curFY);
   updateBadges();
@@ -1572,7 +1648,7 @@ async function saveCashFeeRequest(mode,e,branch,group){
       openDetail(e.id); return;
     }
     const date=localDate(), fy=fyOf(date), ref=R('entries').push(), tx=await R(`counters/${fy}`).transaction(n=>(n||0)+1), voucherNo=`${fy}-${pad(tx.snapshot.val(),3)}`;
-    const data={type:'income',date,fy,voucherNo,amount,accountId:acc.id,methodId:method.id,payee:`${branch}${group}`,purpose:`${fy}年度自治会費（${branch}${group}）`,memo,payerId:null,storageLocation:'会計へ現金引渡し',noReceipt:true,noReceiptReason:'班で徴収した自治会費',excludePublic:false,photoCount:0,status:'submitted',settleState:'none',cashFeeRequest:true,cashFeeCount:count,cashFeeBranch:branch,cashFeeGroup:group,cashFeeDeclaredAmount:amount,createdBy:me.uid,createdByName:me.name,createdAt:TS(),updatedAt:TS(),updatedByName:me.name};
+    const data={type:'income',date,fy,voucherNo,amount,accountId:acc.id,methodId:method.id,payee:`${branch}${group}`,purpose:`${fy}年度自治会費（${branch}${group}）`,memo,payerId:null,storageLocation:'会計へ現金引渡し',noReceipt:true,noReceiptReason:'班で徴収した自治会費',excludePublic:false,photoCount:0,status:'submitted',settleState:'none',cashFeeRequest:true,cashFeeCount:count,cashFeeBranch:branch,cashFeeGroup:group,cashFeeDeclaredAmount:amount,createdBy:me.uid,createdByName:me.name,createdAt:TS(),updatedAt:TS(),updatedByName:me.name}; if(isTestMode()){data.testMode=true;data.testRole=testProfile;data.testActor=realMe?.name||'';}
     await ref.set(data); writeLog('現金会費引渡し申告',data,`${branch}${group} ${count}世帯 ${yen(amount)}`);
     const mailResult = await notifyCashFeeSubmission(ref.key);
     if(!mailResult || mailResult.ok===false){
@@ -2062,7 +2138,8 @@ async function persistEntry(prev, f, photos, photosChanged){
     createdBy: p.createdBy || me.uid, createdByName: p.createdByName || me.name,
     createdAt: p.createdAt || TS(),
     updatedAt: TS(), updatedByName: me.name
-  };
+  };  if(isTestMode()){ data.testMode=true; data.testRole=testProfile; data.testActor=realMe?.name||''; }
+
   delete data.id; delete data._via;
   await ref.set(data);
   if (photosChanged) await R(`photos/${ref.key}`).set(photos.length ? photos : null);
@@ -2811,7 +2888,7 @@ async function metricEnd(result='completed'){
   if(!x || !me || !auth.currentUser) return;
   metricTouch(); workMetricSession=null; workMetricLastTouch=0;
   const ended=Date.now(), active=Math.max(0,Math.round(workMetricActiveMs/1000)); workMetricActiveMs=0;
-  const rec={uid:me.uid,role:me.role||'',eventType:x.eventType,refId:x.refId||null,
+  const rec={uid:auth.currentUser.uid,role:me.role||'',testMode:isTestMode(),testRole:testProfile||null,eventType:x.eventType,refId:x.refId||null,
     startedAt:x.startedAt,endedAt:ended,elapsedSec:Math.max(0,Math.round((ended-x.startedAt)/1000)),
     activeSec:active,result,fiscalYear:curFY,version:2};
   try{await R('workMetrics').push().set(rec);}catch(e){console.warn('workMetrics',e);}
@@ -2867,7 +2944,7 @@ async function renderAdmin(){
     <div class="form-card">
       <p class="hint" style="margin-top:0">管理者は、会計業務に加えてシステム設定・データ管理・業務時間分析を行えます。管理者の追加・解除は管理者だけが行えます。</p>
       <div id="adminMemberList"></div>
-      <button class="btn btn-navy full" id="adminAddBtn" style="margin-top:10px">＋ 管理者を追加</button>
+      <button class="btn btn-navy full" id="adminAddBtn" style="margin-top:10px">＋ 管理者を追加</button><button class="btn btn-ghost full" id="adminTestModeBtn" style="margin-top:8px">🧪 テスト役割を切り替える</button>
       <div id="adminAddPanel" style="margin-top:10px"></div>
     </div>
     <h2 class="section-title" style="margin-top:20px">管理者業務</h2>
@@ -2897,6 +2974,7 @@ async function renderAdmin(){
     try{await R(`members/${m.id}/role`).set('treasurer');writeLog('管理者解除',null,`${m.name||m.email}：admin→treasurer`);showToast('管理者権限を解除し、会計に変更しました');setTimeout(()=>location.reload(),500);}
     catch(e){console.error(e);showToast('管理者権限を変更できませんでした');}
   });
+  if($('adminTestModeBtn')) $('adminTestModeBtn').onclick=()=>showTestRoleChooser(true);
   if($('adminAddBtn')) $('adminAddBtn').onclick=()=>{
     const candidates=members.filter(m=>m.role!=='admin' && m.role!=='pending' && m.role!=='report');
     if(!candidates.length){addPanel.innerHTML='<p class="hint">管理者に変更できる登録済み利用者がいません。</p>';return;}
