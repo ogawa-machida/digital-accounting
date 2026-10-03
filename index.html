@@ -602,7 +602,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.03-59';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.03-60';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -757,7 +757,7 @@ function showTestRoleChooser(force=false){
   ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.48);z-index:99999;display:flex;align-items:center;justify-content:center;padding:18px';
   ov.innerHTML=`<div class="form-card" style="width:min(460px,100%);max-height:90vh;overflow:auto;margin:0">
     <div style="font-size:18px;font-weight:800;margin-bottom:6px">利用する役割を選択</div>
-    <p class="hint" style="margin-top:0">管理者専用テストモードです。同じGoogleアカウントで各役割の画面・操作フローを確認できます。</p>
+    <p class="hint" style="margin-top:0">管理者専用テストモードです。同じGoogleアカウントで各役割の画面・操作フローを確認できます。管理者として利用する場合は監査を含む全機能を表示します。</p>
     <button class="btn btn-primary full" data-test-role="admin">管理者として利用</button>
     <div style="height:8px"></div>
     ${TEST_ROLE_OPTIONS.map(([k,n])=>`<button class="btn btn-ghost full" style="margin-top:7px" data-test-role="${k}">${esc(realMe.name)}（${n}・テスト）</button>`).join('')}
@@ -1350,7 +1350,7 @@ const ICONS = {
 };
 function navItems(){
   if (isAdmin()) return [['homeScreen','home','ホーム'],['bookScreen','book','出納帳'],['settleScreen','settle','精算'],['auditScreen','audit','監査'],['settingsScreen','settings','会計設定'],['adminScreen','settings','管理']];
-  if (isT()) return [['homeScreen','home','ホーム'],['bookScreen','book','出納帳'],['settleScreen','settle','精算'],['auditScreen','audit','監査'],['settingsScreen','settings','設定']];
+  if (isT()) return [['homeScreen','home','ホーム'],['bookScreen','book','出納帳'],['settleScreen','settle','精算'],['settingsScreen','settings','会計設定']];
   if (isA()) return [['auditScreen','audit','監査']];
   if (isP()) return [['homeScreen','home','ホーム'],['bookScreen','book','申請一覧'],['settleScreen','settle','精算']];
   // 役員（viewer）は全件閲覧と会計本人申請の承認に必要な画面だけ表示
@@ -1369,6 +1369,8 @@ function buildNav(){
 }
 const TITLES = { homeScreen:'ホーム', bookScreen:'出納帳', settleScreen:'精算', auditScreen:'監査', settingsScreen:'設定', adminScreen:'管理者', formScreen:'登録', cashFeeScreen:'現金会費', detailScreen:'伝票', batchScreen:'まとめて読み込み', budgetImportScreen:'予算の取り込み', importScreen:'データ取り込み' };
 function showScreen(id){
+  // 監査画面は管理者・監査担当専用。会計の日常画面からは分離する。
+  if(id==='auditScreen' && !isAdmin() && !isA()) id='homeScreen';
   const enteringBook = id==='bookScreen' && currentScreen!=='bookScreen';
   if (enteringBook) bookFilter.status = actionableBookStatus();
   currentScreen = id;
@@ -1543,7 +1545,15 @@ function renderHome(){
   if (isViewer() && viewerActionable.length) html += `<button class="notice amber" data-go="submitted"><span class="n-body">会計担当から承認依頼<span class="n-sub">会計担当本人の支出を確認してください</span></span><span class="n-val">${viewerActionable.length}件</span></button>`;
   if (returned.length) html += `<button class="notice" data-go="returned"><span class="n-body">差戻し中<span class="n-sub">申請者の修正待ち</span></span><span class="n-val">${returned.length}件</span></button>`;
   if (people.length) html += `<button class="notice navy" data-go="settle"><span class="n-body">精算待ち ${people.length}人<span class="n-sub">支払い ${yen(toPay)}／返金受取 ${yen(toBack)}</span></span><span class="n-val">›</span></button>`;
-  html += `<button class="notice moss" data-go="audit"><span class="n-body">監査の進み具合<span class="n-sub">${report ? `監査完了（${fmtTs(report.at)} ${esc(report.byName)}）` : `${ap.length}件中 ${audited}件 確認済み`}</span></span><span class="n-val">${ap.length?Math.round(audited/ap.length*100):0}%</span></button>`;
+  if(isAdmin()){
+    html += `<button class="notice moss" data-go="audit"><span class="n-body">監査の進み具合<span class="n-sub">${report ? `監査完了（${fmtTs(report.at)} ${esc(report.byName)}）` : `${ap.length}件中 ${audited}件 確認済み`}</span></span><span class="n-val">${ap.length?Math.round(audited/ap.length*100):0}%</span></button>`;
+  }else if(isT()){
+    const prepUnapproved=fyEntries().filter(e=>e.status==='submitted').length;
+    const prepUnsettled=fyEntries().filter(e=>e.status==='approved' && e.settleState==='pending').length;
+    const prepNoEvidence=ap.filter(e=>!e.noReceipt && !(Number(e.photoCount)||0) && !e.thumb).length;
+    const prepIssues=prepUnapproved+prepUnsettled+prepNoEvidence;
+    html += `<div class="notice moss"><span class="n-body">監査準備<span class="n-sub">未承認 ${prepUnapproved}件／未精算 ${prepUnsettled}件／証憑未登録 ${prepNoEvidence}件</span></span><span class="n-val">${prepIssues?prepIssues+'件':'OK'}</span></div>`;
+  }
 
   if (isT()) html += `<button class="btn btn-navy full" id="homeBatchBtn" style="margin:4px 0 12px">📚 レシート・領収証をまとめて読み込む</button>`;
   html += budgetPanel(ap);
