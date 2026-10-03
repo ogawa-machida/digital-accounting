@@ -436,7 +436,38 @@ label[for="newMSettle"]{display:flex;align-items:center;justify-content:flex-sta
       <div class="field" id="jGroupField"><label>班</label><select id="jGroup"></select></div>
       <div class="field"><label>お名前</label><input type="text" id="jName" placeholder="例）山田 花子"></div>
       <div class="field"><label>役職（任意）</label><input type="text" id="jPost" placeholder="例）班長、防災支隊長" list="postList2"><datalist id="postList2"></datalist></div>
-      <button class="btn btn-primary full" id="jSubmit">申請する</button>
+      <div style="margin:14px 0;padding:13px 14px;border:1px solid #d8e4df;border-radius:12px;background:#f8fbfa">
+        <div style="font-weight:700;font-size:14px">🔒 安心してご利用いただくために</div>
+        <p style="font-size:12.5px;line-height:1.7;margin:7px 0 5px">登録情報は、自治会の会計業務に必要な範囲でのみ利用します。</p>
+        <details id="jPrivacyDetails" style="font-size:12.5px;line-height:1.75">
+          <summary style="cursor:pointer;font-weight:600">詳しく見る</summary>
+          <div style="padding-top:8px">
+            <p style="margin:0 0 7px">このアプリでは、自治会の会計を正しく、スムーズに行うために、お名前やメールアドレスなど必要最小限の情報を登録します。</p>
+            <p style="margin:0 0 7px">登録いただいた情報は、自治会の会計処理や必要なご連絡のためだけに利用し、目的以外には利用しません。</p>
+            <p style="margin:0 0 7px">利用できる情報は役割に応じて制限し、会計に関係のない方が個人の領収書類などを見ることがないようにしています。</p>
+            <p style="margin:0 0 7px">領収書類をAIで読み取る場合は、入力を楽にするために必要な情報だけをAIサービスに送信します。AIの判定結果はそのまま確定せず、内容を確認・修正してから登録できます。</p>
+            <p style="margin:0 0 7px"><b>大切な情報を必要以上に集めず、必要な人だけが、必要な範囲で利用することを基本に運用します。</b></p>
+            <details id="jSecurityDetails" style="margin-top:10px;padding-top:9px;border-top:1px solid #d8e4df">
+              <summary style="cursor:pointer;font-weight:700">安全の仕組みを詳しく見る</summary>
+              <div style="padding-top:9px">
+                <p style="margin:0 0 8px"><b>必要以上の個人情報を持ちません</b><br>利用者について登録するのは、氏名・メールアドレス・支部・班・役職など、本人確認や自治会の会計業務に必要な範囲です。個人の住所・電話番号・個人名義の銀行口座情報は登録しません。銀行口座として扱うのは自治会名義の口座です。領収書類も自治会活動のための購入・支出だけを対象とし、個人の買い物や生活に関する情報を収集するものではありません。</p>
+                <p style="margin:0 0 8px"><b>データはGoogleのFirebaseに保存します</b><br>会計データはGoogleが提供するFirebase Realtime Databaseに保存します。アプリからFirebaseへの通信にはHTTPSが使われ、Firebase側でも保存データを保護する仕組みが提供されています。</p>
+                <p style="margin:0 0 8px"><b>画面だけでなく、データベース側でもアクセスを制限します</b><br>Firebase Security Rulesを設定し、ログイン状態と利用者の役割に応じて読み取り・書き込みを制限しています。会員向け会計報告も、ログインして承認された利用者だけがデータを読み取れる設定です。</p>
+                <p style="margin:0 0 8px"><b>役割に応じて見られる情報を分けます</b><br>管理者・会計・監査・役員・支払者・会員などの役割に応じて、利用できる機能やデータの範囲を分けています。支払者は原則として自分に関係する申請を扱い、会員向け会計報告には支払先・支払者名・領収書類・内部メモを掲載しません。</p>
+                <p style="margin:0 0 8px"><b>AIは入力のお手伝いとして使います</b><br>領収書類のAI読取りは入力を補助するための機能です。AIの読取り結果を自動的に確定せず、人が内容を確認・修正してから登録します。AI読取り後に修正した場合は、元の読取り内容との差分を記録し、承認時にも確認できるようにしています。AIサービスの認証情報は利用者の端末やFirebaseに保存せず、Google Apps Script側で管理します。</p>
+                <p style="margin:0 0 8px"><b>重要な操作を記録します</b><br>会計処理や承認、監査、権限変更などは操作履歴として記録します。また、申請者本人による自己承認を避ける仕組みを設けています。</p>
+                <p style="margin:0 0 8px"><b>万一の場合も考え、影響を小さくします</b><br>どのようなシステムでも情報漏えいの可能性を完全にゼロにすることはできません。このアプリでは、保存する個人情報を必要最小限にし、アクセス制御と操作記録を組み合わせることでリスクを抑えます。万一情報が外部に漏れた場合には、氏名・メールアドレス・自治会での所属や会計処理の内容などが知られる可能性があります。</p>
+                <p style="margin:0"><b>「必要以上に集めない」「必要な人だけが見る」「重要な操作を記録する」「AIだけで判断しない」ことを基本にしています。</b></p>
+              </div>
+            </details>
+          </div>
+        </details>
+        <label style="display:flex;gap:9px;align-items:flex-start;margin-top:11px;font-size:13px;font-weight:600;cursor:pointer">
+          <input type="checkbox" id="jPrivacyConfirm" style="width:auto;margin-top:3px">
+          <span>上記の内容を確認しました</span>
+        </label>
+      </div>
+      <button class="btn btn-primary full" id="jSubmit" disabled>申請する</button>
       <p class="hint" id="jErr" style="color:var(--stamp-red)"></p>
     </div>
     <button class="text-link" onclick="auth.signOut()">別のアカウントでログインする</button>
@@ -466,7 +497,7 @@ label[for="newMSettle"]{display:flex;align-items:center;justify-content:flex-sta
   </div>
 </div>
 
-<!-- 会員向け公開レポート（ログイン不要） -->
+<!-- 会員向け会計報告（ログイン・会計承認が必要） -->
 <div id="publicScreen" style="display:none;">
   <div id="publicBody" style="max-width:600px; margin:0 auto; padding:0 14px 40px;"></div>
 </div>
@@ -624,7 +655,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.04-80';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.04-82';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1185,17 +1216,24 @@ function showJoinForm(user, mref){
     if (useReportDraft && reportDraft.name) $('jName').value = reportDraft.name;
     $('jPurpose').value = reportIntent ? 'report' : 'payer';
     $('jErr').textContent = '';
+    const privacyConfirm=$('jPrivacyConfirm');
+    const joinSubmit=$('jSubmit');
+    privacyConfirm.checked=false;
+    joinSubmit.disabled=true;
+    privacyConfirm.onchange=()=>{ joinSubmit.disabled=!privacyConfirm.checked; if(privacyConfirm.checked) $('jErr').textContent=''; };
     $('jSubmit').onclick = async () => {
       const name=$('jName').value.trim(), post=$('jPost').value.trim(), branch=useReportDraft ? reportDraft.branch : $('jBranch').value, group=useReportDraft ? reportDraft.group : $('jGroup').value, purpose=$('jPurpose').value;
       if (!validAffiliation(branch,group)) { $('jErr').textContent='支部と班を選択してください'; return; }
       if (!name) { $('jErr').textContent='お名前を入力してください'; return; }
+      if (!$('jPrivacyConfirm').checked) { $('jErr').textContent='「安心してご利用いただくために」の内容をご確認ください'; return; }
+      const privacyConsentAt=TS(), privacyConsentVersion='2026-10-04-v2';
       const btn=$('jSubmit'); btn.disabled=true; btn.textContent='申請中…';
       try {
         if (purpose==='report') {
-          await mref.set({name,email:user.email||'',post,branch,group,role:'pending',requestType:'report',createdAt:TS()});
+          await mref.set({name,email:user.email||'',post,branch,group,role:'pending',requestType:'report',privacyConsentAt,privacyConsentVersion,createdAt:TS()});
         } else {
           const pid='g_'+user.uid;
-          await mref.set({name,email:user.email||'',post,branch,group,role:'guest',payerId:pid,createdAt:TS()});
+          await mref.set({name,email:user.email||'',post,branch,group,role:'guest',payerId:pid,privacyConsentAt,privacyConsentVersion,createdAt:TS()});
           await R(`payers/${pid}`).set({name,post,branch,group,provisional:true,uid:user.uid,email:user.email||'',active:true,order:999,createdAt:TS()});
         }
         try { localStorage.removeItem('kaikei_reportIntent'); sessionStorage.removeItem('kaikei_reportIntent'); } catch(e){}
@@ -1251,8 +1289,8 @@ async function enterAs(user){
 
   if (!snap.exists()) {
     if (reportDraft && reportDraft.email && user.email && reportDraft.email.toLowerCase()===user.email.toLowerCase() && validAffiliation(reportDraft.branch,reportDraft.group)) {
-      await mref.set({name:reportDraft.name,email:user.email||reportDraft.email,post:'',branch:reportDraft.branch,group:reportDraft.group,role:'pending',requestType:'report',createdAt:TS()});
-      try { localStorage.removeItem(REPORT_DRAFT_KEY); localStorage.removeItem('kaikei_reportIntent'); sessionStorage.removeItem('kaikei_reportIntent'); } catch(e){}
+      // 新規利用者は自動登録せず、個人情報の取扱い確認を含む利用申請画面へ進める。
+      try { localStorage.setItem('kaikei_reportIntent','1'); sessionStorage.setItem('kaikei_reportIntent','1'); } catch(e){}
       snap = await mref.get();
     }
     const initSnap = await R('settings/initialized').get();
@@ -3168,7 +3206,7 @@ async function renderAdmin(){
         <div style="font-weight:700">利用目的</div>
         <p class="hint">自治会の会計処理、支払・精算、監査、決算およびこれらに必要な連絡</p>
         <div style="font-weight:700">取扱い</div>
-        <p class="hint">役割別に閲覧・操作範囲を制限し、会計業務に必要な情報のみを取り扱います。領収証をAIで読み取る場合は、読取りに必要な画像情報をAIサービスへ送信します。権限変更・会計処理・AI読取後の修正は追跡できる形で記録します。</p>
+        <p class="hint">役割別に閲覧・操作範囲を制限し、会計業務に必要な情報のみを取り扱います。領収書類をAIで読み取る場合は、読取りに必要な画像情報をAIサービスへ送信します。権限変更・会計処理・AI読取後の修正は追跡できる形で記録します。</p>
       </div>
     </div>
 
@@ -3675,7 +3713,7 @@ function bindSettings(){
     if(['treasurer','viewer'].includes(m.role)) setTimeout(()=>syncRecipients(),800);
   });
   html += `<h2 class="section-title" style="margin-top:20px">個人情報の取扱い</h2><div class="form-card">
-    <p class="hint" style="margin:0">利用目的：自治会の会計処理、支払・精算、監査、決算およびこれらに必要な連絡。役割に応じて閲覧・操作範囲を制限します。領収証をAIで読み取る場合は読取りに必要な画像情報をAIサービスへ送信します。</p>
+    <p class="hint" style="margin:0">利用目的：自治会の会計処理、支払・精算、監査、決算およびこれらに必要な連絡。役割に応じて閲覧・操作範囲を制限します。領収書類をAIで読み取る場合は読取りに必要な画像情報をAIサービスへ送信します。</p>
   </div>`;
 
   $('budgetImportBtn').onclick = () => { if (!aiProxyConfigured()) return showToast('先に通知・AI共通Apps Script URLを設定してください'); $('budgetInput').click(); };
