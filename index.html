@@ -624,7 +624,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.03-79';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.04-80';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1565,7 +1565,7 @@ function slipHTML(e){
   const sub = [fmtDate(e.date), e.purpose ? e.payee : '', e.payerId ? payerName(e.payerId) + (payerById(e.payerId)?.provisional ? '（初回）' : '') : ''].filter(Boolean).map(esc).join('　');
   return `<div class="slip ${inc?'income':''}" data-id="${e.id}">
     <div class="slip-row">
-      ${e.thumb ? `<img class="slip-photo-thumb" src="${e.thumb}" alt="">` : (e.noReceipt ? `<div class="slip-photo-thumb" style="display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--ink-soft);text-align:center;line-height:1.2">証憑<br>なし</div>` : '')}
+      ${e.thumb ? `<img class="slip-photo-thumb" src="${e.thumb}" alt="">` : (e.noReceipt ? `<div class="slip-photo-thumb" style="display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--ink-soft);text-align:center;line-height:1.2">領収書類<br>なし</div>` : '')}
       <div style="flex:1;min-width:0;">
         <div class="slip-top">
           <div style="min-width:0;">
@@ -1637,7 +1637,7 @@ function renderHome(){
     const prepUnsettled=fyEntries().filter(e=>e.status==='approved' && e.settleState==='pending').length;
     const prepNoEvidence=ap.filter(e=>!e.noReceipt && !(Number(e.photoCount)||0) && !e.thumb).length;
     const prepIssues=prepUnapproved+prepUnsettled+prepNoEvidence;
-    html += `<div class="notice moss"><span class="n-body">監査準備<span class="n-sub">未承認 ${prepUnapproved}件／未精算 ${prepUnsettled}件／証憑未登録 ${prepNoEvidence}件</span></span><span class="n-val">${prepIssues?prepIssues+'件':'OK'}</span></div>`;
+    html += `<div class="notice moss"><span class="n-body">監査準備<span class="n-sub">未承認 ${prepUnapproved}件／未精算 ${prepUnsettled}件／領収書類未登録 ${prepNoEvidence}件</span></span><span class="n-val">${prepIssues?prepIssues+'件':'OK'}</span></div>`;
   }
 
   if (isT()) html += `<button class="btn btn-navy full" id="homeBatchBtn" style="margin:4px 0 12px">📚 レシート・領収証をまとめて読み込む</button>`;
@@ -2405,7 +2405,7 @@ async function renderDetail(id){
   </div>
   ${aiReceiptAuditHtml(e)}
 
-  <div class="form-card"><div class="field" style="margin:0"><label>証憑写真</label><div id="detailPhotos" class="detail-photos">${e.photoCount?'<p class="hint">読み込み中…</p>':'<p class="hint">写真はありません</p>'}</div></div></div>`;
+  <div class="form-card"><div class="field" style="margin:0"><label>領収書類</label><div id="detailPhotos" class="detail-photos">${e.photoCount?'<p class="hint">読み込み中…</p>':'<p class="hint">写真はありません</p>'}</div></div></div>`;
 
   // 会計：承認・差戻し
   const pv = payerById(e.payerId);
@@ -2473,7 +2473,7 @@ async function renderDetail(id){
       if (arr.length) photoCache[ck] = arr;
     }
     const box = $('detailPhotos');
-    if (box) box.innerHTML = arr.length ? arr.map((p,i)=>`<img src="${p}" alt="証憑${i+1}">`).join('') : '<p class="hint">写真を読み込めませんでした</p>';
+    if (box) box.innerHTML = arr.length ? arr.map((p,i)=>`<img src="${p}" alt="領収書類${i+1}">`).join('') : '<p class="hint">写真を読み込めませんでした</p>';
   }
 }
 
@@ -2879,7 +2879,7 @@ function renderAudit(){
       ${card('現預金照合',latestRecon?(moneyOK?'差額 0円':'差額 '+yen(Number(latestRecon.diff)||0)):'未確認',
         latestRecon?`${fmtTs(latestRecon.at)}　JA ${yen(Number(latestRecon.bank)||0)}／現金 ${yen(Number(latestRecon.cash)||0)}／仮払 ${yen(Number(latestRecon.pendingAdvance)||0)}`:'会計担当が「現預金残高の確認」を記録すると表示されます',latestRecon?moneyOK:false)}
       ${card('未確認伝票',`${todo.length}件`,`確認済み ${ok.length+issue.length}/${ap.length}件${stale?`・監査後修正 ${stale}件`:''}`,todo.length===0)}
-      ${card('要確認事項',`${exceptionCount}件`,`未確認証憑 ${noEvidence}件${unresolvedIssue?`・未回答の監査指摘 ${unresolvedIssue}件`:''}`,exceptionCount===0&&unresolvedIssue===0)}
+      ${card('要確認事項',`${exceptionCount}件`,`未確認領収書類 ${noEvidence}件${unresolvedIssue?`・未回答の監査指摘 ${unresolvedIssue}件`:''}`,exceptionCount===0&&unresolvedIssue===0)}
     </div>
     ${report?`<div class="audit-box" style="border-color:var(--moss);margin-top:12px"><b style="color:var(--moss)">✓ 監査完了記録</b><div class="hint">${fmtTs(report.at)}　${esc(report.byName)}</div>${report.comment?`<div style="margin-top:5px;font-size:13px">${esc(report.comment)}</div>`:''}</div>`:''}
   </div>`;
@@ -2899,7 +2899,7 @@ function renderAudit(){
       ${c.list?`<div style="margin-top:8px">${c.list.map(slipHTML).join('')}</div>`:`<p class="hint">${esc(c.text)}</p>`}</details>`).join('') :
       `<p class="hint" style="margin:0;color:var(--moss);font-weight:700">✓ 自動チェックで気になる点は見つかりませんでした</p>`) + `</div>`;
 
-  html += `<div class="panel"><h3>証憑・伝票の確認</h3>
+  html += `<div class="panel"><h3>領収書類・伝票の確認</h3>
     <div class="progress-ring"><span class="pct">${pct}%</span><div style="flex:1"><div class="bar"><i style="width:${pct}%;background:var(--stamp-navy)"></i></div>
     <div class="hint">承認済み ${ap.length}件　確認済み ${ok.length}件　指摘 ${issue.length}件　未確認 ${todo.length}件</div></div></div>
   </div>`;
@@ -2908,7 +2908,7 @@ function renderAudit(){
     html+=`<div class="panel"><h3>監査完了前チェック</h3>
       <label style="display:flex;gap:9px;align-items:flex-start;margin:9px 0;font-size:13px"><input type="checkbox" class="audit-final-check" data-k="balance" ${checklist.balance?'checked':''} style="margin-top:3px">年度の収入・支出・帳簿残高を確認した</label>
       <label style="display:flex;gap:9px;align-items:flex-start;margin:9px 0;font-size:13px"><input type="checkbox" class="audit-final-check" data-k="money" ${checklist.money?'checked':''} style="margin-top:3px">銀行口座・現金・仮払等の残高照合を確認した</label>
-      <label style="display:flex;gap:9px;align-items:flex-start;margin:9px 0;font-size:13px"><input type="checkbox" class="audit-final-check" data-k="evidence" ${checklist.evidence?'checked':''} style="margin-top:3px">必要な証憑と未確認・例外伝票を確認した</label>
+      <label style="display:flex;gap:9px;align-items:flex-start;margin:9px 0;font-size:13px"><input type="checkbox" class="audit-final-check" data-k="evidence" ${checklist.evidence?'checked':''} style="margin-top:3px">必要な領収書類と未確認・例外伝票を確認した</label>
       <label style="display:flex;gap:9px;align-items:flex-start;margin:9px 0;font-size:13px"><input type="checkbox" class="audit-final-check" data-k="issues" ${checklist.issues?'checked':''} style="margin-top:3px">監査指摘と会計担当の回答・対応を確認した</label>
       <button class="btn ${report?'btn-ghost':'btn-navy'} full" id="auditDone" style="margin-top:12px">${report?'監査完了の記録を更新する':`${curFY}年度の監査を完了する`}</button>
       <p class="hint" style="margin-bottom:0">4項目すべてを確認すると監査完了を記録できます。未確認伝票や残高差異がある場合は、完了前に内容を確認してください。</p>
@@ -2921,7 +2921,7 @@ function renderAudit(){
   html+=list.length?list.map(slipHTML).join(''):`<div class="empty" style="padding:24px">該当する伝票はありません</div>`;
 
   html+=`<details class="panel" style="margin-top:16px"><summary style="font-family:'Shippori Mincho',serif;font-weight:700;cursor:pointer">データ出力・印刷（必要な場合のみ）</summary>
-    <div class="btn-row" style="flex-wrap:wrap;margin-top:10px"><button class="btn btn-ghost sm" id="outCsv">出納帳CSV</button><button class="btn btn-ghost sm" id="outVouchers">証憑台帳を印刷</button><button class="btn btn-ghost sm" id="outReport">収支決算書を印刷</button></div>
+    <div class="btn-row" style="flex-wrap:wrap;margin-top:10px"><button class="btn btn-ghost sm" id="outCsv">出納帳CSV</button><button class="btn btn-ghost sm" id="outVouchers">領収書類台帳を印刷</button><button class="btn btn-ghost sm" id="outReport">収支決算書を印刷</button></div>
     <p class="hint">通常の監査は画面上で完結できます。紙やExcelが必要な場合だけ使用してください。</p></details>`;
 
   html+=`<details class="panel" style="margin-top:12px"><summary style="font-family:'Shippori Mincho',serif;font-weight:700;cursor:pointer">操作履歴（直近${Math.min(logs.length,300)}件）</summary>
@@ -2941,7 +2941,7 @@ function renderAudit(){
     if(Number(latestRecon.diff)!==0 && !confirm(`現預金照合に${yen(Number(latestRecon.diff)||0)}の差額があります。内容を確認済みとして監査完了しますか？`)) return;
     if(todo.length && !confirm(`未確認の伝票が${todo.length}件あります。内容を確認済みとして監査完了しますか？`)) return;
     if(unresolvedIssue && !confirm(`会計担当の回答がない監査指摘が${unresolvedIssue}件あります。それでも完了しますか？`)) return;
-    const comment=prompt('監査の所見（会員向け報告にも表示されます）','帳簿・証憑・現預金残高を照合し、監査を実施しました。');
+    const comment=prompt('監査の所見（会員向け報告にも表示されます）','帳簿・領収書類・現預金残高を照合し、監査を実施しました。');
     if(comment===null)return;
     await R(`auditReports/${curFY}`).set({at:TS(),by:me.uid,byName:me.name,comment:comment.trim(),okCount:ok.length,issueCount:issue.length,total:ap.length,
       checklist:final,balanceCheckId:latestRecon.id||'',balanceDiff:Number(latestRecon.diff)||0,unreviewedCount:todo.length,exceptionCount});
@@ -2979,7 +2979,7 @@ function exportCsv(){
   showToast('CSVを書き出しました');
 }
 
-/* ---------- 証憑台帳（写真付き） ---------- */
+/* ---------- 領収書類台帳（写真付き） ---------- */
 async function printVouchers(){
   const list = approvedFY().sort((a,b)=>(a.voucherNo||'')<(b.voucherNo||'')?-1:1);
   if (!list.length) return showToast('承認済みの伝票がありません');
@@ -2996,7 +2996,7 @@ async function printVouchers(){
       ${e.noReceipt?`<p>領収証なし：${esc(e.noReceiptReason)}</p>`:''}
       ${(photos[e.id]||[]).map(p=>`<img src="${p}">`).join('')}
     </div>`).join('');
-  openPrint(`証憑台帳 ${curFY}年度`, body);
+  openPrint(`領収書類台帳 ${curFY}年度`, body);
 }
 
 /* ---------- 収支決算書 ---------- */
@@ -3198,7 +3198,7 @@ async function renderAdmin(){
   if($('adminTestModeBtn')) $('adminTestModeBtn').onclick=()=>showTestRoleChooser(true);
   if($('adminClearTestBtn')) $('adminClearTestBtn').onclick=async()=>{
     if(!isRealAdmin())return;
-    if(!confirm('この管理者アカウントがテストモードで作成した伝票・証憑・仮払・精算・操作履歴・時間計測・テスト用支払者を削除しますか？\n\n本番データは削除しません。'))return;
+    if(!confirm('この管理者アカウントがテストモードで作成した伝票・領収書類・仮払・精算・操作履歴・時間計測・テスト用支払者を削除しますか？\n\n本番データは削除しません。'))return;
     const owner=auth.currentUser.uid;
     try{
       const [en,ad,st,lg,wm,py]=await Promise.all([R('entries').get(),R('advances').get(),R('settlements').get(),R('log').get(),R('workMetrics').get(),R('payers').get()]);
@@ -3410,7 +3410,7 @@ function renderSettings(){
       ${settings.lastBackupAt?`<p class="hint">前回のバックアップ：${fmtTs(settings.lastBackupAt)}</p>`:''}
       <hr style="border:0;border-top:1px solid var(--line);margin:20px 0">
       <div style="font-weight:700;font-size:13.5px;margin-bottom:6px">Firebase自動バックアップ</div>
-      <p class="hint" style="margin-top:0">会計担当がアプリを開いたとき、前回バックアップから設定期間を過ぎていればFirebase内に自動保存します。容量節約のため証憑画像そのものは複製せず、会計データと画像の紐付け情報を最新3世代保持します。Claude APIキーはGAS側だけで管理するため、Firebaseバックアップの対象にはなりません。</p>
+      <p class="hint" style="margin-top:0">会計担当がアプリを開いたとき、前回バックアップから設定期間を過ぎていればFirebase内に自動保存します。容量節約のため領収書類そのものは複製せず、会計データと画像の紐付け情報を最新3世代保持します。Claude APIキーはGAS側だけで管理するため、Firebaseバックアップの対象にはなりません。</p>
       <div class="field"><label>バックアップ間隔</label><select id="autoBackupPeriod">
         <option value="14" ${backupIntervalDays()===14?'selected':''}>2週間</option>
         <option value="30" ${backupIntervalDays()===30?'selected':''}>1ヶ月（推奨・初期値）</option>
@@ -3420,7 +3420,7 @@ function renderSettings(){
       <div class="field" id="autoBackupCustomWrap" style="${![14,30,90].includes(backupIntervalDays())?'':'display:none'}"><label>日数（14～365日）</label><input type="number" id="autoBackupCustomDays" min="14" max="365" inputmode="numeric" value="${backupIntervalDays()}"></div>
       <div class="btn-row"><button class="btn btn-ghost" id="saveAutoBackup">間隔を保存</button><button class="btn btn-navy" id="backupNowBtn">今すぐバックアップ</button></div>
       <div id="backupStatus" style="margin-top:10px">${backupStatusHtml()}</div>
-      <p class="hint">証憑画像は通常データとして1個だけ保持し、3世代バックアップには複製しません。 新しく登録する写真・PDFは、文字の可読性を保ちながら目安300KB以下へ自動圧縮します。Firebaseプロジェクト自体の削除・障害には備えられないため、監査前・年度末などは上のCSV書き出しも併用してください。</p>
+      <p class="hint">領収書類は通常データとして1個だけ保持し、3世代バックアップには複製しません。 新しく登録する写真・PDFは、文字の可読性を保ちながら目安300KB以下へ自動圧縮します。Firebaseプロジェクト自体の削除・障害には備えられないため、監査前・年度末などは上のCSV書き出しも併用してください。</p>
       <hr style="border:0;border-top:1px solid var(--line);margin:20px 0">
       <div style="font-weight:700;font-size:13.5px;margin-bottom:6px;color:var(--stamp-red)">実運用開始前のデータ初期化</div>
       <p class="hint" style="margin-top:0">試行中の取引データだけを削除し、団体名・1月末締め等の基本設定、科目体系・予算、支払方法、関係者・権限、通知設定、AI設定は残します。実行前に削除件数を確認できます。</p>
@@ -3491,7 +3491,7 @@ function countBackupItems(data){
 }
 async function collectBackupData(){
   // backups自身とsecretsは意図的に含めない。settings内の秘密情報も作らない設計。
-  // 容量節約：証憑画像（photos）は世代バックアップへ複製しない。
+  // 容量節約：領収書類（photos）は世代バックアップへ複製しない。
   // entries側のphoto有無・ID等の紐付け情報は残るため、通常のFirebase内データは維持される。
   const paths=['entries','advances','settlements','auditReports','imports','log','counters','public',
     'accounts','methods','payers','members','storageTags','settings'];
@@ -3544,7 +3544,7 @@ async function maybeAutoBackup(){
 
 async function getResetPreview(){
   const paths=[
-    ['entries','収支伝票'],['photos','領収書・証憑'],['advances','仮払履歴'],['settlements','精算履歴'],
+    ['entries','収支伝票'],['photos','領収書類'],['advances','仮払履歴'],['settlements','精算履歴'],
     ['auditReports','年度監査記録'],['imports','Excel／CSV取込履歴'],['log','操作履歴'],['public','会員向け公開データ'],
     ['counters','伝票・精算番号カウンタ'],
     ['settings/balanceChecks','現預金照合履歴'],['settings/kaihipayImports','会費ペイ取込履歴'],
@@ -3569,7 +3569,7 @@ async function resetTrialData(){
   const btn=$('resetRunBtn'); if(btn) btn.disabled=true;
   const typed=prompt('本当に試行データを初期化する場合は「本番開始」と入力してください。\n\nこの操作は元に戻せません。');
   if(typed!=='本番開始'){ if(btn) btn.disabled=false; if(typed!==null) showToast('確認文字が一致しないため中止しました'); return; }
-  if(!confirm('最終確認です。\n\n収支伝票・証憑・仮払・精算・監査・残高照合・会費ペイ履歴・取込履歴・操作履歴・前年度繰越金を削除します。\n\n科目・予算・利用者・権限・支払方法・基本設定は残します。\n\n実行しますか？')){
+  if(!confirm('最終確認です。\n\n収支伝票・領収書類・仮払・精算・監査・残高照合・会費ペイ履歴・取込履歴・操作履歴・前年度繰越金を削除します。\n\n科目・予算・利用者・権限・支払方法・基本設定は残します。\n\n実行しますか？')){
     if(btn) btn.disabled=false; return;
   }
   // entries / photos / log は子要素単位の .write ルールなので、
@@ -3585,10 +3585,10 @@ async function resetTrialData(){
     // ルール更新漏れを本番データ削除の直前に検出する。
     const roleSnap=await R(`members/${me.uid}/role`).get();
     if(roleSnap.val()!=='treasurer') throw new Error('会計権限を確認できません');
-    // 軽量バックアップは証憑画像を複製しないため、初期化前は画像の存在を確認して誤解を防ぐ。
+    // 軽量バックアップは領収書類を複製しないため、初期化前は画像の存在を確認して誤解を防ぐ。
     const photoSnap=await R('photos').get();
     const photoCount=photoSnap.exists() && typeof photoSnap.val()==='object' ? Object.keys(photoSnap.val()).length : 0;
-    if(photoCount && !confirm(`証憑画像が${photoCount}件あります。\n\n容量節約型バックアップでは画像そのものは複製しません。初期化すると、この${photoCount}件の画像も削除され復元できません。\n\nサンプル画像として削除してよい場合だけ続行してください。`)){ if(btn) btn.disabled=false; return; }
+    if(photoCount && !confirm(`領収書類が${photoCount}件あります。\n\n容量節約型バックアップでは画像そのものは複製しません。初期化すると、この${photoCount}件の画像も削除され復元できません。\n\nサンプル画像として削除してよい場合だけ続行してください。`)){ if(btn) btn.disabled=false; return; }
     showToast('初期化前の会計データをバックアップしています…');
     await createFirebaseBackup('pre_reset',true);
 
@@ -3846,7 +3846,7 @@ function bindSettings(){
         ${p.rows.filter(x=>x.count).map(x=>`<div class="total-check"><span>${esc(x.label)}</span><b>${x.count}件</b></div>`).join('')||'<p class="hint">削除対象のデータはありません。</p>'}
         <div class="total-check" style="margin-top:8px"><span>削除対象（データグループ内の記録数）</span><b>${p.total}件</b></div>
         <p class="hint" style="margin:10px 0 6px"><b>残すもの：</b>団体名・会計年度の締め、科目体系・予算、支払方法、関係者・権限、通知設定、AI設定。</p>
-        <p class="hint" style="color:var(--stamp-red)"><b>注意：</b>容量節約型バックアップは証憑画像そのものを複製しません。初期化対象に証憑画像がある場合は、実行直前にも再確認します。</p>
+        <p class="hint" style="color:var(--stamp-red)"><b>注意：</b>容量節約型バックアップは領収書類そのものを複製しません。初期化対象に領収書類がある場合は、実行直前にも再確認します。</p>
         ${p.total?'<button class="btn btn-danger full" id="resetRunBtn">試行データを初期化する</button>':''}
       </div>`;
       if($('resetRunBtn')) $('resetRunBtn').onclick=resetTrialData;
