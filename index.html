@@ -553,7 +553,8 @@ label[for="newMSettle"]{display:flex;align-items:center;justify-content:flex-sta
           <textarea id="fMemo" placeholder="品目、数量、補足など"></textarea>
         </div>
         <div class="field" id="fExcludeField">
-          <label class="check-line"><input type="checkbox" id="fExclude"> 会員向け報告では明細を伏せる（個人名が関わる慶弔など）</label>
+          <label class="check-line"><input type="checkbox" id="fExclude"> 会員向け報告では用途を匿名表示する</label>
+          <p class="hint" style="margin:6px 0 0">慶弔など個人情報を含む場合に使用します。日付・科目・金額は公開し、用途だけ「個人情報のため詳細非表示」と表示します。</p>
         </div>
         <div class="btn-row">
           <button class="btn btn-ghost" id="formCancelBtn">キャンセル</button>
@@ -602,7 +603,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.03-62';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.03-65';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -691,11 +692,32 @@ let bookFilter = { status:'all', q:'', account:'', method:'', payer:'' };
 let auditFilter = 'todo';
 let settleView = null;         // 精算画面で開いている支払者ID
 let detailId = null;
-let sharedKey = null;
 let importsList = [];
 let autoBackupCheckRunning = false;
 
 /* ---------- ユーティリティ ---------- */
+
+const PRIVACY_PURPOSE='自治会の会計処理、支払・精算、監査、決算およびこれらに必要な連絡';
+function aiOriginal(e){return e&&e.aiReceiptOriginal&&typeof e.aiReceiptOriginal==='object'?e.aiReceiptOriginal:null}
+function aiChangedFields(e){
+ const o=aiOriginal(e); if(!o)return [];
+ const m={date:'日付',amount:'金額',payee:'支払先',purpose:'摘要'};
+ return Object.keys(m).filter(k=>String(o[k]??'').trim()!==String(e[k]??'').trim())
+   .map(k=>({key:k,label:m[k],before:o[k]??'',after:e[k]??''}));
+}
+function aiReceiptBadge(e){
+ const o=aiOriginal(e); if(!o)return '';
+ const c=aiChangedFields(e);
+ return c.length?`<span class="stamp-tag" style="border-color:var(--amber);color:var(--amber)">AI読取後に修正 ${c.length}項目</span>`:`<span class="stamp-tag">AI読取・未修正</span>`;
+}
+function aiReceiptAuditHtml(e){
+ const o=aiOriginal(e); if(!o)return '';
+ const c=aiChangedFields(e);
+ return `<div class="form-card" style="margin-top:10px"><div style="font-weight:700">AIレシート読取の確認</div>
+ <p class="hint">${c.length?'AI読取後に人が修正した項目があります。原本画像と現在値を確認してください。':'AI読取後の修正はありません。'}</p>
+ ${c.map(x=>`<div class="cat-row"><span class="cname">${esc(x.label)}<small>AI読取：${esc(String(x.before))} → 現在：${esc(String(x.after))}</small></span></div>`).join('')}
+ ${e.aiReceiptEditedAt?`<p class="hint">最終修正：${fmtTs(e.aiReceiptEditedAt)} ${esc(e.aiReceiptEditedByName||'')}</p>`:''}</div>`;
+}
 function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function yen(n){ return '¥' + (Number(n)||0).toLocaleString(); }
 function pad(n,l=2){ return String(n).padStart(l,'0'); }
@@ -1309,7 +1331,6 @@ function attachData(){
   else onData(R('payers'),   s => { payers   = toArr(s.val()).sort((a,b)=>(a.order||0)-(b.order||0) || (a.name||'').localeCompare(b.name||'','ja')); renderAll(); });
   onData(R('storageTags'), s => { storageTags = toArr(s.val()).map(t=>t.name).sort((a,b)=>a.localeCompare(b,'ja')); });
   onData(R('auditReports'), s => { auditReports = s.val()||{}; renderAll(); });
-  { const ref = R('secrets/claudeKey'); const hk = ref.on('value', s => { sharedKey = s.val() || null; }, () => { sharedKey = null; }); dataListeners.push(()=>ref.off('value', hk)); }
 
   if (isStaff()) {
     onData(R('entries').orderByChild('settleState').equalTo('pending'), s => { pendingMap = objWithIds(s.val()); renderAll(); });
@@ -1492,7 +1513,7 @@ function slipHTML(e){
         <div class="tags">
           ${acc?`<span class="stamp-tag" style="border-color:${acc.color};color:${acc.color}">${esc(acc.name)}</span>`:''}
           ${m?`<span class="stamp-tag" style="border-color:var(--line);color:var(--ink-soft)">${esc(m.name)}</span>`:''}
-          ${statusTag(e)}${settleTag(e)}${aiEditTag(e)}${auditTag(e)}
+          ${statusTag(e)} ${aiReceiptBadge(e)}${settleTag(e)}${auditTag(e)}
         </div>
       </div>
     </div>
@@ -1755,7 +1776,7 @@ function renderBook(){
   };
   const chips = isP()
     ? [['all','すべて'],['submitted','会計確認待ち'],['returned','差戻し'],['pending','精算待ち']]
-    : [['all','すべて'],['expense','支出'],['income','収入'],['submitted','確認待ち'],['returned','差戻し'],['pending','要精算'],['noReceipt','領収証なし']];
+    : [['all','すべて'],['expense','支出'],['income','収入'],['submitted','確認待ち'],['returned','差戻し'],['pending','要精算'],['noReceipt','領収証なし'],['aiEdited','AI読取後に修正']];
   const bar = $('bookStatusBar');
   bar.innerHTML = chips.map(([k,l])=>`<button class="chip ${bookFilter.status===k?'active':''}" data-k="${k}">${l}${counts[k]&&k!=='all'?`<span class="cnt">${counts[k]}</span>`:''}</button>`).join('');
   bar.querySelectorAll('.chip').forEach(c=>c.onclick=()=>{ bookFilter.status=c.dataset.k; renderBook(); });
@@ -1816,7 +1837,6 @@ let formType = 'expense';
 let formPhotos = [];      // dataURLの配列
 let photosChanged = false;
 let formAccount = '', formMethod = '', formAddressee = '';
-let formAiOriginal = null; // AI読取原値。人が修正しても保持
 
 async function openForm(e){
   if (canOwnSubmit() && !me.payerId) { showToast('立替・仮払の対象設定が済んでいません'); return; }
@@ -1826,7 +1846,6 @@ async function openForm(e){
   formAccount = e ? e.accountId : '';
   formMethod = e ? e.methodId : '';
   formAddressee = e ? (e.addressee||'') : '';
-  formAiOriginal = e && e.aiAudit && e.aiAudit.original ? {...e.aiAudit.original} : null;
   formPhotos = []; photosChanged = false;
   $('formTitle').textContent = e ? `${e.voucherNo||''} を修正` : (canOwnSubmit() ? '支出を申請' : '収入・支出を登録');
   $('fTypeField').style.display = (isT() && !e) ? 'block' : 'none';
@@ -1959,7 +1978,7 @@ async function handleDocument(file){
       const r=await pdfToImages(file,room);
       formPhotos.push(...r.images); photosChanged=true; renderPhotoStrip();
       if(r.totalPages>room) showToast(`PDFは先頭${room}ページを読み込みました（最大3ページ）`);
-      if(getApiKey()) runAi(formPhotos);
+      if(aiProxyConfigured()) runAi(formPhotos);
     }catch(e){ console.error(e); showToast('PDFの読み込みに失敗しました'); }
     return;
   }
@@ -1975,7 +1994,7 @@ async function handlePhoto(file){
     renderPhotoStrip();
     const after=dataUrlBytes(dataUrl);
     if(before>0 && after>0) showToast(`画像を自動圧縮しました（${formatBytes(before)} → ${formatBytes(after)}）`);
-    if (formPhotos.length===1 && getApiKey()) runAi(formPhotos);
+    if (formPhotos.length===1 && aiProxyConfigured()) runAi(formPhotos);
   } catch(e){ console.error(e); showToast('写真の読み込みに失敗しました'); }
 }
 function dataUrlBytes(dataUrl){
@@ -2032,34 +2051,69 @@ async function compressImage(src,maxSize=1400,quality=0.76){
 }
 
 /* ---------- AI読み取り ----------
-   APIキーは管理者が設定した町内会共通キーのみを使用する */
-function getApiKey(){ return sharedKey || null; }
+   Claude APIキーはブラウザ/Firebaseには置かず、専用GASのScript Propertiesで管理する。
+   画像・指示・Firebase IDトークンだけをGASへ送り、GASがClaude APIを中継する。 */
+function aiProxyConfigured(){ return !!String(settings.notifyUrl||settings.aiProxyUrl||'').trim(); }
 
 async function callClaude(images, system, prompt, maxTokens){
-  const key = getApiKey();
-  if (!key) throw new Error('NOKEY');
-  const content = images.map(d => {
-    const c = d.indexOf(',');
-    return { type:'image', source:{ type:'base64', media_type:(d.slice(5,c).split(';')[0]||'image/jpeg'), data:d.slice(c+1) } };
+  const target = String(settings.notifyUrl||settings.aiProxyUrl||'').trim();
+  if (!target) throw new Error('NOPROXY');
+  if (!auth || !auth.currentUser) throw new Error('NOAUTH');
+
+  const idToken = await auth.currentUser.getIdToken();
+  const requestId = `ai_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const payload = JSON.stringify({
+    action:'claude',
+    requestId,
+    idToken,
+    system,
+    prompt,
+    maxTokens:maxTokens||1000,
+    images
   });
-  content.push({ type:'text', text:prompt });
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method:'POST',
-    headers:{ 'Content-Type':'application/json', 'x-api-key':key, 'anthropic-version':'2023-06-01', 'anthropic-dangerous-direct-browser-access':'true' },
-    body: JSON.stringify({ model:'claude-sonnet-4-6', max_tokens:maxTokens||1000, system, messages:[{ role:'user', content }] })
+
+  return await new Promise((resolve,reject)=>{
+    let settled=false;
+    const frame=document.createElement('iframe');
+    frame.name=`gasAiFrame_${requestId}`;
+    frame.style.display='none';
+    document.body.appendChild(frame);
+
+    const cleanup=()=>{
+      window.removeEventListener('message',onMessage);
+      setTimeout(()=>frame.remove(),100);
+    };
+    const finishError=msg=>{
+      if(settled)return; settled=true; cleanup(); reject(new Error(msg||'AIPROXY'));
+    };
+    const onMessage=ev=>{
+      if(ev.source!==frame.contentWindow) return;
+      const d=ev.data||{};
+      if(d.source!=='ogawa-claude-proxy' || d.requestId!==requestId) return;
+      if(settled)return; settled=true; cleanup();
+      if(d.ok) resolve(d.result);
+      else reject(new Error(d.error||'AIPROXY'));
+    };
+    window.addEventListener('message',onMessage);
+
+    const form=document.createElement('form');
+    form.method='POST'; form.action=target; form.target=frame.name; form.style.display='none';
+    const input=document.createElement('input');
+    input.type='hidden'; input.name='payload'; input.value=payload;
+    form.appendChild(input); document.body.appendChild(form);
+    form.submit();
+    setTimeout(()=>form.remove(),1500);
+    setTimeout(()=>finishError('AITIMEOUT'),60000);
   });
-  if (!res.ok) throw new Error('API ' + res.status);
-  const data = await res.json();
-  const text = (data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('').replace(/```json|```/g,'').trim();
-  const s = text.indexOf('{'), e = text.lastIndexOf('}');
-  return JSON.parse(text.slice(s, e+1));
 }
 function aiErrorText(e){
   const m = String(e && e.message || '');
-  if (m==='NOKEY') return 'AIのAPIキーが未設定です（設定画面で登録）';
-  if (m.includes('401')) return 'APIキーが無効です';
+  if (m==='NOPROXY') return 'AI中継用Apps ScriptのURLが未設定です';
+  if (m==='NOAUTH' || m.includes('AUTH')) return 'ログイン情報を確認できませんでした。再ログインしてください';
+  if (m.includes('401') || m.includes('CLAUDE_401')) return 'Claude APIキーが無効です（GASのScript Propertiesを確認してください）';
   if (m.includes('429')) return 'AIの利用が混み合っています。少し待って再試行してください';
   if (m.includes('529') || m.includes('500')) return 'AIが一時的に応答していません';
+  if (m==='AITIMEOUT') return 'AIの読み取りが60秒以内に完了しませんでした。もう一度お試しください';
   return '読み取れませんでした';
 }
 const nullish = v => (v===null || v===undefined || v==='null' || v==='') ? null : v;
@@ -2101,17 +2155,11 @@ function suggestMethod(payMethod, withPayer){
 
 $('aiReadBtn').onclick = () => { if (formPhotos[0]) runAi(formPhotos); };
 async function runAi(dataUrls){
-  if (!getApiKey()) { showToast('設定画面でClaude APIキーを登録するとAI読み取りが使えます'); return; }
+  if (!aiProxyConfigured()) { showToast('管理画面で通知・AI共通Apps Script URLを設定するとAI読み取りが使えます'); return; }
   const btn = $('aiReadBtn'); const orig = btn.textContent;
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> AIが読み取り中…';
   try {
     const r = await recognizeReceipt(dataUrls, formType);
-    formAiOriginal = {
-      date:r.date||'', payee:r.payee||'', amount:Number(r.amount)||0,
-      memo:r.items||'', purpose:r.purpose||'', accountId:r.accountId||'',
-      methodId:suggestMethod(r.payMethod, isP() || !!$('fPayer').value)||'',
-      addressee:r.addressee||''
-    };
     if (r.date) $('fDate').value = r.date;
     if (r.payee) $('fPayee').value = r.payee;
     if (r.amount) $('fAmount').value = r.amount;
@@ -2138,35 +2186,6 @@ function addresseeWarning(a){
   const core = orgCore();
   if (core && !a.includes(core)) return `宛名が「${a}」です（団体名ではありません）`;
   return '';
-}
-
-
-function aiValueLabel(k,v){
-  if(k==='accountId') return accById(v)?.name||'未設定';
-  if(k==='methodId') return methodById(v)?.name||'未設定';
-  if(k==='amount') return yen(Number(v)||0);
-  return String(v??'') || '未入力';
-}
-function buildAiAudit(original, finalData, previous){
-  const base=original || previous?.original;
-  if(!base) return previous || null;
-  const fields={date:'日付',payee:'支払先',amount:'金額',memo:'品目・メモ',purpose:'用途',accountId:'科目',methodId:'支払方法',addressee:'宛名'};
-  const changes=[];
-  Object.entries(fields).forEach(([k,label])=>{
-    const a=k==='amount'?Number(base[k]||0):String(base[k]??'');
-    const b=k==='amount'?Number(finalData[k]||0):String(finalData[k]??'');
-    if(a!==b) changes.push({field:k,label,from:base[k]??'',to:finalData[k]??''});
-  });
-  const now=TS();
-  return {original:{...base},model:'claude-sonnet-4-6',readAt:previous?.readAt||now,
-    corrected:changes.length>0,changes,correctedAt:changes.length?now:null,
-    correctedBy:changes.length?(me?.uid||''):null,correctedByName:changes.length?(me?.name||''):null};
-}
-function aiEditTag(e){
-  if(!e?.aiAudit) return '';
-  return e.aiAudit.corrected
-    ? `<span class="stamp-tag" style="border-color:var(--amber);color:var(--amber)">AI読取後に修正</span>`
-    : `<span class="stamp-tag" style="border-color:var(--moss);color:var(--moss)">AI読取</span>`;
 }
 
 /* ---------- 保存 ---------- */
@@ -2199,10 +2218,7 @@ async function persistEntry(prev, f, photos, photosChanged){
     createdBy: p.createdBy || me.uid, createdByName: p.createdByName || me.name,
     createdAt: p.createdAt || TS(),
     updatedAt: TS(), updatedByName: me.name
-  };
-  const aiAudit=buildAiAudit(formAiOriginal,data,p.aiAudit);
-  if(aiAudit) data.aiAudit=aiAudit;
-  if(isTestMode()){ data.testMode=true; data.testRole=testProfile; data.testActor=realMe?.name||''; }
+  };  if(isTestMode()){ data.testMode=true; data.testRole=testProfile; data.testActor=realMe?.name||''; }
 
   delete data.id; delete data._via;
   await ref.set(data);
@@ -2210,10 +2226,6 @@ async function persistEntry(prev, f, photos, photosChanged){
   const st = data.storageLocation;
   if (!isTestMode() && st && !storageTags.includes(st)) { storageTags.push(st); R('storageTags').push().set({name:st}).catch(()=>{}); }
   const changes = prev ? diffText(prev, data) : '';
-  if(data.aiAudit?.corrected){
-    const aiChanges=(data.aiAudit.changes||[]).map(c=>`${c.label}：${aiValueLabel(c.field,c.from)}→${aiValueLabel(c.field,c.to)}`).join('／');
-    if(aiChanges && (!prev?.aiAudit?.corrected || JSON.stringify(prev.aiAudit.changes||[])!==JSON.stringify(data.aiAudit.changes||[]))) writeLog('AI読取後修正',data,aiChanges);
-  }
   // 会計が承認前の申請内容を直した場合は、伝票内にも構造化した訂正履歴を残す。
   if (prev && isT() && prev.status==='submitted' && changes) {
     const h = R(`entries/${ref.key}/accountingEdits`).push();
@@ -2296,7 +2308,7 @@ async function renderDetail(id){
   <div class="form-card">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
       <div><span class="voucher" style="font-size:13px">${esc(e.voucherNo||'')}</span><span class="hint">${inc?'収入':'支出'}</span></div>
-      <div class="tags" style="margin:0">${statusTag(e)}${settleTag(e)}${aiEditTag(e)}${auditTag(e)}</div>
+      <div class="tags" style="margin:0">${statusTag(e)}${settleTag(e)}${auditTag(e)}</div>
     </div>
     <div class="big-amount" style="color:${inc?'var(--stamp-navy)':'var(--ink)'}">${inc?'+':''}${yen(e.amount)}</div>
     ${e.status==='returned' ? `<div class="notice" style="cursor:default"><span class="n-body">差戻しの理由<span class="n-sub" style="color:var(--ink);font-size:13px">${e.cashFeeRequest&&e.cashFeeActualAmount!=null?`申告額：${yen(e.cashFeeDeclaredAmount||e.amount)} ／ 会計確認額：${yen(e.cashFeeActualAmount)} ／ 差額：${Number(e.cashFeeActualAmount)-Number(e.cashFeeDeclaredAmount||e.amount)>=0?'+':''}${yen(Number(e.cashFeeActualAmount)-Number(e.cashFeeDeclaredAmount||e.amount))}<br>`:''}${esc(e.returnReason||'')}</span></span></div>` : ''}
@@ -2317,11 +2329,6 @@ async function renderDetail(id){
     </dl>
     <p class="history">${e.imported?'📥 CSV・Excelから取り込んだ伝票<br>':''}登録：${esc(e.createdByName||'')} ${fmtTs(e.createdAt)}${e.updatedByName?`<br>最終更新：${esc(e.updatedByName)} ${fmtTs(e.updatedAt)}`:''}${e.approvedByName?`<br>承認：${esc(e.approvedByName)} ${fmtTs(e.approvedAt)}`:''}</p>
   </div>
-  ${e.aiAudit ? `<div class="audit-box" style="border-color:${e.aiAudit.corrected?'var(--amber)':'var(--moss)'};margin-bottom:12px">
-    <div style="font-weight:700;font-size:13.5px">${e.aiAudit.corrected?'🟠 AI読取後に修正があります':'🤖 AI読取値のまま保存されています'}</div>
-    <p class="hint" style="margin:4px 0 0">AI読取：${fmtTs(e.aiAudit.readAt)}${e.aiAudit.corrected?` ／ 修正：${esc(e.aiAudit.correctedByName||'')} ${fmtTs(e.aiAudit.correctedAt)}`:''}</p>
-    ${e.aiAudit.corrected?`<div style="margin-top:8px">${(e.aiAudit.changes||[]).map(c=>`<div style="font-size:13px;padding:5px 0;border-top:1px dashed var(--line)"><b>${esc(c.label)}</b>　<span style="text-decoration:line-through;color:var(--ink-soft)">${esc(aiValueLabel(c.field,c.from))}</span> → <b>${esc(aiValueLabel(c.field,c.to))}</b></div>`).join('')}</div>`:''}
-  </div>` : ''}
 
   <div class="form-card"><div class="field" style="margin:0"><label>証憑写真</label><div id="detailPhotos" class="detail-photos">${e.photoCount?'<p class="hint">読み込み中…</p>':'<p class="hint">写真はありません</p>'}</div></div></div>`;
 
@@ -2772,7 +2779,6 @@ function renderAudit(){
   const noEvidence=ap.filter(e=>e.type==='expense' && !e.photoCount && !e.noReceipt && !e.imported).length;
   const stale=ap.filter(e=>e.auditStale).length;
   const unresolvedIssue=issue.filter(e=>!e.audit?.response).length;
-  const aiCorrected=ap.filter(e=>e.aiAudit?.corrected);
   const moneyOK=latestRecon && Number(latestRecon.diff)===0;
   const checklist=report?.checklist||{};
 
@@ -2787,7 +2793,7 @@ function renderAudit(){
       ${card('現預金照合',latestRecon?(moneyOK?'差額 0円':'差額 '+yen(Number(latestRecon.diff)||0)):'未確認',
         latestRecon?`${fmtTs(latestRecon.at)}　JA ${yen(Number(latestRecon.bank)||0)}／現金 ${yen(Number(latestRecon.cash)||0)}／仮払 ${yen(Number(latestRecon.pendingAdvance)||0)}`:'会計担当が「現預金残高の確認」を記録すると表示されます',latestRecon?moneyOK:false)}
       ${card('未確認伝票',`${todo.length}件`,`確認済み ${ok.length+issue.length}/${ap.length}件${stale?`・監査後修正 ${stale}件`:''}`,todo.length===0)}
-      ${card('要確認事項',`${exceptionCount}件`,`未確認証憑 ${noEvidence}件${aiCorrected.length?`・AI読取後修正 ${aiCorrected.length}件`:''}${unresolvedIssue?`・未回答の監査指摘 ${unresolvedIssue}件`:''}`,exceptionCount===0&&unresolvedIssue===0)}
+      ${card('要確認事項',`${exceptionCount}件`,`未確認証憑 ${noEvidence}件${unresolvedIssue?`・未回答の監査指摘 ${unresolvedIssue}件`:''}`,exceptionCount===0&&unresolvedIssue===0)}
     </div>
     ${report?`<div class="audit-box" style="border-color:var(--moss);margin-top:12px"><b style="color:var(--moss)">✓ 監査完了記録</b><div class="hint">${fmtTs(report.at)}　${esc(report.byName)}</div>${report.comment?`<div style="margin-top:5px;font-size:13px">${esc(report.comment)}</div>`:''}</div>`:''}
   </div>`;
@@ -2824,8 +2830,8 @@ function renderAudit(){
   }
 
   const f=auditFilter;
-  const list=f==='todo'?todo:f==='issue'?issue:f==='ai'?aiCorrected:f==='ok'?ok:ap;
-  html+=`<div class="filter-bar">${[['todo','未確認',todo.length],['ai','AI修正あり',aiCorrected.length],['issue','指摘',issue.length],['ok','確認済み',ok.length],['all','すべて',ap.length]].map(([k,l,n])=>`<button class="chip ${f===k?'active':''}" data-f="${k}">${l}<span class="cnt">${n}</span></button>`).join('')}</div>`;
+  const list=f==='todo'?todo:f==='issue'?issue:f==='ok'?ok:ap;
+  html+=`<div class="filter-bar">${[['todo','未確認',todo.length],['issue','指摘',issue.length],['ok','確認済み',ok.length],['all','すべて',ap.length]].map(([k,l,n])=>`<button class="chip ${f===k?'active':''}" data-f="${k}">${l}<span class="cnt">${n}</span></button>`).join('')}</div>`;
   html+=list.length?list.map(slipHTML).join(''):`<div class="empty" style="padding:24px">該当する伝票はありません</div>`;
 
   html+=`<details class="panel" style="margin-top:16px"><summary style="font-family:'Shippori Mincho',serif;font-weight:700;cursor:pointer">データ出力・印刷（必要な場合のみ）</summary>
@@ -3010,15 +3016,6 @@ async function renderAdmin(){
   const rows=Object.entries(groups).sort((a,b)=>b[1].reduce((n,v)=>n+v,0)-a[1].reduce((n,v)=>n+v,0))
     .map(([k,a])=>`<div class="cat-row"><span class="cname">${esc(labels[k]||k)}<small>${a.length}件・中央値 ${fmtDur(median(a))}</small></span><b>${fmtDur(a.reduce((n,v)=>n+v,0))}</b></div>`).join('');
   el.innerHTML=`
-    <h2 class="section-title">個人情報保護・運用</h2>
-    <div class="form-card">
-      <p class="hint" style="margin-top:0">利用目的：自治会の会計処理、支払・精算、監査、決算およびこれらに必要な連絡。必要最小限の情報を扱い、役割ごとに閲覧範囲を分けます。</p>
-      <div class="audit-box">
-        <b>管理者チェック</b>
-        <div class="hint" style="line-height:1.8;margin-top:5px">✓ 初回登録時に利用目的を表示<br>✓ 権限別アクセス制御<br>✓ 修正・承認・監査・権限変更等を履歴化<br>✓ AI読取原値と人による修正値を分離保存<br>✓ バックアップ・システム設定は管理者限定<br>△ 保存期間・年度終了後の削除基準は自治会規程として確定が必要<br>△ 外部AI・クラウドの取扱条件と国外取扱いは定期確認が必要</div>
-      </div>
-      <p class="hint" style="margin-bottom:0">アプリ機能だけで法令適合が完結するものではありません。自治会の規程、利用目的の通知、委託先管理、事故対応等と合わせて運用します。</p>
-    </div>
     <h2 class="section-title">業務時間・導入効果</h2>
     <div class="form-card">
       <div class="total-check"><span>${curFY}年度 自動計測（本番）</span><b>${officialMetrics.length}件</b></div><div class="total-check"><span>テスト計測</span><b>${testMetrics.length}件</b></div>
@@ -3040,13 +3037,16 @@ async function renderAdmin(){
       <div class="cat-row"><span class="cname">メール通知<small>Apps Script URL・通知設定</small></span><button class="btn btn-navy sm" id="adminNotify">設定</button></div>
     </div>
     <div id="adminToolPanel"></div>
-    <h2 class="section-title" style="margin-top:20px">AI・システム管理</h2>
+    <h2 class="section-title" style="margin-top:20px">個人情報保護・運用</h2>
+<div class="form-card"><div style="font-weight:700">利用目的</div>
+<p class="hint">自治会の会計処理、支払・精算、監査、決算およびこれらに必要な連絡</p>
+<div style="font-weight:700">取扱い</div><p class="hint">役割別に閲覧・操作範囲を制限し、会計業務に必要な情報のみを取り扱います。領収証をAIで読み取る場合は、読取りに必要な画像情報をAIサービスへ送信します。権限変更・会計処理・AI読取後の修正は追跡できる形で記録します。</p></div>
+<h2 class="section-title" style="margin-top:20px">AI・システム管理</h2>
     <div class="form-card">
-      <div style="font-weight:700;font-size:13.5px;margin-bottom:6px">Claude API 共通キー</div>
-      <p class="hint" style="margin-top:0">管理者のみ設定できます。現在は既存AI機能との互換性のため利用端末へキーを配信する方式です。GAS側へ移す対応は本格導入前の必須課題です。</p>
-      <div class="field"><input type="password" id="adminSharedKeyInput" placeholder="sk-ant-..." style="width:100%;border:1px solid var(--line);border-radius:8px;padding:11px 12px;font-size:15px"></div>
-      <p class="hint">${sharedKey?'設定済み（値は再表示しません）':'未設定'}</p>
-      <div class="btn-row"><button class="btn btn-ghost" id="adminDelShared">削除</button><button class="btn btn-primary" id="adminSaveShared">共通キーを保存</button></div>
+      <div style="font-weight:700;font-size:13.5px;margin-bottom:6px">Claude AI中継</div>
+      <p class="hint" style="margin-top:0">メール通知と同じGoogle Apps Scriptを使ってAI読取を中継します。Claude APIキーはアプリやFirebaseには保存せず、GASのScript Propertiesだけで管理します。</p>
+      <p style="margin:8px 0;font-size:13.5px"><b>共通GAS：</b>${settings.notifyUrl?'設定済み':'未設定'}</p>
+      <p class="hint">GAS URLの変更は「承認依頼のメール通知」で行います。AI専用URLの登録は不要です。</p>
     </div>`;
 
 
@@ -3112,9 +3112,14 @@ async function renderAdmin(){
   };
   if($('adminNotify')) $('adminNotify').onclick=()=>{tool.innerHTML=`<div class="form-card"><b>メール通知</b><div class="field"><label>通知用 Apps Script URL</label><input type="text" id="admNUrl" value="${esc(settings.notifyUrl||'')}"></div><label class="check-line"><input type="checkbox" id="admNEntry" ${settings.notifyOnEntry!==false?'checked':''}> 支出申請の承認依頼を通知</label><div class="btn-row" style="margin-top:12px"><button class="btn btn-ghost" id="admNTest">テスト送信</button><button class="btn btn-primary" id="admNSave">保存</button></div></div>`;$('admNSave').onclick=async()=>{await R('settings').update({notifyUrl:$('admNUrl').value.trim(),notifyOnEntry:$('admNEntry').checked});settings.notifyUrl=$('admNUrl').value.trim();settings.notifyOnEntry=$('admNEntry').checked;await syncRecipients();showToast('通知設定を保存しました');};$('admNTest').onclick=async()=>{const u=$('admNUrl').value.trim();if(!u)return showToast('URLを入力してください');await notify('test',{},u);showToast('テスト送信を依頼しました');};};
 
-  const save=$('adminSaveShared'), del=$('adminDelShared');
-  if(save) save.onclick=async()=>{const v=$('adminSharedKeyInput').value.trim();if(!v)return showToast('APIキーを入力してください');await R('secrets/claudeKey').set(v);writeLog('共通キー設定',null,'管理者がClaude APIキーを登録');showToast('保存しました');sharedKey=v;renderAdmin();};
-  if(del) del.onclick=async()=>{if(!confirm('共通キーを削除しますか？'))return;await R('secrets/claudeKey').remove();writeLog('共通キー削除',null,'管理者が削除');sharedKey=null;showToast('削除しました');renderAdmin();};
+  if(aiDel) aiDel.onclick=async()=>{
+    if(!confirm('通知・AI共通Apps Script URLを解除しますか？'))return;
+    await R('settings/aiProxyUrl').remove();
+    delete settings.aiProxyUrl;
+    writeLog('AI中継解除',null,'AI中継URLを解除');
+    showToast('AI中継URLを解除しました');
+    renderAdmin();
+  };
 }
 
 /* =========================================================
@@ -3258,7 +3263,7 @@ function renderSettings(){
       ${settings.lastBackupAt?`<p class="hint">前回のバックアップ：${fmtTs(settings.lastBackupAt)}</p>`:''}
       <hr style="border:0;border-top:1px solid var(--line);margin:20px 0">
       <div style="font-weight:700;font-size:13.5px;margin-bottom:6px">Firebase自動バックアップ</div>
-      <p class="hint" style="margin-top:0">会計担当がアプリを開いたとき、前回バックアップから設定期間を過ぎていればFirebase内に自動保存します。容量節約のため証憑画像そのものは複製せず、会計データと画像の紐付け情報を最新3世代保持します。秘密情報（Claude APIキー）も保存しません。</p>
+      <p class="hint" style="margin-top:0">会計担当がアプリを開いたとき、前回バックアップから設定期間を過ぎていればFirebase内に自動保存します。容量節約のため証憑画像そのものは複製せず、会計データと画像の紐付け情報を最新3世代保持します。Claude APIキーはGAS側だけで管理するため、Firebaseバックアップの対象にはなりません。</p>
       <div class="field"><label>バックアップ間隔</label><select id="autoBackupPeriod">
         <option value="14" ${backupIntervalDays()===14?'selected':''}>2週間</option>
         <option value="30" ${backupIntervalDays()===30?'selected':''}>1ヶ月（推奨・初期値）</option>
@@ -3284,8 +3289,8 @@ function renderSettings(){
       <p class="hint">会計担当を追加・変更すると、送信先も自動で更新されます。</p></div>`;
     const pub = settings.publicDetail || 'items';
     html += `<h2 class="section-title" style="margin-top:20px">会員向けの会計報告</h2><div class="form-card">
-      <p class="hint" style="margin-top:0">会計担当が承認した自治会員だけがログインして見られるページです。科目別の予算と実績、月別の支出、用途ごとの明細を公開します。支払先・支払者名・写真・メモは公開されません。</p>
-      <div class="field"><label>公開する内容</label><select id="pubDetail"><option value="items" ${pub==='items'?'selected':''}>科目別の集計＋用途ごとの明細</option><option value="summary" ${pub==='summary'?'selected':''}>科目別の集計のみ</option></select></div>
+      <p class="hint" style="margin-top:0">会計担当が承認した自治会員だけがログインして見られるページです。標準では、科目別の予算・実績と月別支出に加え、用途別集計で全体像を示し、その下で個別明細まで確認できます。支払先・支払者名・写真・メモは公開されません。個人情報を含む用途は匿名表示できます。</p>
+      <div class="field"><label>公開する内容</label><select id="pubDetail"><option value="items" ${pub==='items'?'selected':''}>透明性重視：用途別集計＋個別明細</option><option value="summary" ${pub==='summary'?'selected':''}>概要のみ：科目別集計</option></select></div>
       <div class="btn-row"><button class="btn btn-ghost" id="pubStop">${curFY}年度の公開を止める</button><button class="btn btn-primary" id="pubDo">${curFY}年度の報告を更新</button></div>
       <div class="inline-add"><input readonly value="${esc(publicUrl())}" id="pubUrl"><button class="btn btn-ghost sm" id="pubCopy">コピー</button></div>
       <p class="hint">公開内容は自動では変わりません。月に一度など、区切りのよいときに「報告を更新」を押してください。このURLを案内し、未登録の会員は閲覧申請後、会計担当の承認を受けて閲覧します。</p></div>`;
@@ -3522,7 +3527,11 @@ function bindSettings(){
     writeLog('利用者削除', null, `${m.name}（${m.email||''}）`); showToast(`${m.name}さんの登録を削除しました`);
     if(['treasurer','viewer'].includes(m.role)) setTimeout(()=>syncRecipients(),800);
   });
-  $('budgetImportBtn').onclick = () => { if (!getApiKey()) return showToast('先にClaude APIキーを登録してください'); $('budgetInput').click(); };
+  html += `<h2 class="section-title" style="margin-top:20px">個人情報の取扱い</h2><div class="form-card">
+    <p class="hint" style="margin:0">利用目的：自治会の会計処理、支払・精算、監査、決算およびこれらに必要な連絡。役割に応じて閲覧・操作範囲を制限します。領収証をAIで読み取る場合は読取りに必要な画像情報をAIサービスへ送信します。</p>
+  </div>`;
+
+  $('budgetImportBtn').onclick = () => { if (!aiProxyConfigured()) return showToast('先に通知・AI共通Apps Script URLを設定してください'); $('budgetInput').click(); };
 
   $('sSaveOrg').onclick = async () => {
     const closeMonth=Number($('sClose').value)||12; const fiscalStartMonth=closeMonth===12?1:closeMonth+1;
@@ -3779,12 +3788,27 @@ async function publishReport(){
   const detail = (settings.publicDetail||'items')==='items';
   const items = detail ? ap.sort((a,b)=>a.date<b.date?-1:1).map(e=>({
     date:e.date, type:e.type, account:accById(e.accountId)?.name||'',
-    purpose: e.excludePublic ? '（個人に関わるため明細省略）' : (e.purpose || accById(e.accountId)?.name || ''),
+    purpose: e.excludePublic ? '個人情報のため詳細非表示' : (e.purpose || accById(e.accountId)?.name || ''),
     amount:Number(e.amount)||0
   })) : null;
+  const purposeGroups = detail ? (()=>{
+    const map = new Map();
+    ap.forEach(e=>{
+      const purpose = e.excludePublic ? '個人情報のため詳細非表示' : (e.purpose || accById(e.accountId)?.name || '用途未設定');
+      const account = accById(e.accountId)?.name || '';
+      const key = `${e.type||'expense'}\u0000${account}\u0000${purpose}`;
+      const cur = map.get(key) || { type:e.type||'expense', account, purpose, amount:0, count:0 };
+      cur.amount += Number(e.amount)||0; cur.count += 1; map.set(key,cur);
+    });
+    return [...map.values()].sort((a,b)=>{
+      if(a.type!==b.type) return a.type==='expense'?-1:1;
+      if(a.account!==b.account) return a.account.localeCompare(b.account,'ja');
+      return b.amount-a.amount;
+    });
+  })() : null;
   const pending = ap.filter(e=>e.settleState==='pending').reduce((s,e)=>s+(Number(e.amount)||0),0);
   const report = auditReports[curFY] ? { at:auditReports[curFY].at, byName:auditReports[curFY].byName, comment:auditReports[curFY].comment } : null;
-  await R(`public/${curFY}`).set({ orgName:settings.orgName, fy:curFY, range:fyRangeLabel(curFY), opening, income:inc, expense:exp, balance:opening+inc-exp, pendingReimburse:pending, accounts:accs, months, items, audit:report, count:ap.length, updatedAt:TS() });
+  await R(`public/${curFY}`).set({ orgName:settings.orgName, fy:curFY, range:fyRangeLabel(curFY), opening, income:inc, expense:exp, balance:opening+inc-exp, pendingReimburse:pending, accounts:accs, months, purposeGroups, items, audit:report, count:ap.length, updatedAt:TS() });
   await R('public/index').update({ orgName:settings.orgName, [`years/${curFY}`]: true });
   writeLog('会計報告公開', null, `${curFY}年度 ${ap.length}件`);
   showToast('会員向けの報告を更新しました');
@@ -3816,9 +3840,9 @@ function batchPayerOptions(sel){
 }
 function renderBatch(){
   const el = $('batchScreen');
-  const keyOk = !!getApiKey();
+  const keyOk = !!aiProxyConfigured();
   el.innerHTML = `<button class="text-link" id="bBack" style="padding-left:0">‹ ホームへ戻る</button>
-    <p class="hint" style="margin-top:0">レシート・領収証・振込控えの画像またはPDFを何件でも選ぶと、AIが日付・金額・支払先・科目・支払方法を読み取って下書きを作ります。内容を確認して「まとめて登録」を押してください。${keyOk?'':'<br><b style="color:var(--stamp-red)">APIキーが未設定のため、今は手入力の下書きになります。</b>'}</p>
+    <p class="hint" style="margin-top:0">レシート・領収証・振込控えの画像またはPDFを何件でも選ぶと、AIが日付・金額・支払先・科目・支払方法を読み取って下書きを作ります。内容を確認して「まとめて登録」を押してください。${keyOk?'':'<br><b style="color:var(--stamp-red)">通知・AI共通Apps Script URLが未設定のため、今は手入力の下書きになります。</b>'}</p>
     <div class="btn-row" style="margin-bottom:12px"><button class="btn btn-ghost" id="bCam">📷 撮影して追加</button><button class="btn btn-navy" id="bPick">📎 画像・PDFを選ぶ（複数可）</button></div>
     <div class="panel"><h3>全件共通の設定 <small>個別に変えることもできます</small></h3>
       <div class="field"><label>支払方法</label><select id="bcMethod" style="width:100%">${batchMethodOptions(batchCommon.methodId, true)}</select></div>
@@ -3925,11 +3949,11 @@ async function addBatchFiles(files){
         const pr=await pdfToImages(file,3); photos=pr.images; pageNote=pr.totalPages>3?'（先頭3ページ）':'';
       } else photos=[await compressImage(file, 1100, 0.65)];
       const photo=photos[0];
-      const it = { id: ++batchSeq, photo, photos, state: getApiKey() ? 'reading' : 'done', msg: getApiKey() ? pageNote : '手入力してください', on:true,
+      const it = { id: ++batchSeq, photo, photos, state: aiProxyConfigured() ? 'reading' : 'done', msg: aiProxyConfigured() ? pageNote : '手入力してください', on:true,
         f:{ date:localDate(), amount:0, payee:'', purpose:batchCommon.purpose, memo:'', accountId:'', methodId:batchCommon.methodId,
             payerId: isP() ? me.payerId : batchCommon.payerId, storageLocation:batchCommon.storageLocation, addressee:'' } };
       batchItems.push(it);
-      if (getApiKey()) batchQueue.push(it);
+      if (aiProxyConfigured()) batchQueue.push(it);
     } catch(e){ console.error(e); showToast('読み込めない画像・PDFがありました'); }
   }
   renderBatchList();
@@ -4496,7 +4520,7 @@ function parseKaihipayStatement(text){
   return {gross,fee,carry,transfer,processNo,transferDate,period};
 }
 async function recognizeKaihipayStatementPdf(file){
-  if(!getApiKey()) throw new Error('NOKEY');
+  if(!aiProxyConfigured()) throw new Error('NOPROXY');
   const rendered=await Promise.race([
     pdfToImages(file,2),
     new Promise((_,reject)=>setTimeout(()=>reject(new Error('PDFTIMEOUT')),20000))
@@ -4529,8 +4553,8 @@ $('kaihipayStatementInput').onchange = async e=>{
   const file=e.target.files[0]; e.target.value=''; if(!file) return;
   const box=$('kaihipayStatementPreview');
   if(!/\.pdf$/i.test(file.name)) return showToast('会費ペイの支払通知書PDFを選んでください');
-  if(!getApiKey()){
-    if(box) box.innerHTML='<p class="hint" style="color:var(--stamp-red)">AIのAPIキーが未設定です。管理画面でClaude API共通キーを登録してください。</p>';
+  if(!aiProxyConfigured()){
+    if(box) box.innerHTML='<p class="hint" style="color:var(--stamp-red)">通知・AI共通Apps Script URLが未設定です。管理画面で設定してください。</p>';
     return;
   }
   if(box) box.innerHTML='<p class="hint"><span class="spinner"></span> 支払通知書をAIで読み取っています…</p>';
@@ -4547,7 +4571,7 @@ $('kaihipayStatementInput').onchange = async e=>{
     let msg=String(err.message||err);
     if(msg==='PDFTIMEOUT') msg='PDFの画像化に時間がかかりすぎました。もう一度お試しください';
     else if(msg==='AITIMEOUT') msg='AIの読み取りが45秒以内に完了しませんでした。もう一度お試しください';
-    else if(msg==='NOKEY') msg='AIのAPIキーが未設定です';
+    else if(msg==='NOPROXY') msg='通知・AI共通Apps Script URLが未設定です';
     else if(/^API /.test(msg)) msg=aiErrorText(err);
     if(box) box.innerHTML=`<p class="hint" style="color:var(--stamp-red)">${esc(msg)}</p>`;
   }
@@ -5066,11 +5090,17 @@ async function renderPublic(years, fy){
     <div class="panel"><h3>会費などの使いみち <small>科目別の支出</small></h3>${accRows('expense')||'<p class="hint">まだ支出はありません</p>'}</div>
     <div class="panel"><h3>月ごとの支出</h3><div class="mbars">${asList(d.months).map(m=>`<div class="mb" title="${m.label} ${yen(m.expense)}"><i style="height:${m.expense/maxM*100}%"></i><span>${m.label.replace('月','')}</span></div>`).join('')}</div></div>
     <div class="panel"><h3>収入の内訳</h3>${accRows('income')||'<p class="hint">まだ収入はありません</p>'}</div>`;
-  if (d.items) html += `<div class="panel"><h3>明細 <small>${asList(d.items).length}件</small></h3><div class="tbl-wrap"><table class="pub"><thead><tr><th>日付</th><th>科目</th><th>用途</th><th class="r">金額</th></tr></thead><tbody>
-    ${asList(d.items).map(i=>`<tr><td style="white-space:nowrap">${fmtDate(i.date)}</td><td>${esc(i.account)}</td><td>${esc(i.purpose)}</td><td class="r" style="color:${i.type==='income'?'var(--stamp-navy)':'inherit'}">${i.type==='income'?'+':''}${yen(i.amount)}</td></tr>`).join('')}
-    </tbody></table></div></div>`;
+  if (d.items) {
+    const groups = asList(d.purposeGroups);
+    if (groups.length) html += `<div class="panel"><h3>用途別の集計 <small>何に使われたか・何から入ったか</small></h3><div class="tbl-wrap"><table class="pub"><thead><tr><th>科目</th><th>用途</th><th class="r">件数</th><th class="r">合計</th></tr></thead><tbody>
+      ${groups.map(g=>`<tr><td>${esc(g.account)}</td><td>${esc(g.purpose)}</td><td class="r">${Number(g.count)||0}件</td><td class="r" style="color:${g.type==='income'?'var(--stamp-navy)':'inherit'}">${g.type==='income'?'+':''}${yen(g.amount)}</td></tr>`).join('')}
+      </tbody></table></div></div>`;
+    html += `<div class="panel"><details><summary style="cursor:pointer;font-weight:800">個別明細を見る <small style="font-weight:400">${asList(d.items).length}件</small></summary><p class="hint">透明性のため、承認済みの伝票を日付・科目・用途・金額まで公開しています。支払先・支払者名・領収証画像・内部メモは公開しません。個人情報を含む用途は匿名表示しています。</p><div class="tbl-wrap"><table class="pub"><thead><tr><th>日付</th><th>科目</th><th>用途</th><th class="r">金額</th></tr></thead><tbody>
+      ${asList(d.items).map(i=>`<tr><td style="white-space:nowrap">${fmtDate(i.date)}</td><td>${esc(i.account)}</td><td>${esc(i.purpose)}</td><td class="r" style="color:${i.type==='income'?'var(--stamp-navy)':'inherit'}">${i.type==='income'?'+':''}${yen(i.amount)}</td></tr>`).join('')}
+      </tbody></table></div></details></div>`;
+  }
   if (d.audit && d.audit.comment) html += `<div class="panel"><h3>監査報告</h3><p style="margin:0;font-size:13.5px;line-height:1.7">${esc(d.audit.comment)}</p></div>`;
-  html += `<p class="hint" style="text-align:center">最終更新 ${fmtTs(d.updatedAt)}　／　支払先・個人名・領収証の画像は掲載していません。<br>領収証の原本は会計担当が保管しています。ご質問は役員までお寄せください。</p>
+  html += `<p class="hint" style="text-align:center">最終更新 ${fmtTs(d.updatedAt)}　／　支払先・支払者名・領収証画像・内部メモは掲載していません。<br>領収証の原本は会計担当が保管しています。ご質問は役員までお寄せください。</p>
     <div style="text-align:center"><button class="text-link" onclick="${me&&me.role==='report'?'auth.signOut()':'location.href=location.pathname'}">${me&&me.role==='report'?'ログアウト':'会計アプリへ戻る'}</button></div>`;
   body.innerHTML = html;
   body.querySelectorAll('[data-y]').forEach(b=>b.onclick=()=>renderPublic(years, Number(b.dataset.y)));
