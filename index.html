@@ -603,7 +603,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.03-67';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.03-69';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -3029,7 +3029,7 @@ async function renderAdmin(){
     <div class="form-card">
       <div class="cat-row"><span class="cname">データ取り込み<small>Excel・CSV、会費ペイ等の管理</small></span><button class="btn btn-navy sm" id="adminImport">開く</button></div>
       <div class="cat-row"><span class="cname">バックアップ<small>Firebaseバックアップ・初期化等</small></span><button class="btn btn-navy sm" id="adminBackup">実行</button></div>
-      <div class="cat-row"><span class="cname">メール通知<small>Apps Script URL・通知設定</small></span><button class="btn btn-navy sm" id="adminNotify">設定</button></div>
+      <div class="cat-row"><span class="cname">通知・AI共通GAS<small>Apps Script URL・通知・AI設定</small></span><button class="btn btn-navy sm" id="adminNotify">設定</button></div>
     </div>
     <div id="adminToolPanel"></div>
     <h2 class="section-title" style="margin-top:20px">個人情報保護・運用</h2>
@@ -3041,7 +3041,7 @@ async function renderAdmin(){
       <div style="font-weight:700;font-size:13.5px;margin-bottom:6px">Claude AI中継</div>
       <p class="hint" style="margin-top:0">メール通知と同じGoogle Apps Scriptを使ってAI読取を中継します。Claude APIキーはアプリやFirebaseには保存せず、GASのScript Propertiesだけで管理します。</p>
       <p style="margin:8px 0;font-size:13.5px"><b>共通GAS：</b>${settings.notifyUrl?'設定済み':'未設定'}</p>
-      <p class="hint">GAS URLの変更は「承認依頼のメール通知」で行います。AI専用URLの登録は不要です。</p>
+      <p class="hint">GAS URLの変更は「通知・AI共通GAS」で行います。AI専用URLの登録は不要です。</p>
     </div>`;
 
 
@@ -3106,7 +3106,7 @@ async function renderAdmin(){
     $('admBackupNow').onclick=async()=>{const b=$('admBackupNow');b.disabled=true;try{await createFirebaseBackup('manual');showToast('バックアップを作成しました');}catch(e){console.error(e);showToast('バックアップに失敗しました');}finally{b.disabled=false;}};
     $('admResetPreview').onclick=async()=>{const box=$('admResetBox');try{const p=await getResetPreview();box.innerHTML=`<div class="audit-box" style="border-color:var(--stamp-red)">${p.rows.filter(x=>x.count).map(x=>`<div class="total-check"><span>${esc(x.label)}</span><b>${x.count}件</b></div>`).join('')||'<p class="hint">削除対象はありません。</p>'}<div class="total-check"><span>合計</span><b>${p.total}件</b></div>${p.total?'<button class="btn btn-danger full" id="admResetRun">試行データを初期化する</button>':''}</div>`;if($('admResetRun'))$('admResetRun').onclick=resetTrialData;}catch(e){console.error(e);box.innerHTML='<p class="hint" style="color:var(--stamp-red)">確認できませんでした。</p>';}};
   };
-  if($('adminNotify')) $('adminNotify').onclick=()=>{tool.innerHTML=`<div class="form-card"><b>通知・AI共通GAS</b><div class="field"><label>通知・AI共通 Apps Script URL</label><input type="text" id="admNUrl" value="${esc(settings.notifyUrl||'')}"></div><label class="check-line"><input type="checkbox" id="admNEntry" ${settings.notifyOnEntry!==false?'checked':''}> 支出申請の承認依頼を通知</label><div class="btn-row" style="margin-top:12px"><button class="btn btn-ghost" id="admNTest">テスト送信</button><button class="btn btn-primary" id="admNSave">保存</button></div></div>`;$('admNSave').onclick=async()=>{const u=$('admNUrl').value.trim();if(u&&!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(u))return showToast('URLは https://script.google.com/macros/s/…/exec の形です');await R('settings').update({notifyUrl:u,notifyOnEntry:$('admNEntry').checked});settings.notifyUrl=u;settings.notifyOnEntry=$('admNEntry').checked;await syncRecipients();showToast('通知・AI共通GAS設定を保存しました');};$('admNTest').onclick=async()=>{const u=$('admNUrl').value.trim();if(!u)return showToast('URLを入力してください');await notify('test',{},u);showToast('テスト送信を依頼しました');};};
+  if($('adminNotify')) $('adminNotify').onclick=()=>{tool.innerHTML=`<div class="form-card"><b>通知・AI共通GAS</b><div class="field"><label>通知・AI共通 Apps Script URL</label><input type="text" id="admNUrl" value="${esc(settings.notifyUrl||'')}"></div><label class="check-line"><input type="checkbox" id="admNEntry" ${settings.notifyOnEntry!==false?'checked':''}> 支出申請の承認依頼を通知</label><div class="btn-row" style="margin-top:12px"><button class="btn btn-ghost" id="admNTest">テスト送信</button><button class="btn btn-primary" id="admNSave">保存</button></div></div>`;$('admNSave').onclick=async()=>{const u=$('admNUrl').value.trim();if(u&&!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(u))return showToast('URLは https://script.google.com/macros/s/…/exec の形です');await R('settings').update({notifyUrl:u,notifyOnEntry:$('admNEntry').checked});settings.notifyUrl=u;settings.notifyOnEntry=$('admNEntry').checked;await syncRecipients();showToast('通知・AI共通GAS設定を保存しました');};$('admNTest').onclick=async()=>{const u=$('admNUrl').value.trim();if(!u)return showToast('URLを入力してください');const b=$('admNTest');b.disabled=true;b.textContent='送信中…';const r=await notify('test',{},u);b.disabled=false;b.textContent='テスト送信';showToast(r&&r.ok?`テストメールを送りました（${(r.recipients||[]).join('、')}）`:`送信できませんでした：${r&&r.error||'不明なエラー'}`);};};
 }
 
 /* =========================================================
