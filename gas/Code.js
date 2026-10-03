@@ -1,6 +1,6 @@
 /**
  * 町内会 会計簿 ― 承認依頼のメール通知（Google Apps Script）
- * 2026.10.01-29 対応版
+ * 2026.10.03-66 統合版（メール通知＋Claude AI）
  *
  * 通知先：
  *  ・役員／支払者からの通常申請 → 会計担当
@@ -20,48 +20,37 @@ const MAX_PER_HOUR = 40;
 // APIキーはGASのScript Propertiesにだけ保存し、HTML/Firebaseには保存しない。
 const CLAUDE_MODEL = 'claude-sonnet-4-6';
 const CLAUDE_MAX_IMAGES = 4;
-const CLAUDE_MAX_IMAGE_CHARS = 8 * 1024 * 1024; // base64文字列/枚
+const CLAUDE_MAX_IMAGE_CHARS = 5 * 1024 * 1024; // base64文字列/枚
 const CLAUDE_MAX_PER_HOUR = 30;
 
 function doPost(e) {
   let req = {};
   try {
-    const raw = (e && e.parameter && e.parameter.payload) ? e.parameter.payload : (e && e.postData ? e.postData.contents : '');
-    if (!raw) throw new Error('送信内容がありません');
-    req = JSON.parse(raw);
-    const user = verifyUser_(req.idToken);
-
-    // AIは画像を含みメール通知より負荷が高いため、専用のレート制限を使う。
-    if (req.action === 'claude') {
-      if (!claudeRateOk_(user.uid)) {
-        return claudeResponse_(req.requestId, false, null, 'AIの利用回数が多すぎます。しばらく待ってください');
-      }
-      try {
-        return claudeResponse_(req.requestId, true, claude_(user, req), null);
-      } catch (aiErr) {
-        return claudeResponse_(req.requestId, false, null, String(aiErr.message || aiErr));
-      }
+    const raw=(e&&e.parameter&&e.parameter.payload)?e.parameter.payload:(e&&e.postData?e.postData.contents:'');
+    if(!raw)throw new Error('送信内容がありません');
+    req=JSON.parse(raw);
+    const user=verifyUser_(req.idToken);
+    if(req.action==='claude'){
+      if(!claudeRateOk_(user.uid))throw new Error('AIの利用回数が多すぎます。しばらく待ってください');
+      return bridgeResponse_(req.requestId,true,claude_(user,req),null);
     }
-
-    const appUrl = APP_URL;
-    if (!rateOk_(user.uid)) return json_({ ok:false, error:'送信回数が多すぎます。しばらく待ってください' });
-
-    switch (req.action) {
-      case 'register': return json_(register_(user));
-      case 'test':     return json_(test_(user, appUrl));
-      case 'entry':    return json_(entry_(user, req.entryIds || [], appUrl));
-      case 'cashFeeReturn': return json_(cashFeeReturn_(user, req.entryId || '', appUrl));
-      case 'cashFeeComplete': return json_(cashFeeComplete_(user, req.entryId || '', appUrl));
-      case 'settlementConfirm': return json_(settlementConfirm_(user, req.settlementId || '', appUrl));
-      case 'member':   return json_(member_(user, appUrl));
-      default:         return json_({ ok:false, error:'不明な操作です' });
+    if(!rateOk_(user.uid))throw new Error('送信回数が多すぎます。しばらく待ってください');
+    const appUrl=APP_URL;
+    let result;
+    switch(req.action){
+      case 'register':result=register_(user);break;
+      case 'test':result=test_(user,appUrl);break;
+      case 'entry':result=entry_(user,req.entryIds||[],appUrl);break;
+      case 'cashFeeReturn':result=cashFeeReturn_(user,req.entryId||'',appUrl);break;
+      case 'cashFeeComplete':result=cashFeeComplete_(user,req.entryId||'',appUrl);break;
+      case 'settlementConfirm':result=settlementConfirm_(user,req.settlementId||'',appUrl);break;
+      case 'member':result=member_(user,appUrl);break;
+      default:throw new Error('不明な操作です');
     }
-  } catch (err) {
-    // Claudeはhidden iframeから呼ばれるため、エラーもpostMessage形式で返す。
-    if (req && req.action === 'claude') {
-      return claudeResponse_(req.requestId, false, null, String(err.message || err));
-    }
-    return json_({ ok:false, error:String(err.message || err) });
+    return bridgeResponse_(req.requestId,true,result,null);
+  }catch(err){
+    if(req&&req.requestId)return bridgeResponse_(req.requestId,false,null,String(err.message||err));
+    return json_({ok:false,error:String(err.message||err)});
   }
 }
 function doGet() { return json_({ ok:true, message:'会計簿メール通知は動作しています' }); }
@@ -440,24 +429,14 @@ function claudeRateOk_(uid) {
   return true;
 }
 
-function claudeResponse_(requestId, ok, result, error) {
-  const obj = {
-    source:'ogawa-claude-proxy',
-    requestId:String(requestId || ''),
-    ok:!!ok
-  };
-  if (ok) obj.result = result;
-  else obj.error = String(error || 'AIの読み取りに失敗しました');
-
-  // hidden iframe内で実行し、親画面へ結果をpostMessageする。
-  // '<'をUnicodeエスケープしてscriptタグ等の混入を防ぐ。
-  const json = JSON.stringify(obj).replace(/</g, '\\u003c');
-  const html =
-    '<!doctype html><html><head><meta charset="utf-8"></head><body>' +
-    '<script>window.parent.postMessage(' + json + ', "*");<\\/script>' +
-    '</body></html>';
-  return HtmlService.createHtmlOutput(html)
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+function bridgeResponse_(requestId,ok,result,error){
+  const isClaude=String(requestId||'').indexOf('ai_')===0;
+  const obj={source:isClaude?'ogawa-claude-proxy':'ogawa-accounting-gas',requestId:String(requestId||''),ok:!!ok};
+  if(ok)obj.result=result;else obj.error=String(error||'処理に失敗しました');
+  const json=JSON.stringify(obj).replace(/</g,'\\u003c');
+  const html='<!doctype html><html><head><meta charset="utf-8"></head><body>'+
+    '<script>window.parent.postMessage('+json+', "*");<\\/script></body></html>';
+  return HtmlService.createHtmlOutput(html).setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
 /* ---------- 共通 ---------- */
