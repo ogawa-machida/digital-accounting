@@ -1,6 +1,6 @@
 /**
  * 町内会 会計簿 ― 承認依頼のメール通知（Google Apps Script）
- * 2026.10.03-66 統合版（メール通知＋Claude AI）
+ * 2026.10.03-69 統合版（通知＋Claude AI・管理者対応）
  *
  * 通知先：
  *  ・役員／支払者からの通常申請 → 会計担当
@@ -79,13 +79,13 @@ function read_(path, token) {
 
 /* ---------- 通知先 ----------
  * GASのScript Propertiesには、会計担当と役員を役割別に保存する。
- * registerは会計担当だけが実行でき、Firebaseの現在のmembersから再作成する。
+ * registerは会計担当または管理者が実行でき、Firebaseの現在のmembersから再作成する。
  */
 function register_(user) {
-  if (user.role !== 'treasurer') throw new Error('送信先の登録は会計担当のみできます');
+  if (!['treasurer','admin'].includes(user.role)) throw new Error('送信先の登録は会計担当または管理者のみできます');
   const members = read_('members', user.token) || {};
   const values = Object.keys(members).map(k => members[k] || {});
-  const treasurers = uniqueEmails_(values.filter(m => m.role === 'treasurer').map(m => m.email));
+  const treasurers = uniqueEmails_(values.filter(m => m.role === 'treasurer' || m.role === 'admin').map(m => m.email));
   const viewers = uniqueEmails_(values.filter(m => m.role === 'viewer').map(m => m.email));
   const props = PropertiesService.getScriptProperties();
   props.setProperty('TREASURER_RECIPIENTS', JSON.stringify(treasurers));
@@ -114,7 +114,7 @@ function uniqueEmails_(list) {
 
 /* ---------- 各通知 ---------- */
 function test_(user, appUrl) {
-  if (user.role !== 'treasurer') throw new Error('テスト送信は会計担当のみできます');
+  if (!['treasurer','admin'].includes(user.role)) throw new Error('テスト送信は会計担当または管理者のみできます');
   const treasurers = recipientsByRole_('treasurer');
   const viewers = recipientsByRole_('viewer');
   const to = uniqueEmails_(treasurers.concat(viewers));
