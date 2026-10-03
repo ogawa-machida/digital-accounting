@@ -602,7 +602,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.03-61';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.03-62';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1492,7 +1492,7 @@ function slipHTML(e){
         <div class="tags">
           ${acc?`<span class="stamp-tag" style="border-color:${acc.color};color:${acc.color}">${esc(acc.name)}</span>`:''}
           ${m?`<span class="stamp-tag" style="border-color:var(--line);color:var(--ink-soft)">${esc(m.name)}</span>`:''}
-          ${statusTag(e)}${settleTag(e)}${auditTag(e)}
+          ${statusTag(e)}${settleTag(e)}${aiEditTag(e)}${auditTag(e)}
         </div>
       </div>
     </div>
@@ -1816,6 +1816,7 @@ let formType = 'expense';
 let formPhotos = [];      // dataURLの配列
 let photosChanged = false;
 let formAccount = '', formMethod = '', formAddressee = '';
+let formAiOriginal = null; // AI読取原値。人が修正しても保持
 
 async function openForm(e){
   if (canOwnSubmit() && !me.payerId) { showToast('立替・仮払の対象設定が済んでいません'); return; }
@@ -1825,6 +1826,7 @@ async function openForm(e){
   formAccount = e ? e.accountId : '';
   formMethod = e ? e.methodId : '';
   formAddressee = e ? (e.addressee||'') : '';
+  formAiOriginal = e && e.aiAudit && e.aiAudit.original ? {...e.aiAudit.original} : null;
   formPhotos = []; photosChanged = false;
   $('formTitle').textContent = e ? `${e.voucherNo||''} を修正` : (canOwnSubmit() ? '支出を申請' : '収入・支出を登録');
   $('fTypeField').style.display = (isT() && !e) ? 'block' : 'none';
@@ -2104,6 +2106,12 @@ async function runAi(dataUrls){
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> AIが読み取り中…';
   try {
     const r = await recognizeReceipt(dataUrls, formType);
+    formAiOriginal = {
+      date:r.date||'', payee:r.payee||'', amount:Number(r.amount)||0,
+      memo:r.items||'', purpose:r.purpose||'', accountId:r.accountId||'',
+      methodId:suggestMethod(r.payMethod, isP() || !!$('fPayer').value)||'',
+      addressee:r.addressee||''
+    };
     if (r.date) $('fDate').value = r.date;
     if (r.payee) $('fPayee').value = r.payee;
     if (r.amount) $('fAmount').value = r.amount;
@@ -2130,6 +2138,35 @@ function addresseeWarning(a){
   const core = orgCore();
   if (core && !a.includes(core)) return `宛名が「${a}」です（団体名ではありません）`;
   return '';
+}
+
+
+function aiValueLabel(k,v){
+  if(k==='accountId') return accById(v)?.name||'未設定';
+  if(k==='methodId') return methodById(v)?.name||'未設定';
+  if(k==='amount') return yen(Number(v)||0);
+  return String(v??'') || '未入力';
+}
+function buildAiAudit(original, finalData, previous){
+  const base=original || previous?.original;
+  if(!base) return previous || null;
+  const fields={date:'日付',payee:'支払先',amount:'金額',memo:'品目・メモ',purpose:'用途',accountId:'科目',methodId:'支払方法',addressee:'宛名'};
+  const changes=[];
+  Object.entries(fields).forEach(([k,label])=>{
+    const a=k==='amount'?Number(base[k]||0):String(base[k]??'');
+    const b=k==='amount'?Number(finalData[k]||0):String(finalData[k]??'');
+    if(a!==b) changes.push({field:k,label,from:base[k]??'',to:finalData[k]??''});
+  });
+  const now=TS();
+  return {original:{...base},model:'claude-sonnet-4-6',readAt:previous?.readAt||now,
+    corrected:changes.length>0,changes,correctedAt:changes.length?now:null,
+    correctedBy:changes.length?(me?.uid||''):null,correctedByName:changes.length?(me?.name||''):null};
+}
+function aiEditTag(e){
+  if(!e?.aiAudit) return '';
+  return e.aiAudit.corrected
+    ? `<span class="stamp-tag" style="border-color:var(--amber);color:var(--amber)">AI読取後に修正</span>`
+    : `<span class="stamp-tag" style="border-color:var(--moss);color:var(--moss)">AI読取</span>`;
 }
 
 /* ---------- 保存 ---------- */
@@ -2162,7 +2199,10 @@ async function persistEntry(prev, f, photos, photosChanged){
     createdBy: p.createdBy || me.uid, createdByName: p.createdByName || me.name,
     createdAt: p.createdAt || TS(),
     updatedAt: TS(), updatedByName: me.name
-  };  if(isTestMode()){ data.testMode=true; data.testRole=testProfile; data.testActor=realMe?.name||''; }
+  };
+  const aiAudit=buildAiAudit(formAiOriginal,data,p.aiAudit);
+  if(aiAudit) data.aiAudit=aiAudit;
+  if(isTestMode()){ data.testMode=true; data.testRole=testProfile; data.testActor=realMe?.name||''; }
 
   delete data.id; delete data._via;
   await ref.set(data);
@@ -2170,6 +2210,10 @@ async function persistEntry(prev, f, photos, photosChanged){
   const st = data.storageLocation;
   if (!isTestMode() && st && !storageTags.includes(st)) { storageTags.push(st); R('storageTags').push().set({name:st}).catch(()=>{}); }
   const changes = prev ? diffText(prev, data) : '';
+  if(data.aiAudit?.corrected){
+    const aiChanges=(data.aiAudit.changes||[]).map(c=>`${c.label}：${aiValueLabel(c.field,c.from)}→${aiValueLabel(c.field,c.to)}`).join('／');
+    if(aiChanges && (!prev?.aiAudit?.corrected || JSON.stringify(prev.aiAudit.changes||[])!==JSON.stringify(data.aiAudit.changes||[]))) writeLog('AI読取後修正',data,aiChanges);
+  }
   // 会計が承認前の申請内容を直した場合は、伝票内にも構造化した訂正履歴を残す。
   if (prev && isT() && prev.status==='submitted' && changes) {
     const h = R(`entries/${ref.key}/accountingEdits`).push();
@@ -2252,7 +2296,7 @@ async function renderDetail(id){
   <div class="form-card">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
       <div><span class="voucher" style="font-size:13px">${esc(e.voucherNo||'')}</span><span class="hint">${inc?'収入':'支出'}</span></div>
-      <div class="tags" style="margin:0">${statusTag(e)}${settleTag(e)}${auditTag(e)}</div>
+      <div class="tags" style="margin:0">${statusTag(e)}${settleTag(e)}${aiEditTag(e)}${auditTag(e)}</div>
     </div>
     <div class="big-amount" style="color:${inc?'var(--stamp-navy)':'var(--ink)'}">${inc?'+':''}${yen(e.amount)}</div>
     ${e.status==='returned' ? `<div class="notice" style="cursor:default"><span class="n-body">差戻しの理由<span class="n-sub" style="color:var(--ink);font-size:13px">${e.cashFeeRequest&&e.cashFeeActualAmount!=null?`申告額：${yen(e.cashFeeDeclaredAmount||e.amount)} ／ 会計確認額：${yen(e.cashFeeActualAmount)} ／ 差額：${Number(e.cashFeeActualAmount)-Number(e.cashFeeDeclaredAmount||e.amount)>=0?'+':''}${yen(Number(e.cashFeeActualAmount)-Number(e.cashFeeDeclaredAmount||e.amount))}<br>`:''}${esc(e.returnReason||'')}</span></span></div>` : ''}
@@ -2273,6 +2317,11 @@ async function renderDetail(id){
     </dl>
     <p class="history">${e.imported?'📥 CSV・Excelから取り込んだ伝票<br>':''}登録：${esc(e.createdByName||'')} ${fmtTs(e.createdAt)}${e.updatedByName?`<br>最終更新：${esc(e.updatedByName)} ${fmtTs(e.updatedAt)}`:''}${e.approvedByName?`<br>承認：${esc(e.approvedByName)} ${fmtTs(e.approvedAt)}`:''}</p>
   </div>
+  ${e.aiAudit ? `<div class="audit-box" style="border-color:${e.aiAudit.corrected?'var(--amber)':'var(--moss)'};margin-bottom:12px">
+    <div style="font-weight:700;font-size:13.5px">${e.aiAudit.corrected?'🟠 AI読取後に修正があります':'🤖 AI読取値のまま保存されています'}</div>
+    <p class="hint" style="margin:4px 0 0">AI読取：${fmtTs(e.aiAudit.readAt)}${e.aiAudit.corrected?` ／ 修正：${esc(e.aiAudit.correctedByName||'')} ${fmtTs(e.aiAudit.correctedAt)}`:''}</p>
+    ${e.aiAudit.corrected?`<div style="margin-top:8px">${(e.aiAudit.changes||[]).map(c=>`<div style="font-size:13px;padding:5px 0;border-top:1px dashed var(--line)"><b>${esc(c.label)}</b>　<span style="text-decoration:line-through;color:var(--ink-soft)">${esc(aiValueLabel(c.field,c.from))}</span> → <b>${esc(aiValueLabel(c.field,c.to))}</b></div>`).join('')}</div>`:''}
+  </div>` : ''}
 
   <div class="form-card"><div class="field" style="margin:0"><label>証憑写真</label><div id="detailPhotos" class="detail-photos">${e.photoCount?'<p class="hint">読み込み中…</p>':'<p class="hint">写真はありません</p>'}</div></div></div>`;
 
@@ -2723,6 +2772,7 @@ function renderAudit(){
   const noEvidence=ap.filter(e=>e.type==='expense' && !e.photoCount && !e.noReceipt && !e.imported).length;
   const stale=ap.filter(e=>e.auditStale).length;
   const unresolvedIssue=issue.filter(e=>!e.audit?.response).length;
+  const aiCorrected=ap.filter(e=>e.aiAudit?.corrected);
   const moneyOK=latestRecon && Number(latestRecon.diff)===0;
   const checklist=report?.checklist||{};
 
@@ -2737,7 +2787,7 @@ function renderAudit(){
       ${card('現預金照合',latestRecon?(moneyOK?'差額 0円':'差額 '+yen(Number(latestRecon.diff)||0)):'未確認',
         latestRecon?`${fmtTs(latestRecon.at)}　JA ${yen(Number(latestRecon.bank)||0)}／現金 ${yen(Number(latestRecon.cash)||0)}／仮払 ${yen(Number(latestRecon.pendingAdvance)||0)}`:'会計担当が「現預金残高の確認」を記録すると表示されます',latestRecon?moneyOK:false)}
       ${card('未確認伝票',`${todo.length}件`,`確認済み ${ok.length+issue.length}/${ap.length}件${stale?`・監査後修正 ${stale}件`:''}`,todo.length===0)}
-      ${card('要確認事項',`${exceptionCount}件`,`未確認証憑 ${noEvidence}件${unresolvedIssue?`・未回答の監査指摘 ${unresolvedIssue}件`:''}`,exceptionCount===0&&unresolvedIssue===0)}
+      ${card('要確認事項',`${exceptionCount}件`,`未確認証憑 ${noEvidence}件${aiCorrected.length?`・AI読取後修正 ${aiCorrected.length}件`:''}${unresolvedIssue?`・未回答の監査指摘 ${unresolvedIssue}件`:''}`,exceptionCount===0&&unresolvedIssue===0)}
     </div>
     ${report?`<div class="audit-box" style="border-color:var(--moss);margin-top:12px"><b style="color:var(--moss)">✓ 監査完了記録</b><div class="hint">${fmtTs(report.at)}　${esc(report.byName)}</div>${report.comment?`<div style="margin-top:5px;font-size:13px">${esc(report.comment)}</div>`:''}</div>`:''}
   </div>`;
@@ -2774,8 +2824,8 @@ function renderAudit(){
   }
 
   const f=auditFilter;
-  const list=f==='todo'?todo:f==='issue'?issue:f==='ok'?ok:ap;
-  html+=`<div class="filter-bar">${[['todo','未確認',todo.length],['issue','指摘',issue.length],['ok','確認済み',ok.length],['all','すべて',ap.length]].map(([k,l,n])=>`<button class="chip ${f===k?'active':''}" data-f="${k}">${l}<span class="cnt">${n}</span></button>`).join('')}</div>`;
+  const list=f==='todo'?todo:f==='issue'?issue:f==='ai'?aiCorrected:f==='ok'?ok:ap;
+  html+=`<div class="filter-bar">${[['todo','未確認',todo.length],['ai','AI修正あり',aiCorrected.length],['issue','指摘',issue.length],['ok','確認済み',ok.length],['all','すべて',ap.length]].map(([k,l,n])=>`<button class="chip ${f===k?'active':''}" data-f="${k}">${l}<span class="cnt">${n}</span></button>`).join('')}</div>`;
   html+=list.length?list.map(slipHTML).join(''):`<div class="empty" style="padding:24px">該当する伝票はありません</div>`;
 
   html+=`<details class="panel" style="margin-top:16px"><summary style="font-family:'Shippori Mincho',serif;font-weight:700;cursor:pointer">データ出力・印刷（必要な場合のみ）</summary>
@@ -2960,6 +3010,15 @@ async function renderAdmin(){
   const rows=Object.entries(groups).sort((a,b)=>b[1].reduce((n,v)=>n+v,0)-a[1].reduce((n,v)=>n+v,0))
     .map(([k,a])=>`<div class="cat-row"><span class="cname">${esc(labels[k]||k)}<small>${a.length}件・中央値 ${fmtDur(median(a))}</small></span><b>${fmtDur(a.reduce((n,v)=>n+v,0))}</b></div>`).join('');
   el.innerHTML=`
+    <h2 class="section-title">個人情報保護・運用</h2>
+    <div class="form-card">
+      <p class="hint" style="margin-top:0">利用目的：自治会の会計処理、支払・精算、監査、決算およびこれらに必要な連絡。必要最小限の情報を扱い、役割ごとに閲覧範囲を分けます。</p>
+      <div class="audit-box">
+        <b>管理者チェック</b>
+        <div class="hint" style="line-height:1.8;margin-top:5px">✓ 初回登録時に利用目的を表示<br>✓ 権限別アクセス制御<br>✓ 修正・承認・監査・権限変更等を履歴化<br>✓ AI読取原値と人による修正値を分離保存<br>✓ バックアップ・システム設定は管理者限定<br>△ 保存期間・年度終了後の削除基準は自治会規程として確定が必要<br>△ 外部AI・クラウドの取扱条件と国外取扱いは定期確認が必要</div>
+      </div>
+      <p class="hint" style="margin-bottom:0">アプリ機能だけで法令適合が完結するものではありません。自治会の規程、利用目的の通知、委託先管理、事故対応等と合わせて運用します。</p>
+    </div>
     <h2 class="section-title">業務時間・導入効果</h2>
     <div class="form-card">
       <div class="total-check"><span>${curFY}年度 自動計測（本番）</span><b>${officialMetrics.length}件</b></div><div class="total-check"><span>テスト計測</span><b>${testMetrics.length}件</b></div>
