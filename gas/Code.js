@@ -1,6 +1,6 @@
 /**
  * 町内会 会計簿 ― 承認依頼のメール通知（Google Apps Script）
- * 2026.10.03-71 統合版（GAS応答経路修正）
+ * 2026.10.03-72 統合版（Firebase応答チャネル）
  *
  * 通知先：
  *  ・役員／支払者からの通常申請 → 会計担当
@@ -24,32 +24,39 @@ const CLAUDE_MAX_IMAGE_CHARS = 5 * 1024 * 1024; // base64文字列/枚
 const CLAUDE_MAX_PER_HOUR = 30;
 
 function doPost(e) {
-  let req = {};
+  let req={}, user=null;
   try {
     const raw=(e&&e.parameter&&e.parameter.payload)?e.parameter.payload:(e&&e.postData?e.postData.contents:'');
     if(!raw)throw new Error('送信内容がありません');
     req=JSON.parse(raw);
-    const user=verifyUser_(req.idToken);
+    user=verifyUser_(req.idToken);
+
+    let result;
     if(req.action==='claude'){
       if(!claudeRateOk_(user.uid))throw new Error('AIの利用回数が多すぎます。しばらく待ってください');
-      return bridgeResponse_(req.requestId,true,claude_(user,req),null);
+      result=claude_(user,req);
+    }else{
+      if(!rateOk_(user.uid))throw new Error('送信回数が多すぎます。しばらく待ってください');
+      const appUrl=APP_URL;
+      switch(req.action){
+        case 'register':result=register_(user);break;
+        case 'test':result=test_(user,appUrl);break;
+        case 'entry':result=entry_(user,req.entryIds||[],appUrl);break;
+        case 'cashFeeReturn':result=cashFeeReturn_(user,req.entryId||'',appUrl);break;
+        case 'cashFeeComplete':result=cashFeeComplete_(user,req.entryId||'',appUrl);break;
+        case 'settlementConfirm':result=settlementConfirm_(user,req.settlementId||'',appUrl);break;
+        case 'member':result=member_(user,appUrl);break;
+        default:throw new Error('不明な操作です');
+      }
     }
-    if(!rateOk_(user.uid))throw new Error('送信回数が多すぎます。しばらく待ってください');
-    const appUrl=APP_URL;
-    let result;
-    switch(req.action){
-      case 'register':result=register_(user);break;
-      case 'test':result=test_(user,appUrl);break;
-      case 'entry':result=entry_(user,req.entryIds||[],appUrl);break;
-      case 'cashFeeReturn':result=cashFeeReturn_(user,req.entryId||'',appUrl);break;
-      case 'cashFeeComplete':result=cashFeeComplete_(user,req.entryId||'',appUrl);break;
-      case 'settlementConfirm':result=settlementConfirm_(user,req.settlementId||'',appUrl);break;
-      case 'member':result=member_(user,appUrl);break;
-      default:throw new Error('不明な操作です');
-    }
-    return bridgeResponse_(req.requestId,true,result,null);
+    writeGasResponse_(user,req.requestId,true,result,null);
+    return json_({ok:true,accepted:true});
   }catch(err){
-    if(req&&req.requestId)return bridgeResponse_(req.requestId,false,null,String(err.message||err));
+    if(user&&req&&req.requestId){
+      try{writeGasResponse_(user,req.requestId,false,null,String(err.message||err));}catch(writeErr){
+        console.error('GAS応答のFirebase書込失敗: '+String(writeErr.message||writeErr));
+      }
+    }
     return json_({ok:false,error:String(err.message||err)});
   }
 }
@@ -429,14 +436,27 @@ function claudeRateOk_(uid) {
   return true;
 }
 
-function bridgeResponse_(requestId,ok,result,error){
-  const isClaude=String(requestId||'').indexOf('ai_')===0;
-  const obj={source:isClaude?'ogawa-claude-proxy':'ogawa-accounting-gas',requestId:String(requestId||''),ok:!!ok};
-  if(ok)obj.result=result;else obj.error=String(error||'処理に失敗しました');
-  const json=JSON.stringify(obj).replace(/</g,'\\u003c');
-  const html='<!doctype html><html><head><meta charset="utf-8"></head><body>'+
-    '<script>window.top.postMessage('+json+', "*");<\\/script></body></html>';
-  return HtmlService.createHtmlOutput(html).setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+function writeGasResponse_(user,requestId,ok,result,error){
+  if(!user||!user.uid||!user.token)throw new Error('応答書込用の認証情報がありません');
+  if(!requestId||!/^[A-Za-z0-9_-]{8,160}$/.test(String(requestId)))throw new Error('requestIdが不正です');
+  const body={
+    requestId:String(requestId),
+    ok:!!ok,
+    at:Date.now()
+  };
+  if(ok)body.result=result;
+  else body.error=String(error||'処理に失敗しました');
+
+  const url=DB_URL+'/'+ROOT+'/gasResponses/'+encodeURIComponent(user.uid)+'/'+encodeURIComponent(String(requestId))+'.json?auth='+encodeURIComponent(user.token);
+  const res=UrlFetchApp.fetch(url,{
+    method:'put',
+    contentType:'application/json',
+    payload:JSON.stringify(body),
+    muteHttpExceptions:true
+  });
+  const code=res.getResponseCode();
+  if(code<200||code>=300)throw new Error('Firebaseへの応答書込みに失敗しました（'+code+'）');
+  return true;
 }
 
 /* ---------- 共通 ---------- */
