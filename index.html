@@ -603,7 +603,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.03-65';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.03-67';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -881,40 +881,35 @@ function writeLog(action, e, detail){
    でたらめな内容の送信はできない。 */
 async function notify(action, extra, url){
   if(isTestMode()) return {ok:true, skipped:true, testMode:true};
-  const target = url || settings.notifyUrl;
-  if (!target || !auth || !auth.currentUser) return { ok:false, error:'通知先URLが未設定です' };
+  const target = String(url || settings.notifyUrl || '').trim();
+  if (!target || !auth || !auth.currentUser) return { ok:false, error:'通知・AI共通Apps Script URLが未設定です' };
+  const requestId = `gas_${Date.now()}_${Math.random().toString(36).slice(2)}`;
   try {
     const idToken = await auth.currentUser.getIdToken();
-    const payload = JSON.stringify({ action, idToken, appUrl: location.origin + location.pathname, ...(extra||{}) });
-
-    /* GitHub Pages → Apps Script は fetch/CORS の相性で POST 自体が届かない端末がある。
-       HTML form の通常POSTはブラウザ標準のクロスオリジン送信なので、CORSに阻まれず
-       GAS の doPost まで確実に届けられる。応答は hidden iframe に受ける。 */
-    let frame = document.getElementById('gasNotifyFrame');
-    if (!frame) {
-      frame = document.createElement('iframe');
-      frame.id = 'gasNotifyFrame';
-      frame.name = 'gasNotifyFrame';
-      frame.style.display = 'none';
-      document.body.appendChild(frame);
-    }
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = target;
-    form.target = 'gasNotifyFrame';
-    form.style.display = 'none';
-    const input = document.createElement('input');
-    input.type = 'hidden';
-    input.name = 'payload';
-    input.value = payload;
-    form.appendChild(input);
-    document.body.appendChild(form);
-    form.submit();
-    setTimeout(()=>form.remove(), 1500);
-    return { ok:true, dispatched:true };
-  } catch(e) {
-    console.warn('メール通知の送信依頼に失敗', e);
-    return { ok:false, error:String(e.message||e) };
+    const payload = JSON.stringify({action,requestId,idToken,appUrl:location.origin+location.pathname,...(extra||{})});
+    return await new Promise((resolve)=>{
+      let settled=false;
+      const frame=document.createElement('iframe');
+      frame.name=`gasFrame_${requestId}`; frame.style.display='none'; document.body.appendChild(frame);
+      const cleanup=()=>{window.removeEventListener('message',onMessage);setTimeout(()=>frame.remove(),100);};
+      const finish=(r)=>{if(settled)return;settled=true;cleanup();resolve(r);};
+      const onMessage=(ev)=>{
+        if(ev.source!==frame.contentWindow)return;
+        const d=ev.data||{};
+        if(d.source!=='ogawa-accounting-gas'||d.requestId!==requestId)return;
+        finish(d.ok?(d.result||{ok:true}):{ok:false,error:d.error||'GAS処理に失敗しました'});
+      };
+      window.addEventListener('message',onMessage);
+      const form=document.createElement('form');
+      form.method='POST';form.action=target;form.target=frame.name;form.style.display='none';
+      const input=document.createElement('input');input.type='hidden';input.name='payload';input.value=payload;
+      form.appendChild(input);document.body.appendChild(form);form.submit();
+      setTimeout(()=>form.remove(),1500);
+      setTimeout(()=>finish({ok:false,error:'GASから60秒以内に応答がありませんでした'}),60000);
+    });
+  }catch(e){
+    console.warn('GAS処理の送信に失敗',e);
+    return {ok:false,error:String(e.message||e)};
   }
 }
 function notifyEntries(ids){
@@ -2053,10 +2048,10 @@ async function compressImage(src,maxSize=1400,quality=0.76){
 /* ---------- AI読み取り ----------
    Claude APIキーはブラウザ/Firebaseには置かず、専用GASのScript Propertiesで管理する。
    画像・指示・Firebase IDトークンだけをGASへ送り、GASがClaude APIを中継する。 */
-function aiProxyConfigured(){ return !!String(settings.notifyUrl||settings.aiProxyUrl||'').trim(); }
+function aiProxyConfigured(){ return !!String(settings.notifyUrl||'').trim(); }
 
 async function callClaude(images, system, prompt, maxTokens){
-  const target = String(settings.notifyUrl||settings.aiProxyUrl||'').trim();
+  const target = String(settings.notifyUrl||'').trim();
   if (!target) throw new Error('NOPROXY');
   if (!auth || !auth.currentUser) throw new Error('NOAUTH');
 
@@ -3053,7 +3048,7 @@ async function renderAdmin(){
   const adminList=$('adminMemberList'), addPanel=$('adminAddPanel');
   const admins=members.filter(m=>m.role==='admin');
   if(adminList) adminList.innerHTML=admins.length?admins.map(m=>`<div class="cat-row"><span class="cname">${esc(m.name||m.email)}<small>${esc(m.email||'')}${m.id===me.uid?'・あなた':''}</small></span>${m.id===me.uid?'<span class="hint">本人</span>':`<button class="btn btn-ghost sm" data-admin-remove="${m.id}">管理者を解除</button>`}</div>`).join(''):'<p class="hint">管理者が登録されていません</p>';
-  q('[data-admin-remove]').forEach(b=>b.onclick=async()=>{
+  el.querySelectorAll('[data-admin-remove]').forEach(b=>b.onclick=async()=>{
     const m=members.find(x=>x.id===b.dataset.adminRemove); if(!m)return;
     if(members.filter(x=>x.role==='admin').length<=1)return showToast('最後の管理者は解除できません');
     if(!confirm(`${m.name||m.email}さんの管理者権限を解除し、会計に変更しますか？`))return;
@@ -3092,6 +3087,7 @@ async function renderAdmin(){
   };
 
   const tool=$('adminToolPanel');
+  if(!tool){ console.error('adminToolPanel が見つかりません'); return; }
   if($('adminImport')) $('adminImport').onclick=()=>{ tool.innerHTML=`<div class="form-card"><b>データ取り込み</b><p class="hint">過去データ（CSV・Excel）または会費ペイのファイルを選択します。</p><div class="btn-row"><button class="btn btn-navy" id="admExcel">CSV・Excel</button><button class="btn btn-navy" id="admKaihi">会費ペイ</button></div><div id="kaihipayPreview" style="margin-top:10px"></div><button class="btn btn-navy full" style="margin-top:8px" id="admStmt">会費ペイ支払通知書PDF</button><div id="kaihipayStatementPreview" style="margin-top:10px"></div></div>`;$('admExcel').onclick=()=>$('importInput').click();$('admKaihi').onclick=()=>$('kaihipayInput').click();$('admStmt').onclick=()=>$('kaihipayStatementInput').click();};
   if($('adminBackup')) $('adminBackup').onclick=()=>{
     tool.innerHTML=`<div class="form-card"><b>バックアップ・データ管理</b>
@@ -3110,16 +3106,7 @@ async function renderAdmin(){
     $('admBackupNow').onclick=async()=>{const b=$('admBackupNow');b.disabled=true;try{await createFirebaseBackup('manual');showToast('バックアップを作成しました');}catch(e){console.error(e);showToast('バックアップに失敗しました');}finally{b.disabled=false;}};
     $('admResetPreview').onclick=async()=>{const box=$('admResetBox');try{const p=await getResetPreview();box.innerHTML=`<div class="audit-box" style="border-color:var(--stamp-red)">${p.rows.filter(x=>x.count).map(x=>`<div class="total-check"><span>${esc(x.label)}</span><b>${x.count}件</b></div>`).join('')||'<p class="hint">削除対象はありません。</p>'}<div class="total-check"><span>合計</span><b>${p.total}件</b></div>${p.total?'<button class="btn btn-danger full" id="admResetRun">試行データを初期化する</button>':''}</div>`;if($('admResetRun'))$('admResetRun').onclick=resetTrialData;}catch(e){console.error(e);box.innerHTML='<p class="hint" style="color:var(--stamp-red)">確認できませんでした。</p>';}};
   };
-  if($('adminNotify')) $('adminNotify').onclick=()=>{tool.innerHTML=`<div class="form-card"><b>メール通知</b><div class="field"><label>通知用 Apps Script URL</label><input type="text" id="admNUrl" value="${esc(settings.notifyUrl||'')}"></div><label class="check-line"><input type="checkbox" id="admNEntry" ${settings.notifyOnEntry!==false?'checked':''}> 支出申請の承認依頼を通知</label><div class="btn-row" style="margin-top:12px"><button class="btn btn-ghost" id="admNTest">テスト送信</button><button class="btn btn-primary" id="admNSave">保存</button></div></div>`;$('admNSave').onclick=async()=>{await R('settings').update({notifyUrl:$('admNUrl').value.trim(),notifyOnEntry:$('admNEntry').checked});settings.notifyUrl=$('admNUrl').value.trim();settings.notifyOnEntry=$('admNEntry').checked;await syncRecipients();showToast('通知設定を保存しました');};$('admNTest').onclick=async()=>{const u=$('admNUrl').value.trim();if(!u)return showToast('URLを入力してください');await notify('test',{},u);showToast('テスト送信を依頼しました');};};
-
-  if(aiDel) aiDel.onclick=async()=>{
-    if(!confirm('通知・AI共通Apps Script URLを解除しますか？'))return;
-    await R('settings/aiProxyUrl').remove();
-    delete settings.aiProxyUrl;
-    writeLog('AI中継解除',null,'AI中継URLを解除');
-    showToast('AI中継URLを解除しました');
-    renderAdmin();
-  };
+  if($('adminNotify')) $('adminNotify').onclick=()=>{tool.innerHTML=`<div class="form-card"><b>通知・AI共通GAS</b><div class="field"><label>通知・AI共通 Apps Script URL</label><input type="text" id="admNUrl" value="${esc(settings.notifyUrl||'')}"></div><label class="check-line"><input type="checkbox" id="admNEntry" ${settings.notifyOnEntry!==false?'checked':''}> 支出申請の承認依頼を通知</label><div class="btn-row" style="margin-top:12px"><button class="btn btn-ghost" id="admNTest">テスト送信</button><button class="btn btn-primary" id="admNSave">保存</button></div></div>`;$('admNSave').onclick=async()=>{const u=$('admNUrl').value.trim();if(u&&!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(u))return showToast('URLは https://script.google.com/macros/s/…/exec の形です');await R('settings').update({notifyUrl:u,notifyOnEntry:$('admNEntry').checked});settings.notifyUrl=u;settings.notifyOnEntry=$('admNEntry').checked;await syncRecipients();showToast('通知・AI共通GAS設定を保存しました');};$('admNTest').onclick=async()=>{const u=$('admNUrl').value.trim();if(!u)return showToast('URLを入力してください');await notify('test',{},u);showToast('テスト送信を依頼しました');};};
 }
 
 /* =========================================================
