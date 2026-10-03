@@ -602,7 +602,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.03-60';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.03-61';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -669,7 +669,7 @@ const ROLES = {
   payer:    { name:'支払者', desc:'自分の支出の申請と精算の確認' },
   report:   { name:'会員', desc:'承認済みの会計報告を閲覧' },
   guest:    { name:'仮登録', desc:'初回の申請が承認されると本登録（申請はすぐにできます）' },
-  pending:  { name:'承認待ち', desc:'' },
+  pending:  { name:'利用承認待ち', desc:'管理者・会計による利用登録の確認待ち' },
   removed:  { name:'利用停止', desc:'' }
 };
 const POSTS = ['会長','副会長','会計','庶務','書記','班長','防災支隊長','防犯部長','環境部長','体育部長','婦人部','子ども会','その他'];
@@ -1457,7 +1457,7 @@ function directionText(net, name){
    伝票カード
    ========================================================= */
 function statusTag(e){
-  if (e.status==='submitted') return `<span class="stamp-tag fill" style="background:var(--amber);border-color:var(--amber)">承認待ち</span>`;
+  if (e.status==='submitted') return `<span class="stamp-tag fill" style="background:var(--amber);border-color:var(--amber)">確認待ち</span>`;
   if (e.status==='returned') return `<span class="stamp-tag fill" style="background:var(--stamp-red);border-color:var(--stamp-red)">差戻し</span>`;
   return '';
 }
@@ -1541,8 +1541,8 @@ function renderHome(){
     html += `<div class="panel" style="margin:12px 0 16px"><h3>現金会費を会計へ渡す</h3><p class="hint">会費徴収期間中です。班で集めた現金会費を申告します。会計担当が現金を数えて確認するまで、出納帳の収入には確定しません。</p><div class="btn-row"><button class="btn btn-navy" id="cashFeeNewBtn">現金会費を引き渡す</button></div>${wait?`<p class="hint">受取確認待ち：${wait}件</p>`:''}${ret?`<p class="hint" style="color:var(--stamp-red)">差戻し：${ret}件</p>`:''}</div>`;
   }
 
-  if (isT() && treasurerActionable.length) html += `<button class="notice amber" data-go="submitted"><span class="n-body">承認待ちの申請<span class="n-sub">支払者から届いた領収証を確認してください</span></span><span class="n-val">${treasurerActionable.length}件</span></button>`;
-  if (isViewer() && viewerActionable.length) html += `<button class="notice amber" data-go="submitted"><span class="n-body">会計担当から承認依頼<span class="n-sub">会計担当本人の支出を確認してください</span></span><span class="n-val">${viewerActionable.length}件</span></button>`;
+  if (isT() && treasurerActionable.length) html += `<button class="notice amber" data-go="submitted"><span class="n-body">あなたの確認待ち<span class="n-sub">支払申請を確認して、承認または差戻ししてください</span></span><span class="n-val">${treasurerActionable.length}件</span></button>`;
+  if (isViewer() && viewerActionable.length) html += `<button class="notice amber" data-go="submitted"><span class="n-body">あなたの確認待ち<span class="n-sub">会計担当本人の支払申請を確認してください</span></span><span class="n-val">${viewerActionable.length}件</span></button>`;
   if (returned.length) html += `<button class="notice" data-go="returned"><span class="n-body">差戻し中<span class="n-sub">申請者の修正待ち</span></span><span class="n-val">${returned.length}件</span></button>`;
   if (people.length) html += `<button class="notice navy" data-go="settle"><span class="n-body">精算待ち ${people.length}人<span class="n-sub">支払い ${yen(toPay)}／返金受取 ${yen(toBack)}</span></span><span class="n-val">›</span></button>`;
   if(isAdmin()){
@@ -1709,7 +1709,7 @@ async function saveCashFeeConfirmation(e){
 }
 function renderPayerHome(el){
   if (!me.payerId) {
-    el.innerHTML = `<div class="empty"><div class="mark-big">準備<br>中</div>会計担当があなたを支払者名簿と紐付けると、<br>支出の申請ができるようになります。</div>`;
+    el.innerHTML = `<div class="empty"><div class="mark-big">準備<br>中</div>会計担当があなたの「立替・仮払」を対象にすると、<br>支出の申請ができるようになります。</div>`;
     return;
   }
   const b = payerBalance(me.payerId);
@@ -1721,10 +1721,10 @@ function renderPayerHome(el){
   let html = guestNote + `<div class="net-box">
       <div class="d">${esc(payerLabel(me.payerId))}さんの精算見込み</div>
       <div class="v" style="color:${b.net>=0?'var(--stamp-navy)':'var(--stamp-red)'}">${yen(Math.abs(b.net))}</div>
-      <div class="hint" style="margin-top:4px">${b.net>0?'会計から受け取る予定の金額です':b.net<0?'仮払金の残りとして会計へ返す金額です':'現在、精算が必要なものはありません'}${b.waiting.length?`<br>ほかに承認待ち ${b.waiting.length}件（${yen(b.waiting.reduce((s,e)=>s+(Number(e.amount)||0),0))}）`:''}</div>
+      <div class="hint" style="margin-top:4px">${b.net>0?'会計から受け取る予定の金額です':b.net<0?'仮払金の残りとして会計へ返す金額です':'現在、精算が必要なものはありません'}${b.waiting.length?`<br>ほかに会計担当の確認待ち ${b.waiting.length}件（${yen(b.waiting.reduce((s,e)=>s+(Number(e.amount)||0),0))}）`:''}</div>
     </div>`;
   if (returned.length) html += `<button class="notice" data-go="returned"><span class="n-body">差戻しがあります<span class="n-sub">会計からのコメントを見て修正してください</span></span><span class="n-val">${returned.length}件</span></button>`;
-  if (submitted.length) html += `<button class="notice amber" data-go="submitted"><span class="n-body">承認待ち<span class="n-sub">会計が確認中です</span></span><span class="n-val">${submitted.length}件</span></button>`;
+  if (submitted.length) html += `<button class="notice amber" data-go="submitted"><span class="n-body">会計担当の確認待ち<span class="n-sub">申請済みです。会計担当が確認します</span></span><span class="n-val">${submitted.length}件</span></button>`;
   if (unconfirmed.length) html += `<button class="notice navy" data-go="settle"><span class="n-body">精算の受取確認をお願いします<span class="n-sub">会計が精算を記録しました</span></span><span class="n-val">${unconfirmed.length}件</span></button>`;
   if (b.advs.length) html += `<div class="notice moss"><span class="n-body">預かっている仮払金<span class="n-sub">使ったら「仮払金から支払」で申請してください</span></span><span class="n-val">${yen(b.adv)}</span></div>`;
   html += `<div class="btn-row" style="margin:6px 0 16px;"><button class="btn btn-primary" id="payerNewBtn">＋ 1件ずつ申請</button><button class="btn btn-navy" id="payerBatchBtn">📚 まとめて読み込み</button></div>`;
@@ -1754,8 +1754,8 @@ function renderBook(){
     noReceipt: base.filter(e=>e.noReceipt).length
   };
   const chips = isP()
-    ? [['all','すべて'],['submitted','承認待ち'],['returned','差戻し'],['pending','精算待ち']]
-    : [['all','すべて'],['expense','支出'],['income','収入'],['submitted','承認待ち'],['returned','差戻し'],['pending','要精算'],['noReceipt','領収証なし']];
+    ? [['all','すべて'],['submitted','会計確認待ち'],['returned','差戻し'],['pending','精算待ち']]
+    : [['all','すべて'],['expense','支出'],['income','収入'],['submitted','確認待ち'],['returned','差戻し'],['pending','要精算'],['noReceipt','領収証なし']];
   const bar = $('bookStatusBar');
   bar.innerHTML = chips.map(([k,l])=>`<button class="chip ${bookFilter.status===k?'active':''}" data-k="${k}">${l}${counts[k]&&k!=='all'?`<span class="cnt">${counts[k]}</span>`:''}</button>`).join('');
   bar.querySelectorAll('.chip').forEach(c=>c.onclick=()=>{ bookFilter.status=c.dataset.k; renderBook(); });
@@ -1818,7 +1818,7 @@ let photosChanged = false;
 let formAccount = '', formMethod = '', formAddressee = '';
 
 async function openForm(e){
-  if (canOwnSubmit() && !me.payerId) { showToast('支払者名簿との紐付けが済んでいません'); return; }
+  if (canOwnSubmit() && !me.payerId) { showToast('立替・仮払の対象設定が済んでいません'); return; }
   editing = e || null;
   metricBegin(e ? 'entry_edit' : 'expense_application', e?.id||'');
   formType = e ? e.type : 'expense';
@@ -2453,8 +2453,8 @@ function renderSettle(){
     return `<button class="person-row" data-pid="${p.pid}">
       <span class="avatar">${esc((py.name||'?').slice(0,1))}</span>
       <span class="p-body"><span class="p-name">${esc(py.name)}</span> <span class="p-sub">${esc(py.post||'')}</span>
-        <span class="p-sub" style="display:block">立替 ${p.approved.length}件${p.advs.length?`・仮払 ${yen(p.adv)}`:''}${p.waiting.length?`・承認待ち ${p.waiting.length}件`:''}</span></span>
-      <span class="p-amt">${p.ready?yen(Math.abs(p.net)):'－'}<span class="direction">${!p.ready?'承認待ちのみ':p.net>0?'会計から支払う':p.net<0?'返金を受け取る':'差額なし'}</span></span>
+        <span class="p-sub" style="display:block">立替 ${p.approved.length}件${p.advs.length?`・仮払 ${yen(p.adv)}`:''}${p.waiting.length?`・確認待ち ${p.waiting.length}件`:''}</span></span>
+      <span class="p-amt">${p.ready?yen(Math.abs(p.net)):'－'}<span class="direction">${!p.ready?'確認待ちのみ':p.net>0?'会計から支払う':p.net<0?'返金を受け取る':'差額なし'}</span></span>
     </button>`;
   }).join('') : `<div class="empty" style="padding:24px">精算待ちはありません</div>`;
 
@@ -2522,7 +2522,7 @@ function renderSettlePerson(el, pid){
       ${p.advs.map(a=>`<label class="check-row"><input type="checkbox" class="st-a" value="${a.id}" data-amt="${a.amount}" checked>
         <span class="c-body">${esc(a.memo||'仮払金')}<span class="hint" style="display:block;margin:0">${fmtDate(a.date)} に渡した</span></span>
         <span class="c-amt" style="color:var(--stamp-red)">−${yen(a.amount)}</span></label>`).join('')}
-      ${p.waiting.length ? `<p class="hint">ほかに承認待ち・差戻し中が ${p.waiting.length}件あります。承認すると精算に含められます。</p>` : ''}
+      ${p.waiting.length ? `<p class="hint">ほかに確認待ち・差戻し中が ${p.waiting.length}件あります。承認されると精算に含められます。</p>` : ''}
       ${!p.approved.length && !p.advs.length ? `<p class="hint">精算できる承認済みの伝票はありません。</p>` : ''}
       <div class="net-box"><div class="d" id="stDir"></div><div class="v" id="stNet"></div></div>
       <div class="field"><label>精算日</label><input type="date" id="stDate" value="${localDate()}"></div>
@@ -2624,12 +2624,12 @@ async function confirmSettlement(s){
 }
 
 function renderPayerSettle(el){
-  if (!me.payerId) { el.innerHTML = '<div class="empty">支払者名簿との紐付け後に使えます</div>'; return; }
+  if (!me.payerId) { el.innerHTML = '<div class="empty">立替・仮払の対象設定後に使えます</div>'; return; }
   const p = payerBalance(me.payerId);
   let html = `<div class="net-box"><div class="d">${p.ready ? directionText(p.net,'あなた').replace('あなたさん','あなた') : '精算待ちはありません'}</div><div class="v">${yen(Math.abs(p.net))}</div>
     <div class="hint">会計と会うときに、この画面を見せ合って確認できます</div></div>`;
   if (p.approved.length) html += `<h2 class="section-title">精算待ち（承認済み）</h2>` + p.approved.map(slipHTML).join('');
-  if (p.waiting.length) html += `<h2 class="section-title" style="margin-top:14px">承認待ち・差戻し</h2>` + p.waiting.map(slipHTML).join('');
+  if (p.waiting.length) html += `<h2 class="section-title" style="margin-top:14px">確認待ち・差戻し</h2>` + p.waiting.map(slipHTML).join('');
   if (p.advs.length) html += `<h2 class="section-title" style="margin-top:14px">預かっている仮払金</h2>` + p.advs.map(a=>`<div class="cat-row"><span class="cname">${esc(a.memo||'仮払金')}<small>${fmtDateFull(a.date)}に受け取り</small></span><span class="num">${yen(a.amount)}</span></div>`).join('');
   html += `<h2 class="section-title" style="margin-top:16px">精算の記録</h2>` + settlementHistory(settlements);
   el.innerHTML = html;
@@ -3132,28 +3132,49 @@ function renderSettings(){
       `<div class="inline-add"><input id="newMName" placeholder="例）PayPay（町内会アカウント）"><select id="newMUse" style="flex:0 0 76px"><option value="expense">支出</option><option value="income">収入</option></select></div>
        <div class="inline-add"><label class="check-line" style="flex:1"><input type="checkbox" id="newMSettle"> 個人のお金で払う（あとで自治会から精算）</label><button class="btn btn-navy sm" id="addM">追加</button></div>`;
 
-    html += `<h2 class="section-title" style="margin-top:20px">支払者名簿</h2><p class="hint" style="margin-top:-4px">立替や仮払をする可能性のある人（役員・班長・防災支隊長など）を登録します。アカウントがない人も、会計が代わりに入力できます。</p>` +
-      payers.map(p=>{ const linked = members.find(m=>m.payerId===p.id && m.role!=='removed');
-        return `<div class="cat-row ${p.active?'':'inactive'}"><span class="avatar" style="width:28px;height:28px;border-radius:50%;background:var(--tint);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">${esc((p.name||'?').slice(0,1))}</span>
-        <span class="cname">${esc(p.name)}${p.branch?` <span class="stamp-tag">${esc(p.branch)} ${esc(p.group||'')}</span>`:''}${p.provisional?' <span class="stamp-tag" style="border-color:var(--amber);color:var(--amber)">仮登録</span>':''}<small>${esc(p.post||'')}${linked?`・📱${esc(linked.email)}`:'・アプリ未利用'}</small></span>
-        <button class="lnk" data-editp="${p.id}">編集</button><button class="lnk" data-togglep="${p.id}">${p.active?'停止':'再開'}</button></div>`; }).join('') +
-      `<div class="inline-add"><select id="newPBranch" style="flex:1"></select><select id="newPGroup" style="flex:1"></select></div><div class="inline-add"><input id="newPName" placeholder="氏名"><input id="newPPost" placeholder="役職" list="postList" style="flex:0 0 38%"><button class="btn btn-navy sm" id="addP">追加</button></div>
-       <datalist id="postList">${POSTS.map(p=>`<option value="${p}">`).join('')}</datalist>`;
-
+    // 人に関する管理は、内部の members / payers の違いを画面に出さず一元表示する。
     const ms = [...members].sort((a,b)=>(a.role==='pending'?-1:0)-(b.role==='pending'?-1:0));
-    html += `<h2 class="section-title" id="membersSection" style="margin-top:20px;scroll-margin-top:70px">アプリの利用者と権限</h2><p class="hint" style="margin-top:-4px">ログインして名前・役職を登録した人は「仮登録」で表示されます。最初の申請を承認すると支払者になります。監査・役員にする人はここで権限を変更してください。</p>` +
-      ms.map(m=>`<div class="cat-row" style="flex-wrap:wrap;${m.role==='pending'||m.role==='guest'?'border-color:var(--amber)':''}">
-        <span class="cname" style="flex-basis:100%">${esc(m.name)}<small>${esc(m.email)}${m.branch?`・${esc(m.branch)} ${esc(m.group||'')}`:''}${m.requestType==='report'?'・会計報告閲覧申請':''}${m.id===me.uid?'（あなた）':''}</small></span>
-        <select data-role="${m.id}" ${(m.id===me.uid||m.role==='admin')?'disabled':''}>${Object.entries(ROLES).filter(([k])=>k!=='admin' || m.role==='admin').map(([k,r])=>`<option value="${k}" ${m.role===k?'selected':''}>${r.name}</option>`).join('')}</select>
-        ${m.role==='viewer'?`<select data-officertype="${m.id}" title="役員区分"><option value="headquarters" ${(m.officerType||'headquarters')==='headquarters'?'selected':''}>本部役員</option><option value="leader" ${m.officerType==='leader'?'selected':''}>班長</option></select>`:''}
-        <select data-link="${m.id}"><option value="">名簿と紐付けない</option>${payers.map(p=>`<option value="${p.id}" ${m.payerId===p.id?'selected':''}>${esc(payerLabel(p.id))}</option>`).join('')}</select>
-        <div class="inline-add" style="flex-basis:100%;margin:4px 0 0">
-          <select data-mbranch="${m.id}" style="flex:1"></select><select data-mgroup="${m.id}" style="flex:1"></select>
-          <button class="btn btn-ghost sm" data-saveaff="${m.id}">所属を保存</button>
-          ${m.id===me.uid?'':`<button class="btn btn-ghost sm" data-delmember="${m.id}" style="color:var(--stamp-red);border-color:var(--stamp-red)">削除</button>`}
-        </div>
-      </div>`).join('') +
-      `<p class="hint">会計＝全操作／監査＝全件閲覧と監査チェック／本部役員＝全件閲覧・会計本人申請の承認／班長＝本部役員と同じ基本権限＋会費徴収期間中の現金会費引渡し／支払者＝自分の申請と精算確認。</p>`;
+    const linkedPayerIds = new Set(ms.map(m=>m.payerId).filter(Boolean));
+    const unlinkedPayers = payers.filter(p=>!linkedPayerIds.has(p.id));
+    html += `<h2 class="section-title" id="membersSection" style="margin-top:20px;scroll-margin-top:70px">関係者・権限管理</h2>
+      <p class="hint" style="margin-top:-4px">会計に関わる人をここでまとめて管理します。「役割」はアプリでできること、「立替・仮払」はその人名義で支払申請や精算を行うかを表します。</p>` +
+      ms.map(m=>{
+        const pp=m.payerId?payerById(m.payerId):null;
+        const roleName=m.role==='pending'?'利用承認待ち':(ROLES[m.role]?.name||m.role);
+        const status=m.role==='pending'
+          ? '<span class="stamp-tag" style="border-color:var(--amber);color:var(--amber)">利用承認待ち</span>'
+          : m.role==='guest'
+            ? '<span class="stamp-tag" style="border-color:var(--amber);color:var(--amber)">仮登録</span>'
+            : '<span class="stamp-tag" style="border-color:var(--moss);color:var(--moss)">利用中</span>';
+        return `<div class="cat-row" style="flex-wrap:wrap;${m.role==='pending'||m.role==='guest'?'border-color:var(--amber)':''}">
+          <span class="cname" style="flex-basis:100%;font-size:14px">${esc(m.name)} ${status}<small>${esc(m.email)}${m.branch?`・${esc(m.branch)} ${esc(m.group||'')}`:''}${m.requestType==='report'?'・会計報告の閲覧申請':''}${m.id===me.uid?'（あなた）':''}</small></span>
+          <div style="flex:1;min-width:130px"><label style="font-size:11px;color:var(--ink-soft)">役割</label>
+            <select data-role="${m.id}" ${(m.id===me.uid||m.role==='admin')?'disabled':''}>${Object.entries(ROLES).filter(([k])=>k!=='admin' || m.role==='admin').map(([k,r])=>`<option value="${k}" ${m.role===k?'selected':''}>${k==='pending'?'利用承認待ち':r.name}</option>`).join('')}</select>
+          </div>
+          ${m.role==='viewer'?`<div style="flex:1;min-width:110px"><label style="font-size:11px;color:var(--ink-soft)">役員区分</label><select data-officertype="${m.id}" title="役員区分"><option value="headquarters" ${(m.officerType||'headquarters')==='headquarters'?'selected':''}>本部役員</option><option value="leader" ${m.officerType==='leader'?'selected':''}>班長</option></select></div>`:''}
+          <div style="flex:1;min-width:150px"><label style="font-size:11px;color:var(--ink-soft)">立替・仮払</label>
+            <select data-link="${m.id}"><option value="">対象外</option>${payers.map(p=>`<option value="${p.id}" ${m.payerId===p.id?'selected':''}>対象：${esc(payerLabel(p.id))}</option>`).join('')}</select>
+          </div>
+          <div class="inline-add" style="flex-basis:100%;margin:4px 0 0">
+            <select data-mbranch="${m.id}" style="flex:1"></select><select data-mgroup="${m.id}" style="flex:1"></select>
+            <button class="btn btn-ghost sm" data-saveaff="${m.id}">所属を保存</button>
+            ${m.id===me.uid?'':`<button class="btn btn-ghost sm" data-delmember="${m.id}" style="color:var(--stamp-red);border-color:var(--stamp-red)">登録削除</button>`}
+          </div>
+        </div>`;
+      }).join('') +
+      (unlinkedPayers.length?`<div style="font-weight:700;font-size:13px;margin:14px 0 6px">アプリ未登録の関係者</div>
+        <p class="hint" style="margin-top:0">本人はまだログインしていませんが、会計がこの人名義の立替・仮払を登録できます。</p>`+
+        unlinkedPayers.map(p=>`<div class="cat-row ${p.active?'':'inactive'}">
+          <span class="avatar" style="width:28px;height:28px;border-radius:50%;background:var(--tint);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">${esc((p.name||'?').slice(0,1))}</span>
+          <span class="cname">${esc(p.name)} <span class="stamp-tag">アプリ未登録</span>${p.branch?` <span class="stamp-tag">${esc(p.branch)} ${esc(p.group||'')}</span>`:''}<small>${esc(p.post||'')}・立替／仮払の対象</small></span>
+          <button class="lnk" data-editp="${p.id}">編集</button><button class="lnk" data-togglep="${p.id}">${p.active?'停止':'再開'}</button>
+        </div>`).join(''):'') +
+      `<div style="font-weight:700;font-size:13px;margin:16px 0 6px">関係者を追加</div>
+       <p class="hint" style="margin-top:0">まだアプリを使っていない人を、立替・仮払の対象として先に登録できます。</p>
+       <div class="inline-add"><select id="newPBranch" style="flex:1"></select><select id="newPGroup" style="flex:1"></select></div>
+       <div class="inline-add"><input id="newPName" placeholder="氏名"><input id="newPPost" placeholder="役職" list="postList" style="flex:0 0 38%"><button class="btn btn-navy sm" id="addP">追加</button></div>
+       <datalist id="postList">${POSTS.map(p=>`<option value="${p}">`).join('')}</datalist>
+       <p class="hint">役割：管理者＝全機能／会計＝会計処理／監査＝監査チェック／役員＝閲覧・会計本人申請の承認／支払者＝自分の申請と精算確認。立替・仮払が「対象」の人は、その人名義で申請・精算できます。</p>`;
 
     const trs = members.filter(m=>m.role==='treasurer');
     html += `<h2 class="section-title" style="margin-top:20px">会費ペイから会費収入を取り込む</h2><div class="form-card">
@@ -3191,7 +3212,7 @@ function renderSettings(){
       <p class="hint">証憑画像は通常データとして1個だけ保持し、3世代バックアップには複製しません。 新しく登録する写真・PDFは、文字の可読性を保ちながら目安300KB以下へ自動圧縮します。Firebaseプロジェクト自体の削除・障害には備えられないため、監査前・年度末などは上のCSV書き出しも併用してください。</p>
       <hr style="border:0;border-top:1px solid var(--line);margin:20px 0">
       <div style="font-weight:700;font-size:13.5px;margin-bottom:6px;color:var(--stamp-red)">実運用開始前のデータ初期化</div>
-      <p class="hint" style="margin-top:0">試行中の取引データだけを削除し、団体名・1月末締め等の基本設定、科目体系・予算、支払方法、利用者・権限、支払者名簿、通知設定、AI設定は残します。実行前に削除件数を確認できます。</p>
+      <p class="hint" style="margin-top:0">試行中の取引データだけを削除し、団体名・1月末締め等の基本設定、科目体系・予算、支払方法、関係者・権限、通知設定、AI設定は残します。実行前に削除件数を確認できます。</p>
       <button class="btn btn-ghost full" id="resetPreviewBtn" style="color:var(--stamp-red);border-color:var(--stamp-red)">削除対象を確認する</button>
       <div id="resetPreview" style="margin-top:10px"></div>
     </div>`;
@@ -3210,7 +3231,7 @@ function renderSettings(){
       <div class="inline-add"><input readonly value="${esc(publicUrl())}" id="pubUrl"><button class="btn btn-ghost sm" id="pubCopy">コピー</button></div>
       <p class="hint">公開内容は自動では変わりません。月に一度など、区切りのよいときに「報告を更新」を押してください。このURLを案内し、未登録の会員は閲覧申請後、会計担当の承認を受けて閲覧します。</p></div>`;
   } else {
-    html += `<div class="form-card"><p style="margin:0">${esc(me.name)}（${esc(me.email)}）</p><p class="hint">所属：${esc(me.branch||'')} ${esc(me.group||'')}<br>権限：${ROLES[me.role]?.name}　${ROLES[me.role]?.desc}${me.payerId?`<br>支払者名簿：${esc(payerLabel(me.payerId))}`:''}</p></div>
+    html += `<div class="form-card"><p style="margin:0">${esc(me.name)}（${esc(me.email)}）</p><p class="hint">所属：${esc(me.branch||'')} ${esc(me.group||'')}<br>権限：${ROLES[me.role]?.name}　${ROLES[me.role]?.desc}${me.payerId?`<br>立替・仮払：対象（${esc(payerLabel(me.payerId))}）`:''}</p></div>
       <h2 class="section-title" style="margin-top:16px">会員向けの会計報告</h2><div class="form-card"><div class="inline-add" style="margin:0"><input readonly value="${esc(publicUrl())}" id="pubUrl"><button class="btn btn-ghost sm" id="pubCopy">コピー</button></div></div>`;
   }
 
@@ -3388,7 +3409,7 @@ async function resetTrialData(){
 function organizeTreasurerSettings(){
   const root=$('settingsScreen'); if(!root) return;
   const defs=[
-    {id:'people', icon:'👥', title:'利用者・名簿', sub:'権限、支部・班、支払者名簿', heads:['支払者名簿','アプリの利用者と権限']},
+    {id:'people', icon:'👥', title:'関係者・権限', sub:'役割、立替・仮払、支部・班', heads:['関係者・権限管理']},
     {id:'money', icon:'💰', title:'会計の基本設定', sub:'団体情報、会費徴収期間、科目・予算、支払方法', heads:['団体の情報','会費徴収期間','現預金残高の確認',`科目と${curFY}年度の予算`,'支払方法']},
     {id:'report', icon:'📊', title:'会員向け会計報告', sub:'公開内容の設定・報告の更新', heads:['会員向けの会計報告']}
   ];
@@ -3436,7 +3457,7 @@ function bindSettings(){
   });
   q('[data-delmember]').forEach(b => b.onclick = async () => {
     const m=members.find(x=>x.id===b.dataset.delmember); if(!m || m.id===me.uid) return;
-    const linked=m.payerId?`\n\n支払者名簿や過去の伝票・精算履歴は削除せず残します。`:'';
+    const linked=m.payerId?`\n\n立替・仮払の名義と過去の伝票・精算履歴は削除せず残します。`:'';
     if(!confirm(`${m.name}さん（${m.email||''}）のアプリ登録を削除しますか？\n\n削除すると、このユーザーは現在の権限では利用できなくなります。${linked}\n再度利用する場合は、改めて申請・登録が必要です。`)) return;
     await R(`members/${m.id}`).remove();
     writeLog('利用者削除', null, `${m.name}（${m.email||''}）`); showToast(`${m.name}さんの登録を削除しました`);
@@ -3539,7 +3560,7 @@ function bindSettings(){
     const name=$('newPName').value.trim(), branch=$('newPBranch').value, group=$('newPGroup').value; if(!name) return showToast('氏名を入力してください');
     if(!validAffiliation(branch,group)) return showToast('支部と班を選択してください');
     await R('payers').push().set({ name, post:$('newPPost').value.trim(), branch, group, active:true, createdAt:TS() });
-    $('newPName').value=''; $('newPPost').value=''; document.activeElement.blur(); showToast('名簿に追加しました'); renderSettings();
+    $('newPName').value=''; $('newPPost').value=''; document.activeElement.blur(); showToast('関係者を追加しました'); renderSettings();
   };
   q('[data-role]').forEach(s => s.onchange = async () => {
     const m = members.find(x=>x.id===s.dataset.role);
@@ -3573,8 +3594,8 @@ function bindSettings(){
   q('[data-link]').forEach(s => s.onchange = async () => {
     const m = members.find(x=>x.id===s.dataset.link);
     await R(`members/${m.id}/payerId`).set(s.value || null);
-    writeLog('名簿紐付け', null, `${m.name} → ${payerLabel(s.value)||'なし'}`);
-    showToast('紐付けを保存しました');
+    writeLog('立替・仮払設定', null, `${m.name} → ${payerLabel(s.value)||'なし'}`);
+    showToast('立替・仮払の設定を保存しました');
   });
   $('pubDetail').onchange = () => R('settings/publicDetail').set($('pubDetail').value);
   if($('nEntry')) $('nEntry').onchange = e => R('settings/notifyOnEntry').set(e.target.checked);
@@ -3609,7 +3630,7 @@ function bindSettings(){
         <div style="font-weight:700;color:var(--stamp-red);margin-bottom:7px">削除される試行データ</div>
         ${p.rows.filter(x=>x.count).map(x=>`<div class="total-check"><span>${esc(x.label)}</span><b>${x.count}件</b></div>`).join('')||'<p class="hint">削除対象のデータはありません。</p>'}
         <div class="total-check" style="margin-top:8px"><span>削除対象（データグループ内の記録数）</span><b>${p.total}件</b></div>
-        <p class="hint" style="margin:10px 0 6px"><b>残すもの：</b>団体名・会計年度の締め、科目体系・予算、支払方法、利用者・権限、支払者名簿、通知設定、AI設定。</p>
+        <p class="hint" style="margin:10px 0 6px"><b>残すもの：</b>団体名・会計年度の締め、科目体系・予算、支払方法、関係者・権限、通知設定、AI設定。</p>
         <p class="hint" style="color:var(--stamp-red)"><b>注意：</b>容量節約型バックアップは証憑画像そのものを複製しません。初期化対象に証憑画像がある場合は、実行直前にも再確認します。</p>
         ${p.total?'<button class="btn btn-danger full" id="resetRunBtn">試行データを初期化する</button>':''}
       </div>`;
@@ -3720,7 +3741,7 @@ let batchRunning = 0;
 const batchCommon = { methodId:'', payerId:'', purpose:'', storageLocation:'' };
 
 function openBatch(){
-  if (isP() && !me.payerId) return showToast('支払者名簿との紐付けが済んでいません');
+  if (isP() && !me.payerId) return showToast('立替・仮払の対象設定が済んでいません');
   batchItems = batchItems.filter(i=>i.state!=='saved');
   if (isP()) batchCommon.payerId = me.payerId;
   if (!batchCommon.storageLocation) batchCommon.storageLocation = isP() ? '自分で保管中（精算時に会計へ渡す）' : '';
