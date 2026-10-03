@@ -349,6 +349,11 @@ p,.hint,.notice,.slip-title,.slip-memo,.person-row,.cat-row,.settings-task-btn,
 .admin-group{display:none}
 .admin-group.open{display:block}
 .admin-back{margin:0 0 14px}
+
+.ai-confirm-overlay{position:fixed;inset:0;background:rgba(30,27,22,.48);z-index:9999;display:flex;align-items:flex-end;justify-content:center;padding:12px}
+.ai-confirm-box{background:var(--card);width:min(620px,100%);max-height:82vh;overflow:auto;border-radius:20px 20px 14px 14px;padding:20px;box-shadow:0 -8px 32px rgba(0,0,0,.16)}
+.ai-diff-row{padding:12px 0;border-bottom:1px solid var(--line)} .ai-diff-label{font-weight:700;margin-bottom:5px}
+.ai-diff-values{font-size:13px;line-height:1.7}.ai-old{color:var(--muted)}.ai-new{font-weight:700;color:var(--ink)}
 </style>
 <style>
 #newMSettle{width:24px;height:24px;flex:0 0 auto;margin:0 12px 0 0;vertical-align:middle}
@@ -614,7 +619,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.03-76';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.03-77';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -710,13 +715,10 @@ let autoBackupCheckRunning = false;
 
 const PRIVACY_PURPOSE='自治会の会計処理、支払・精算、監査、決算およびこれらに必要な連絡';
 function aiOriginal(e){return e&&e.aiReceiptOriginal&&typeof e.aiReceiptOriginal==='object'?e.aiReceiptOriginal:null}
-function aiChangedFields(e){
- const o=aiOriginal(e); if(!o)return [];
- const m={date:'日付',amount:'金額',payee:'支払先',purpose:'摘要',accountId:'科目',addressee:'宛名'};
- const fmt=(k,v)=>k==='amount'?yen(v):k==='accountId'?(accById(v)?.name||v||''):(v??'');
- return Object.keys(m).filter(k=>String(o[k]??'').trim()!==String(e[k]??'').trim())
-   .map(k=>({key:k,label:m[k],before:fmt(k,o[k]),after:fmt(k,e[k])}));
-}
+function aiChangedFields(e){const o=aiOriginal(e);if(!o)return [];return aiDiffFrom(o,e);}
+function currentAiComparable(){return {date:$('fDate')?.value||'',amount:Math.round(Number($('fAmount')?.value)||0),payee:$('fPayee')?.value.trim()||'',purpose:$('fPurpose')?.value.trim()||'',accountId:formAccount||'',addressee:formAddressee||''};}
+function aiDiffFrom(o,e){if(!o)return [];const m={date:'日付',amount:'金額',payee:'支払先',purpose:'用途',accountId:'科目',addressee:'宛名'};const fmt=(k,v)=>k==='amount'?yen(v):k==='accountId'?(accById(v)?.name||v||''):(v??'');return Object.keys(m).filter(k=>String(o[k]??'').trim()!==String(e[k]??'').trim()).map(k=>({key:k,label:m[k],before:fmt(k,o[k]),after:fmt(k,e[k])}));}
+function confirmAiDifferences(diffs){return new Promise(resolve=>{if(!diffs.length){resolve(true);return;}const ov=document.createElement('div');ov.className='ai-confirm-overlay';ov.innerHTML=`<div class="ai-confirm-box"><h2 style="margin:0 0 8px">AI読取内容と入力内容が異なります</h2><p class="hint" style="margin-top:0">以下の変更内容を確認してください。この差分は申請後も履歴として保存されます。</p><div>${diffs.map(x=>`<div class="ai-diff-row"><div class="ai-diff-label">${esc(x.label)}</div><div class="ai-diff-values"><span class="ai-old">AI判定：${esc(String(x.before||'（空欄）'))}</span><br><span class="ai-new">入力内容：${esc(String(x.after||'（空欄）'))}</span></div></div>`).join('')}</div><div class="btn-row" style="margin-top:18px"><button class="btn btn-ghost" id="aiDiffBack">入力に戻る</button><button class="btn btn-red" id="aiDiffSubmit">確認して申請する</button></div></div>`;document.body.appendChild(ov);const done=v=>{ov.remove();resolve(v)};ov.querySelector('#aiDiffBack').onclick=()=>done(false);ov.querySelector('#aiDiffSubmit').onclick=()=>done(true);});}
 function aiReceiptBadge(e){
  const o=aiOriginal(e); if(!o)return '';
  const c=aiChangedFields(e);
@@ -728,7 +730,8 @@ function aiReceiptAuditHtml(e){
  return `<div class="form-card" style="margin-top:10px"><div style="font-weight:700">AIレシート読取の確認</div>
  <p class="hint">${c.length?'AI読取後に人が修正した項目があります。原本画像と現在値を確認してください。':'AI読取後の修正はありません。'}</p>
  ${c.map(x=>`<div class="cat-row"><span class="cname">${esc(x.label)}<small>AI読取：${esc(String(x.before))} → 現在：${esc(String(x.after))}</small></span></div>`).join('')}
- ${e.aiReceiptEditedAt?`<p class="hint">最終修正：${fmtTs(e.aiReceiptEditedAt)} ${esc(e.aiReceiptEditedByName||'')}</p>`:''}</div>`;
+ ${e.aiReceiptEditedAt?`<p class="hint">最終修正：${fmtTs(e.aiReceiptEditedAt)} ${esc(e.aiReceiptEditedByName||'')}</p>`:''}
+ ${e.aiReceiptEditHistory?`<p class="hint">AI読取後の修正記録：${Object.keys(e.aiReceiptEditHistory).length}件</p>`:''}</div>`;
 }
 function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function yen(n){ return '¥' + (Number(n)||0).toLocaleString(); }
@@ -2212,7 +2215,7 @@ async function persistEntry(prev, f, photos, photosChanged){
     createdAt: p.createdAt || TS(),
     updatedAt: TS(), updatedByName: me.name
   };
-  const aiOrig = p.aiReceiptOriginal || f.aiReceiptOriginal || null;
+  const aiOrig = (p.aiReceiptOriginal && typeof p.aiReceiptOriginal==='object') ? p.aiReceiptOriginal : ((f.aiReceiptOriginal && typeof f.aiReceiptOriginal==='object') ? f.aiReceiptOriginal : null);
   if (aiOrig) {
     data.aiReceiptOriginal = aiOrig;
     const aiFields=['date','amount','payee','purpose','accountId','addressee'];
@@ -2231,6 +2234,10 @@ async function persistEntry(prev, f, photos, photosChanged){
 
   delete data.id; delete data._via;
   await ref.set(data);
+  if (data.aiReceiptOriginal && data.aiReceiptChangedFields && data.aiReceiptChangedFields.length) {
+    const histRef=R(`entries/${ref.key}/aiReceiptEditHistory`).push();
+    await histRef.set({at:TS(),by:me.uid,byName:me.name,changedFields:data.aiReceiptChangedFields,original:data.aiReceiptOriginal,current:{date:data.date||'',amount:Number(data.amount)||0,payee:data.payee||'',purpose:data.purpose||'',accountId:data.accountId||'',addressee:data.addressee||''}});
+  }
   if (photosChanged) await R(`photos/${ref.key}`).set(photos.length ? photos : null);
   if (data.aiReceiptOriginal && data.aiReceiptChangedFields && data.aiReceiptChangedFields.length) {
     const labels={date:'日付',amount:'金額',payee:'支払先',purpose:'用途',accountId:'科目',addressee:'宛名'};
@@ -2264,6 +2271,13 @@ $('formSaveBtn').onclick = async () => {
   if (noReceipt && !$('fNoReceiptReason').value.trim()) return showToast('領収証がない理由を入力してください');
   if (formType==='expense' && !noReceipt && !formPhotos.length && !confirm('領収証の写真がありません。このまま保存しますか？')) return;
   if (editing && editing.settleState==='settled' && Number(editing.amount)!==amount) return showToast('精算済みの伝票は金額を変更できません。先に精算を取り消してください');
+
+  const aiOriginalForSubmit = (editing && editing.aiReceiptOriginal) || formAiReceiptOriginal;
+  const aiSubmitDiffs = aiDiffFrom(aiOriginalForSubmit, currentAiComparable());
+  if (aiSubmitDiffs.length) {
+    const confirmed = await confirmAiDifferences(aiSubmitDiffs);
+    if (!confirmed) return;
+  }
 
   const btn = $('formSaveBtn'); btn.disabled=true; btn.textContent='保存中…';
   try {
@@ -2324,7 +2338,7 @@ async function renderDetail(id){
   <div class="form-card">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
       <div><span class="voucher" style="font-size:13px">${esc(e.voucherNo||'')}</span><span class="hint">${inc?'収入':'支出'}</span></div>
-      <div class="tags" style="margin:0">${statusTag(e)}${settleTag(e)}${auditTag(e)}</div>
+      <div class="tags" style="margin:0">${statusTag(e)}${settleTag(e)}${auditTag(e)}${aiReceiptBadge(e)}</div>
     </div>
     <div class="big-amount" style="color:${inc?'var(--stamp-navy)':'var(--ink)'}">${inc?'+':''}${yen(e.amount)}</div>
     ${e.status==='returned' ? `<div class="notice" style="cursor:default"><span class="n-body">差戻しの理由<span class="n-sub" style="color:var(--ink);font-size:13px">${e.cashFeeRequest&&e.cashFeeActualAmount!=null?`申告額：${yen(e.cashFeeDeclaredAmount||e.amount)} ／ 会計確認額：${yen(e.cashFeeActualAmount)} ／ 差額：${Number(e.cashFeeActualAmount)-Number(e.cashFeeDeclaredAmount||e.amount)>=0?'+':''}${yen(Number(e.cashFeeActualAmount)-Number(e.cashFeeDeclaredAmount||e.amount))}<br>`:''}${esc(e.returnReason||'')}</span></span></div>` : ''}
@@ -2345,6 +2359,7 @@ async function renderDetail(id){
     </dl>
     <p class="history">${e.imported?'📥 CSV・Excelから取り込んだ伝票<br>':''}登録：${esc(e.createdByName||'')} ${fmtTs(e.createdAt)}${e.updatedByName?`<br>最終更新：${esc(e.updatedByName)} ${fmtTs(e.updatedAt)}`:''}${e.approvedByName?`<br>承認：${esc(e.approvedByName)} ${fmtTs(e.approvedAt)}`:''}</p>
   </div>
+  ${aiReceiptAuditHtml(e)}
 
   <div class="form-card"><div class="field" style="margin:0"><label>証憑写真</label><div id="detailPhotos" class="detail-photos">${e.photoCount?'<p class="hint">読み込み中…</p>':'<p class="hint">写真はありません</p>'}</div></div></div>`;
 
