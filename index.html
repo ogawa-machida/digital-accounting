@@ -602,7 +602,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.03-57';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.03-59';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -728,6 +728,7 @@ function testRoleProfile(code){
   return {
     ...realMe,
     uid:`test:${auth.currentUser?.uid||realMe.uid}:${code}`,
+    payerId:`test_${auth.currentUser?.uid||realMe.uid}`,
     role, officerType,
     name:`${realMe.name}（${label}）`,
     testMode:true, testRoleCode:code, testRoleLabel:label
@@ -736,6 +737,15 @@ function testRoleProfile(code){
 function applyEffectiveProfile(){
   if(!realMe) return;
   me = testProfile ? testRoleProfile(testProfile) : {...realMe};
+}
+async function ensureTestPayer(){
+  if(!isRealAdmin() || !auth.currentUser) return;
+  const pid=`test_${auth.currentUser.uid}`;
+  const ref=R(`payers/${pid}`), snap=await ref.get();
+  if(!snap.exists()) await ref.set({
+    name:`${realMe.name}（テスト）`,post:'テスト用',branch:realMe.branch||'',group:realMe.group||'',
+    active:true,order:9999,testMode:true,testOwnerUid:auth.currentUser.uid,createdAt:TS()
+  });
 }
 function closeTestChooser(){
   const x=document.getElementById('testRoleOverlay'); if(x)x.remove();
@@ -754,11 +764,11 @@ function showTestRoleChooser(force=false){
     <p class="hint" style="margin:12px 0 0">テストモードは画面・業務フロー確認用です。Firebase上の実権限は管理者のままなので、Firebase Rulesそのものの権限試験は別途、実アカウントで行います。</p>
   </div>`;
   document.body.appendChild(ov);
-  ov.querySelectorAll('[data-test-role]').forEach(b=>b.onclick=()=>{
+  ov.querySelectorAll('[data-test-role]').forEach(b=>b.onclick=async()=>{
     const code=b.dataset.testRole;
     testProfile = code==='admin' ? null : code;
     try{sessionStorage.setItem('kaikei_test_profile',code);}catch(e){}
-    applyEffectiveProfile(); closeTestChooser();
+    applyEffectiveProfile(); if(testProfile) await ensureTestPayer(); closeTestChooser();
     detachData(); attachData(); buildNav(); hideAllRoots(); $('mainWrap').style.display='block';
     $('roleBadge').textContent = testProfile ? `${me.testRoleLabel}・テスト` : '管理者';
     $('userName').textContent = me.name||'';
@@ -839,7 +849,7 @@ function writeLog(action, e, detail){
   return R('log').push().set({
     at:TS(), uid:me.uid, name:me.name, action,
     voucherNo: e ? (e.voucherNo||'') : '', amount: e ? (Number(e.amount)||0) : 0,
-    detail: detail||''
+    detail: detail||'', ...(isTestMode()?{testMode:true,testRole:testProfile,testOwnerUid:auth.currentUser?.uid||''}:{})
   }).catch(()=>{});
 }
 
@@ -848,6 +858,7 @@ function writeLog(action, e, detail){
    会計のGoogleアドレスへメールを送る。画面側から本文を渡さないので、なりすましや
    でたらめな内容の送信はできない。 */
 async function notify(action, extra, url){
+  if(isTestMode()) return {ok:true, skipped:true, testMode:true};
   const target = url || settings.notifyUrl;
   if (!target || !auth || !auth.currentUser) return { ok:false, error:'通知先URLが未設定です' };
   try {
@@ -918,7 +929,7 @@ function notifySettlementConfirm(settlementId){
 /* 会計担当の一覧が変わったら、GAS側の送信先を更新する（会計のみ実行可能） */
 let lastRecipientKey = '';
 function syncRecipients(force){
-  if (!isT() || !settings.notifyUrl || !members.length) return;
+  if (isTestMode() || !isT() || !settings.notifyUrl || !members.length) return;
   const key = members.filter(m=>m.role==='treasurer' || m.role==='viewer').map(m=>`${m.role}:${(m.email||'').trim().toLowerCase()}`).sort().join(',') + '|' + settings.notifyUrl;
   if (!force && key===lastRecipientKey) return;
   lastRecipientKey = key;
@@ -1132,7 +1143,7 @@ async function enterAs(user){
   // 会計・役員・監査・支払者・承認済み会員は申請不要で、そのまま会計報告を表示する。
   if (snap.exists() && reportDraft && reportDraft.email && user.email && reportDraft.email.toLowerCase()===user.email.toLowerCase()) {
     const existing = snap.val() || {};
-    const reportAllowed = ['treasurer','viewer','auditor','payer','report'].includes(existing.role);
+    const reportAllowed = ['admin','treasurer','viewer','auditor','payer','report'].includes(existing.role);
     if (reportAllowed) {
       try { localStorage.removeItem(REPORT_DRAFT_KEY); localStorage.removeItem('kaikei_reportIntent'); sessionStorage.removeItem('kaikei_reportIntent'); } catch(e){}
       me = {uid:user.uid, ...existing};
@@ -1204,9 +1215,12 @@ async function enterAs(user){
       // 再読み込み時は前回の選択を復元。未選択ならログイン直後に選択画面を出す。
       if(saved){
         testProfile = saved==='admin' ? null : saved;
-        applyEffectiveProfile(); detachData(); attachData(); buildNav();
-        $('roleBadge').textContent = testProfile ? `${me.testRoleLabel}・テスト` : '管理者';
-        $('userName').textContent = me.name||''; renderAll();
+        applyEffectiveProfile();
+        Promise.resolve(testProfile?ensureTestPayer():null).then(()=>{
+          detachData(); attachData(); buildNav();
+          $('roleBadge').textContent = testProfile ? `${me.testRoleLabel}・テスト` : '管理者';
+          $('userName').textContent = me.name||''; renderAll();
+        }).catch(e=>console.warn('テストプロフィール準備',e));
       }else setTimeout(()=>showTestRoleChooser(),120);
     }
     // メールのリンクから開いたとき：?open=伝票ID ／ ?screen=approvals（承認待ち一覧）／ ?screen=settings（利用者と権限）
@@ -1287,7 +1301,7 @@ function attachData(){
     if (curFY===null) { curFY = fyOf(localDate()); subscribeFY(); }
     $('headerOrg').textContent = settings.orgName || '';
     renderAll();
-    if(isT()) setTimeout(maybeAutoBackup,500);
+    if(isRealAdmin() && !isTestMode()) setTimeout(maybeAutoBackup,500);
   });
   onData(R('accounts'), s => { accounts = toArr(s.val()).sort((a,b)=>(a.order||0)-(b.order||0)); renderAll(); });
   onData(R('methods'),  s => { methods  = toArr(s.val()).sort((a,b)=>(a.order||0)-(b.order||0)); renderAll(); });
@@ -2144,7 +2158,7 @@ async function persistEntry(prev, f, photos, photosChanged){
   await ref.set(data);
   if (photosChanged) await R(`photos/${ref.key}`).set(photos.length ? photos : null);
   const st = data.storageLocation;
-  if (st && !storageTags.includes(st)) { storageTags.push(st); R('storageTags').push().set({name:st}).catch(()=>{}); }
+  if (!isTestMode() && st && !storageTags.includes(st)) { storageTags.push(st); R('storageTags').push().set({name:st}).catch(()=>{}); }
   const changes = prev ? diffText(prev, data) : '';
   // 会計が承認前の申請内容を直した場合は、伝票内にも構造化した訂正履歴を残す。
   if (prev && isT() && prev.status==='submitted' && changes) {
@@ -2531,7 +2545,7 @@ async function addAdvance(){
   const pid = $('advPayer').value, amount = Math.round(Number($('advAmount').value)||0), date = $('advDate').value;
   if (!pid) return showToast('渡す相手を選んでください');
   if (amount<=0) return showToast('金額を入力してください');
-  await R('advances').push().set({ payerId:pid, date, amount, memo:$('advMemo').value.trim(), settleState:'pending', createdBy:me.uid, createdByName:me.name, createdAt:TS() });
+  await R('advances').push().set({ payerId:pid, date, amount, memo:$('advMemo').value.trim(), settleState:'pending', createdBy:me.uid, createdByName:me.name, createdAt:TS(), ...(isTestMode()?{testMode:true,testRole:testProfile,testOwnerUid:auth.currentUser.uid}:{}) });
   writeLog('仮払', null, `${payerName(pid)}さんへ ${yen(amount)} ${$('advMemo').value.trim()}`);
   showToast('仮払金を記録しました');
 }
@@ -2566,7 +2580,8 @@ async function doSettlement(pid, recalc){
       entryIds: Object.fromEntries(eIds.map(i=>[i,true])), advanceIds: Object.fromEntries(aIds.map(i=>[i,true])),
       items: es.map(e=>({voucherNo:e.voucherNo, date:e.date, purpose:e.purpose||e.payee||'', method:methodById(e.methodId)?.name||'', amount:Number(e.amount)||0})),
       advItems: as.map(a=>({date:a.date, memo:a.memo||'仮払金', amount:Number(a.amount)||0})),
-      createdBy:me.uid, createdByName:me.name, createdAt:TS()
+      createdBy:me.uid, createdByName:me.name, createdAt:TS(),
+      ...(isTestMode()?{testMode:true,testRole:testProfile,testOwnerUid:auth.currentUser.uid}:{})
     };
     eIds.forEach(id=>{ ups[`entries/${id}/settleState`]='settled'; ups[`entries/${id}/settlementId`]=sid; });
     aIds.forEach(id=>{ ups[`advances/${id}/settleState`]='settled'; ups[`advances/${id}/settlementId`]=sid; });
@@ -2592,7 +2607,7 @@ async function cancelSettlement(s){
 async function confirmSettlement(s){
   metricBegin('settlement_confirm',s.id);
   if (!confirm(`${s.net>=0?`${yen(s.net)} を受け取りました`:`${yen(-s.net)} を返金しました`}。よろしいですか？`)) return;
-  await R(`settlements/${s.id}/payerConfirm`).set({ at:TS(), name:me.name, uid:me.uid });
+  await R(`settlements/${s.id}/payerConfirm`).set({ at:TS(), name:me.name, uid:auth.currentUser.uid, ...(isTestMode()?{testMode:true,testRole:testProfile}:{}) });
   writeLog('精算確認', null, `${s.no} ${me.name}`);
   await metricEnd('confirmed');
   showToast('確認しました。ありがとうございました');
@@ -2920,7 +2935,7 @@ async function renderAdmin(){
   if(!isAdmin()){ el.innerHTML='<div class="empty"><b>管理者専用です</b></div>'; return; }
   await loadAdminMetrics();
   const groups={};
-  adminMetrics.forEach(x=>{
+  adminMetrics.filter(x=>!x.testMode).forEach(x=>{
     const k=x.eventType||'other'; (groups[k]||(groups[k]=[])).push(Number(x.activeSec)||0);
   });
   const labels={
@@ -2929,13 +2944,15 @@ async function renderAdmin(){
     batch_entry:'まとめて登録',budget_import:'予算取込',data_import:'データ取込',balance_reconciliation:'残高照合',
     closing:'決算作業',other:'その他'
   };
-  const total=adminMetrics.reduce((n,x)=>n+(Number(x.activeSec)||0),0);
+  const officialMetrics=adminMetrics.filter(x=>!x.testMode);
+  const testMetrics=adminMetrics.filter(x=>x.testMode);
+  const total=officialMetrics.reduce((n,x)=>n+(Number(x.activeSec)||0),0);
   const rows=Object.entries(groups).sort((a,b)=>b[1].reduce((n,v)=>n+v,0)-a[1].reduce((n,v)=>n+v,0))
     .map(([k,a])=>`<div class="cat-row"><span class="cname">${esc(labels[k]||k)}<small>${a.length}件・中央値 ${fmtDur(median(a))}</small></span><b>${fmtDur(a.reduce((n,v)=>n+v,0))}</b></div>`).join('');
   el.innerHTML=`
     <h2 class="section-title">業務時間・導入効果</h2>
     <div class="form-card">
-      <div class="total-check"><span>${curFY}年度 自動計測</span><b>${adminMetrics.length}件</b></div>
+      <div class="total-check"><span>${curFY}年度 自動計測（本番）</span><b>${officialMetrics.length}件</b></div><div class="total-check"><span>テスト計測</span><b>${testMetrics.length}件</b></div>
       <div class="total-check"><span>推定実作業時間</span><b>${fmtDur(total)}</b></div>
       <p class="hint">60秒以上の無操作時間とバックグラウンド時間を除いた推定値です。個人ランキングではなく、業務別の導入効果測定に使用します。</p>
     </div>
@@ -2944,7 +2961,7 @@ async function renderAdmin(){
     <div class="form-card">
       <p class="hint" style="margin-top:0">管理者は、会計業務に加えてシステム設定・データ管理・業務時間分析を行えます。管理者の追加・解除は管理者だけが行えます。</p>
       <div id="adminMemberList"></div>
-      <button class="btn btn-navy full" id="adminAddBtn" style="margin-top:10px">＋ 管理者を追加</button><button class="btn btn-ghost full" id="adminTestModeBtn" style="margin-top:8px">🧪 テスト役割を切り替える</button>
+      <button class="btn btn-navy full" id="adminAddBtn" style="margin-top:10px">＋ 管理者を追加</button><button class="btn btn-ghost full" id="adminTestModeBtn" style="margin-top:8px">🧪 テスト役割を切り替える</button><button class="btn btn-ghost full" id="adminClearTestBtn" style="margin-top:8px;color:var(--stamp-red)">テストデータを一括削除</button>
       <div id="adminAddPanel" style="margin-top:10px"></div>
     </div>
     <h2 class="section-title" style="margin-top:20px">管理者業務</h2>
@@ -2975,6 +2992,24 @@ async function renderAdmin(){
     catch(e){console.error(e);showToast('管理者権限を変更できませんでした');}
   });
   if($('adminTestModeBtn')) $('adminTestModeBtn').onclick=()=>showTestRoleChooser(true);
+  if($('adminClearTestBtn')) $('adminClearTestBtn').onclick=async()=>{
+    if(!isRealAdmin())return;
+    if(!confirm('この管理者アカウントがテストモードで作成した伝票・証憑・仮払・精算・操作履歴・時間計測・テスト用支払者を削除しますか？\n\n本番データは削除しません。'))return;
+    const owner=auth.currentUser.uid;
+    try{
+      const [en,ad,st,lg,wm,py]=await Promise.all([R('entries').get(),R('advances').get(),R('settlements').get(),R('log').get(),R('workMetrics').get(),R('payers').get()]);
+      const ups={}; let count=0;
+      Object.entries(en.val()||{}).forEach(([id,v])=>{if(v?.testMode && (v.testActor===realMe.name || String(v.createdBy||'').startsWith(`test:${owner}:`))){ups[`entries/${id}`]=null;ups[`photos/${id}`]=null;count++;}});
+      Object.entries(ad.val()||{}).forEach(([id,v])=>{if(v?.testMode&&v.testOwnerUid===owner){ups[`advances/${id}`]=null;count++;}});
+      Object.entries(st.val()||{}).forEach(([id,v])=>{if(v?.testMode&&v.testOwnerUid===owner){ups[`settlements/${id}`]=null;count++;}});
+      Object.entries(lg.val()||{}).forEach(([id,v])=>{if(v?.testMode&&v.testOwnerUid===owner){ups[`log/${id}`]=null;}});
+      Object.entries(wm.val()||{}).forEach(([id,v])=>{if(v?.testMode&&v.uid===owner){ups[`workMetrics/${id}`]=null;}});
+      Object.entries(py.val()||{}).forEach(([id,v])=>{if(v?.testMode&&v.testOwnerUid===owner){ups[`payers/${id}`]=null;}});
+      if(Object.keys(ups).length) await db.ref(ROOT).update(ups);
+      showToast(`テストデータを削除しました（主要データ ${count}件）`);
+    }catch(e){console.error(e);showToast('テストデータの削除に失敗しました');}
+  };
+
   if($('adminAddBtn')) $('adminAddBtn').onclick=()=>{
     const candidates=members.filter(m=>m.role!=='admin' && m.role!=='pending' && m.role!=='report');
     if(!candidates.length){addPanel.innerHTML='<p class="hint">管理者に変更できる登録済み利用者がいません。</p>';return;}
@@ -2988,8 +3023,24 @@ async function renderAdmin(){
   };
 
   const tool=$('adminToolPanel');
-  if($('adminImport')) $('adminImport').onclick=()=>{ tool.innerHTML=`<div class="form-card"><b>データ取り込み</b><p class="hint">過去データ（CSV・Excel）または会費ペイのファイルを選択します。</p><div class="btn-row"><button class="btn btn-navy" id="admExcel">CSV・Excel</button><button class="btn btn-navy" id="admKaihi">会費ペイ</button></div><button class="btn btn-navy full" style="margin-top:8px" id="admStmt">会費ペイ支払通知書PDF</button></div>`;$('admExcel').onclick=()=>$('importInput').click();$('admKaihi').onclick=()=>$('kaihipayInput').click();$('admStmt').onclick=()=>$('kaihipayStatementInput').click();};
-  if($('adminBackup')) $('adminBackup').onclick=async()=>{ if(!confirm('今すぐFirebaseバックアップを作成しますか？'))return; try{await createFirebaseBackup('manual');showToast('バックアップを作成しました');renderAdmin();}catch(e){console.error(e);showToast('バックアップに失敗しました');}};
+  if($('adminImport')) $('adminImport').onclick=()=>{ tool.innerHTML=`<div class="form-card"><b>データ取り込み</b><p class="hint">過去データ（CSV・Excel）または会費ペイのファイルを選択します。</p><div class="btn-row"><button class="btn btn-navy" id="admExcel">CSV・Excel</button><button class="btn btn-navy" id="admKaihi">会費ペイ</button></div><div id="kaihipayPreview" style="margin-top:10px"></div><button class="btn btn-navy full" style="margin-top:8px" id="admStmt">会費ペイ支払通知書PDF</button><div id="kaihipayStatementPreview" style="margin-top:10px"></div></div>`;$('admExcel').onclick=()=>$('importInput').click();$('admKaihi').onclick=()=>$('kaihipayInput').click();$('admStmt').onclick=()=>$('kaihipayStatementInput').click();};
+  if($('adminBackup')) $('adminBackup').onclick=()=>{
+    tool.innerHTML=`<div class="form-card"><b>バックアップ・データ管理</b>
+      <p class="hint">日常のFirebaseバックアップに加え、年度末・監査前はCSV書き出しも併用してください。</p>
+      <div class="btn-row"><button class="btn btn-ghost" id="admExportEntries">会計データCSV</button><button class="btn btn-ghost" id="admExportAccounts">科目CSV</button></div>
+      <div class="field" style="margin-top:12px"><label>自動バックアップ間隔（日）</label><input type="number" id="admBackupDays" min="14" max="365" value="${backupIntervalDays()}"></div>
+      <div class="btn-row"><button class="btn btn-ghost" id="admSaveBackupDays">間隔を保存</button><button class="btn btn-primary" id="admBackupNow">今すぐバックアップ</button></div>
+      <div style="margin-top:10px">${backupStatusHtml()}</div>
+      <hr style="border:0;border-top:1px solid var(--line);margin:18px 0">
+      <button class="btn btn-ghost full" id="admResetPreview" style="color:var(--stamp-red);border-color:var(--stamp-red)">実運用開始前の初期化対象を確認</button>
+      <div id="admResetBox" style="margin-top:10px"></div>
+    </div>`;
+    $('admExportEntries').onclick=async()=>{await exportBackupCsv();await R('settings/lastBackupAt').set(TS());};
+    $('admExportAccounts').onclick=exportAccountsCsv;
+    $('admSaveBackupDays').onclick=async()=>{const d=Math.round(Number($('admBackupDays').value)||0);if(d<14||d>365)return showToast('14～365日で指定してください');await R('settings/autoBackup/intervalDays').set(d);showToast(`${d}日間隔に設定しました`);};
+    $('admBackupNow').onclick=async()=>{const b=$('admBackupNow');b.disabled=true;try{await createFirebaseBackup('manual');showToast('バックアップを作成しました');}catch(e){console.error(e);showToast('バックアップに失敗しました');}finally{b.disabled=false;}};
+    $('admResetPreview').onclick=async()=>{const box=$('admResetBox');try{const p=await getResetPreview();box.innerHTML=`<div class="audit-box" style="border-color:var(--stamp-red)">${p.rows.filter(x=>x.count).map(x=>`<div class="total-check"><span>${esc(x.label)}</span><b>${x.count}件</b></div>`).join('')||'<p class="hint">削除対象はありません。</p>'}<div class="total-check"><span>合計</span><b>${p.total}件</b></div>${p.total?'<button class="btn btn-danger full" id="admResetRun">試行データを初期化する</button>':''}</div>`;if($('admResetRun'))$('admResetRun').onclick=resetTrialData;}catch(e){console.error(e);box.innerHTML='<p class="hint" style="color:var(--stamp-red)">確認できませんでした。</p>';}};
+  };
   if($('adminNotify')) $('adminNotify').onclick=()=>{tool.innerHTML=`<div class="form-card"><b>メール通知</b><div class="field"><label>通知用 Apps Script URL</label><input type="text" id="admNUrl" value="${esc(settings.notifyUrl||'')}"></div><label class="check-line"><input type="checkbox" id="admNEntry" ${settings.notifyOnEntry!==false?'checked':''}> 支出申請の承認依頼を通知</label><div class="btn-row" style="margin-top:12px"><button class="btn btn-ghost" id="admNTest">テスト送信</button><button class="btn btn-primary" id="admNSave">保存</button></div></div>`;$('admNSave').onclick=async()=>{await R('settings').update({notifyUrl:$('admNUrl').value.trim(),notifyOnEntry:$('admNEntry').checked});settings.notifyUrl=$('admNUrl').value.trim();settings.notifyOnEntry=$('admNEntry').checked;await syncRecipients();showToast('通知設定を保存しました');};$('admNTest').onclick=async()=>{const u=$('admNUrl').value.trim();if(!u)return showToast('URLを入力してください');await notify('test',{},u);showToast('テスト送信を依頼しました');};};
 
   const save=$('adminSaveShared'), del=$('adminDelShared');
@@ -3213,7 +3264,7 @@ async function collectBackupData(){
   return data;
 }
 async function createFirebaseBackup(kind='manual', quiet=false){
-  if(!isT()) throw new Error('会計権限が必要です');
+  if(!isRealAdmin()) throw new Error('管理者権限が必要です');
   const data=await collectBackupData();
   const json=JSON.stringify(data);
   const bytes=new Blob([json]).size;
@@ -3516,12 +3567,12 @@ function bindSettings(){
     showToast('紐付けを保存しました');
   });
   $('pubDetail').onchange = () => R('settings/publicDetail').set($('pubDetail').value);
-  $('nEntry').onchange = e => R('settings/notifyOnEntry').set(e.target.checked);
-  $('impBtn').onclick = openImport;
+  if($('nEntry')) $('nEntry').onchange = e => R('settings/notifyOnEntry').set(e.target.checked);
+  if($('impBtn')) $('impBtn').onclick = openImport;
   if ($('kaihipayBtn')) $('kaihipayBtn').onclick = () => $('kaihipayInput').click();
   if ($('kaihipayStatementBtn')) $('kaihipayStatementBtn').onclick = () => $('kaihipayStatementInput').click();
-  $('bkEntries').onclick = async () => { await exportBackupCsv(); R('settings/lastBackupAt').set(TS()); };
-  $('bkAccounts').onclick = exportAccountsCsv;
+  if($('bkEntries')) $('bkEntries').onclick = async () => { await exportBackupCsv(); R('settings/lastBackupAt').set(TS()); };
+  if($('bkAccounts')) $('bkAccounts').onclick = exportAccountsCsv;
   if($('autoBackupPeriod')) $('autoBackupPeriod').onchange=()=>{
     const custom=$('autoBackupPeriod').value==='custom';
     $('autoBackupCustomWrap').style.display=custom?'':'none';
@@ -3557,14 +3608,14 @@ function bindSettings(){
     finally{b.disabled=false;b.textContent='削除対象を再確認する';}
   };
   q('[data-undoimp]').forEach(b => b.onclick = () => undoImport(b.dataset.undoimp));
-  $('nSave').onclick = async () => {
+  if($('nSave')) $('nSave').onclick = async () => {
     const url = $('nUrl').value.trim();
     if (url && !/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(url)) return showToast('URLは https://script.google.com/macros/s/…/exec の形です');
     await R('settings/notifyUrl').set(url || null);
     writeLog('通知設定', null, url ? 'メール通知URLを設定' : 'メール通知を解除');
     if (url) { settings.notifyUrl = url; syncRecipients(true); } else showToast('メール通知を解除しました');
   };
-  $('nTest').onclick = async () => {
+  if($('nTest')) $('nTest').onclick = async () => {
     const url = $('nUrl').value.trim(); if (!url) return showToast('URLを入力してください');
     $('nTest').disabled = true;
     const r = await notify('test', null, url);
@@ -4389,7 +4440,7 @@ $('kaihipayStatementInput').onchange = async e=>{
   const box=$('kaihipayStatementPreview');
   if(!/\.pdf$/i.test(file.name)) return showToast('会費ペイの支払通知書PDFを選んでください');
   if(!getApiKey()){
-    if(box) box.innerHTML='<p class="hint" style="color:var(--stamp-red)">AIのAPIキーが未設定です。設定画面でClaude APIキーを登録してください。</p>';
+    if(box) box.innerHTML='<p class="hint" style="color:var(--stamp-red)">AIのAPIキーが未設定です。管理画面でClaude API共通キーを登録してください。</p>';
     return;
   }
   if(box) box.innerHTML='<p class="hint"><span class="spinner"></span> 支払通知書をAIで読み取っています…</p>';
