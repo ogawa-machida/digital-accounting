@@ -603,7 +603,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.03-74';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.03-75';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -701,9 +701,10 @@ const PRIVACY_PURPOSE='自治会の会計処理、支払・精算、監査、決
 function aiOriginal(e){return e&&e.aiReceiptOriginal&&typeof e.aiReceiptOriginal==='object'?e.aiReceiptOriginal:null}
 function aiChangedFields(e){
  const o=aiOriginal(e); if(!o)return [];
- const m={date:'日付',amount:'金額',payee:'支払先',purpose:'摘要'};
+ const m={date:'日付',amount:'金額',payee:'支払先',purpose:'摘要',accountId:'科目',addressee:'宛名'};
+ const fmt=(k,v)=>k==='amount'?yen(v):k==='accountId'?(accById(v)?.name||v||''):(v??'');
  return Object.keys(m).filter(k=>String(o[k]??'').trim()!==String(e[k]??'').trim())
-   .map(k=>({key:k,label:m[k],before:o[k]??'',after:e[k]??''}));
+   .map(k=>({key:k,label:m[k],before:fmt(k,o[k]),after:fmt(k,e[k])}));
 }
 function aiReceiptBadge(e){
  const o=aiOriginal(e); if(!o)return '';
@@ -1847,6 +1848,7 @@ let formType = 'expense';
 let formPhotos = [];      // dataURLの配列
 let photosChanged = false;
 let formAccount = '', formMethod = '', formAddressee = '';
+let formAiReceiptOriginal = null;
 
 async function openForm(e){
   if (canOwnSubmit() && !me.payerId) { showToast('立替・仮払の対象設定が済んでいません'); return; }
@@ -1856,6 +1858,7 @@ async function openForm(e){
   formAccount = e ? e.accountId : '';
   formMethod = e ? e.methodId : '';
   formAddressee = e ? (e.addressee||'') : '';
+  formAiReceiptOriginal = e && e.aiReceiptOriginal ? {...e.aiReceiptOriginal} : null;
   formPhotos = []; photosChanged = false;
   $('formTitle').textContent = e ? `${e.voucherNo||''} を修正` : (canOwnSubmit() ? '支出を申請' : '収入・支出を登録');
   $('fTypeField').style.display = (isT() && !e) ? 'block' : 'none';
@@ -2134,6 +2137,11 @@ async function runAi(dataUrls){
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> AIが読み取り中…';
   try {
     const r = await recognizeReceipt(dataUrls, formType);
+    formAiReceiptOriginal = {
+      date:r.date||'', amount:Math.round(Number(r.amount)||0), payee:r.payee||'',
+      purpose:r.purpose||'', accountId:r.accountId||'', addressee:r.addressee||'',
+      items:r.items||'', payMethod:r.payMethod||'unknown', readAt:TS()
+    };
     if (r.date) $('fDate').value = r.date;
     if (r.payee) $('fPayee').value = r.payee;
     if (r.amount) $('fAmount').value = r.amount;
@@ -2192,11 +2200,33 @@ async function persistEntry(prev, f, photos, photosChanged){
     createdBy: p.createdBy || me.uid, createdByName: p.createdByName || me.name,
     createdAt: p.createdAt || TS(),
     updatedAt: TS(), updatedByName: me.name
-  };  if(isTestMode()){ data.testMode=true; data.testRole=testProfile; data.testActor=realMe?.name||''; }
+  };
+  const aiOrig = p.aiReceiptOriginal || f.aiReceiptOriginal || null;
+  if (aiOrig) {
+    data.aiReceiptOriginal = aiOrig;
+    const aiFields=['date','amount','payee','purpose','accountId','addressee'];
+    const changed=aiFields.filter(k=>String(aiOrig[k]??'').trim()!==String(data[k]??'').trim());
+    if (changed.length) {
+      data.aiReceiptEditedAt=TS();
+      data.aiReceiptEditedBy=me.uid;
+      data.aiReceiptEditedByName=me.name;
+      data.aiReceiptChangedFields=changed;
+    } else if (!p.aiReceiptEditedAt) {
+      data.aiReceiptEditedAt=null; data.aiReceiptEditedBy=null;
+      data.aiReceiptEditedByName=null; data.aiReceiptChangedFields=null;
+    }
+  }
+  if(isTestMode()){ data.testMode=true; data.testRole=testProfile; data.testActor=realMe?.name||''; }
 
   delete data.id; delete data._via;
   await ref.set(data);
   if (photosChanged) await R(`photos/${ref.key}`).set(photos.length ? photos : null);
+  if (data.aiReceiptOriginal && data.aiReceiptChangedFields && data.aiReceiptChangedFields.length) {
+    const labels={date:'日付',amount:'金額',payee:'支払先',purpose:'用途',accountId:'科目',addressee:'宛名'};
+    const fmtAi=(k,v)=>k==='amount'?yen(v):k==='accountId'?(accById(v)?.name||v||''):(v??'');
+    const aiChanges=data.aiReceiptChangedFields.map(k=>`${labels[k]}：${fmtAi(k,data.aiReceiptOriginal[k])}→${fmtAi(k,data[k])}`).join('／');
+    writeLog('AI読取後修正',data,aiChanges);
+  }
   const st = data.storageLocation;
   if (!isTestMode() && st && !storageTags.includes(st)) { storageTags.push(st); R('storageTags').push().set({name:st}).catch(()=>{}); }
   const changes = prev ? diffText(prev, data) : '';
@@ -2232,7 +2262,8 @@ $('formSaveBtn').onclick = async () => {
       accountId: formAccount, methodId: formMethod, payerId: payerId || null,
       storageLocation: $('fStorage').value.trim(),
       noReceipt, noReceiptReason: noReceipt ? $('fNoReceiptReason').value.trim() : '',
-      excludePublic: $('fExclude').checked, addressee: formAddressee
+      excludePublic: $('fExclude').checked, addressee: formAddressee,
+      aiReceiptOriginal: formAiReceiptOriginal
     }, formPhotos, photosChanged);
     if (saved.status==='submitted' && (!editing || editing.status!=='submitted')) notifyEntries([saved.id]);
     await metricEnd(editing?'resubmitted':'submitted');
@@ -3933,6 +3964,11 @@ function pumpBatch(){
     const it = batchQueue.shift(); batchRunning++;
     recognizeReceipt(it.photos||[it.photo], 'expense').then(r => {
       const f = it.f;
+      it.aiReceiptOriginal={
+        date:r.date||'',amount:Math.round(Number(r.amount)||0),payee:r.payee||'',
+        purpose:r.purpose||'',accountId:r.accountId||'',addressee:r.addressee||'',
+        items:r.items||'',payMethod:r.payMethod||'unknown',readAt:TS()
+      };
       if (r.date) f.date = r.date;
       if (r.amount) f.amount = r.amount;
       if (r.payee) f.payee = r.payee;
@@ -3969,7 +4005,7 @@ async function saveBatch(){
         type:'expense', date:f.date, amount:f.amount, payee:f.payee.trim(), purpose:f.purpose.trim(), memo:f.memo||'',
         accountId:f.accountId, methodId:f.methodId, payerId: isP() ? me.payerId : (f.payerId||null),
         storageLocation:(f.storageLocation||'').trim(), noReceipt:false, noReceiptReason:'', excludePublic:false,
-        addressee:f.addressee||'', _via:'まとめて読み込み'
+        addressee:f.addressee||'', aiReceiptOriginal:it.aiReceiptOriginal||null, _via:'まとめて読み込み'
       }, it.photos||[it.photo], true);
       it.state = 'saved'; ok++;
       if (saved.status==='submitted') submittedIds.push(saved.id);
