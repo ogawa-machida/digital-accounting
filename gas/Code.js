@@ -1,6 +1,6 @@
 /**
  * 町内会 会計簿 ― 承認依頼のメール通知（Google Apps Script）
- * 2026.10.03-69 統合版（通知＋Claude AI・管理者対応）
+ * 2026.10.03-71 統合版（GAS応答経路修正）
  *
  * 通知先：
  *  ・役員／支払者からの通常申請 → 会計担当
@@ -435,7 +435,7 @@ function bridgeResponse_(requestId,ok,result,error){
   if(ok)obj.result=result;else obj.error=String(error||'処理に失敗しました');
   const json=JSON.stringify(obj).replace(/</g,'\\u003c');
   const html='<!doctype html><html><head><meta charset="utf-8"></head><body>'+
-    '<script>window.parent.postMessage('+json+', "*");<\\/script></body></html>';
+    '<script>window.top.postMessage('+json+', "*");<\\/script></body></html>';
   return HtmlService.createHtmlOutput(html).setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
