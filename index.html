@@ -338,6 +338,17 @@ p,.hint,.notice,.slip-title,.slip-memo,.person-row,.cat-row,.settings-task-btn,
 /* 複数行になる説明文は中央揃えにせず、行頭を揃えて読みやすくする */
 .readable-multiline{text-align:left!important;}
 
+
+.admin-menu-card{cursor:pointer;display:flex;align-items:center;gap:16px;padding:20px 18px;border:1px solid var(--line);border-radius:16px;background:var(--card);margin-bottom:12px}
+.admin-menu-card:active{transform:scale(.995)}
+.admin-menu-icon{font-size:30px;width:42px;text-align:center;flex:0 0 42px}
+.admin-menu-text{flex:1;min-width:0}
+.admin-menu-text b{display:block;font-size:17px;margin-bottom:4px}
+.admin-menu-text small{display:block;color:var(--muted);font-size:13px;line-height:1.5}
+.admin-menu-arrow{font-size:25px;color:var(--muted)}
+.admin-group{display:none}
+.admin-group.open{display:block}
+.admin-back{margin:0 0 14px}
 </style>
 <style>
 #newMSettle{width:24px;height:24px;flex:0 0 auto;margin:0 12px 0 0;vertical-align:middle}
@@ -603,7 +614,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.03-75';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.03-76';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -3021,37 +3032,86 @@ async function renderAdmin(){
   const rows=Object.entries(groups).sort((a,b)=>b[1].reduce((n,v)=>n+v,0)-a[1].reduce((n,v)=>n+v,0))
     .map(([k,a])=>`<div class="cat-row"><span class="cname">${esc(labels[k]||k)}<small>${a.length}件・中央値 ${fmtDur(median(a))}</small></span><b>${fmtDur(a.reduce((n,v)=>n+v,0))}</b></div>`).join('');
   el.innerHTML=`
-    <h2 class="section-title">業務時間・導入効果</h2>
-    <div class="form-card">
-      <div class="total-check"><span>${curFY}年度 自動計測（本番）</span><b>${officialMetrics.length}件</b></div><div class="total-check"><span>テスト計測</span><b>${testMetrics.length}件</b></div>
-      <div class="total-check"><span>推定実作業時間</span><b>${fmtDur(total)}</b></div>
-      <p class="hint">60秒以上の無操作時間とバックグラウンド時間を除いた推定値です。個人ランキングではなく、業務別の導入効果測定に使用します。</p>
+    <div id="adminMenu">
+      <h2 class="section-title">何を管理しますか？</h2>
+      <div class="form-card">
+        <p class="hint" style="margin-top:0">変更・確認したい内容を選んでください。</p>
+        <div class="admin-menu-card" data-admin-group="people">
+          <div class="admin-menu-icon">👥</div><div class="admin-menu-text"><b>利用者・権限</b><small>管理者の追加・解除、テスト役割・テストデータ</small></div><div class="admin-menu-arrow">›</div>
+        </div>
+        <div class="admin-menu-card" data-admin-group="data">
+          <div class="admin-menu-icon">🗂️</div><div class="admin-menu-text"><b>データ管理</b><small>CSV・Excel・会費ペイ取込、バックアップ、初期化</small></div><div class="admin-menu-arrow">›</div>
+        </div>
+        <div class="admin-menu-card" data-admin-group="notify">
+          <div class="admin-menu-icon">🔔</div><div class="admin-menu-text"><b>通知・AI</b><small>承認メール、共通GAS、Claude AI中継</small></div><div class="admin-menu-arrow">›</div>
+        </div>
+        <div class="admin-menu-card" data-admin-group="privacy">
+          <div class="admin-menu-icon">🛡️</div><div class="admin-menu-text"><b>個人情報保護・運用</b><small>利用目的、情報の取扱い、運用上の確認</small></div><div class="admin-menu-arrow">›</div>
+        </div>
+        <div class="admin-menu-card" data-admin-group="metrics">
+          <div class="admin-menu-icon">📊</div><div class="admin-menu-text"><b>業務分析</b><small>業務時間、自動計測、導入効果の確認</small></div><div class="admin-menu-arrow">›</div>
+        </div>
+      </div>
     </div>
-    ${rows||'<div class="empty">計測データはまだありません</div>'}
-    <h2 class="section-title" style="margin-top:20px">管理者管理</h2>
-    <div class="form-card">
-      <p class="hint" style="margin-top:0">管理者は、会計業務に加えてシステム設定・データ管理・業務時間分析を行えます。管理者の追加・解除は管理者だけが行えます。</p>
-      <div id="adminMemberList"></div>
-      <button class="btn btn-navy full" id="adminAddBtn" style="margin-top:10px">＋ 管理者を追加</button><button class="btn btn-ghost full" id="adminTestModeBtn" style="margin-top:8px">🧪 テスト役割を切り替える</button><button class="btn btn-ghost full" id="adminClearTestBtn" style="margin-top:8px;color:var(--stamp-red)">テストデータを一括削除</button>
-      <div id="adminAddPanel" style="margin-top:10px"></div>
+
+    <div class="admin-group" id="adminGroupPeople">
+      <button class="btn btn-ghost sm admin-back">← 管理メニューに戻る</button>
+      <h2 class="section-title">利用者・権限</h2>
+      <div class="form-card">
+        <p class="hint" style="margin-top:0">管理者は、会計業務に加えてシステム設定・データ管理・業務時間分析を行えます。管理者の追加・解除は管理者だけが行えます。</p>
+        <div id="adminMemberList"></div>
+        <button class="btn btn-navy full" id="adminAddBtn" style="margin-top:10px">＋ 管理者を追加</button>
+        <button class="btn btn-ghost full" id="adminTestModeBtn" style="margin-top:8px">🧪 テスト役割を切り替える</button>
+        <button class="btn btn-ghost full" id="adminClearTestBtn" style="margin-top:8px;color:var(--stamp-red)">テストデータを一括削除</button>
+        <div id="adminAddPanel" style="margin-top:10px"></div>
+      </div>
     </div>
-    <h2 class="section-title" style="margin-top:20px">管理者業務</h2>
-    <div class="form-card">
-      <div class="cat-row"><span class="cname">データ取り込み<small>Excel・CSV、会費ペイ等の管理</small></span><button class="btn btn-navy sm" id="adminImport">開く</button></div>
-      <div class="cat-row"><span class="cname">バックアップ<small>Firebaseバックアップ・初期化等</small></span><button class="btn btn-navy sm" id="adminBackup">実行</button></div>
-      <div class="cat-row"><span class="cname">通知・AI共通GAS<small>Apps Script URL・通知・AI設定</small></span><button class="btn btn-navy sm" id="adminNotify">設定</button></div>
+
+    <div class="admin-group" id="adminGroupData">
+      <button class="btn btn-ghost sm admin-back">← 管理メニューに戻る</button>
+      <h2 class="section-title">データ管理</h2>
+      <div class="form-card">
+        <div class="cat-row"><span class="cname">データ取り込み<small>Excel・CSV、会費ペイ等の管理</small></span><button class="btn btn-navy sm" id="adminImport">開く</button></div>
+        <div class="cat-row"><span class="cname">バックアップ・初期化<small>Firebaseバックアップ、CSV書出し、試行データ初期化</small></span><button class="btn btn-navy sm" id="adminBackup">開く</button></div>
+      </div>
+      <div id="adminToolPanel"></div>
     </div>
-    <div id="adminToolPanel"></div>
-    <h2 class="section-title" style="margin-top:20px">個人情報保護・運用</h2>
-<div class="form-card"><div style="font-weight:700">利用目的</div>
-<p class="hint">自治会の会計処理、支払・精算、監査、決算およびこれらに必要な連絡</p>
-<div style="font-weight:700">取扱い</div><p class="hint">役割別に閲覧・操作範囲を制限し、会計業務に必要な情報のみを取り扱います。領収証をAIで読み取る場合は、読取りに必要な画像情報をAIサービスへ送信します。権限変更・会計処理・AI読取後の修正は追跡できる形で記録します。</p></div>
-<h2 class="section-title" style="margin-top:20px">AI・システム管理</h2>
-    <div class="form-card">
-      <div style="font-weight:700;font-size:13.5px;margin-bottom:6px">Claude AI中継</div>
-      <p class="hint" style="margin-top:0">メール通知と同じGoogle Apps Scriptを使ってAI読取を中継します。Claude APIキーはアプリやFirebaseには保存せず、GASのScript Propertiesだけで管理します。</p>
-      <p style="margin:8px 0;font-size:13.5px"><b>共通GAS：</b>${settings.notifyUrl?'設定済み':'未設定'}</p>
-      <p class="hint">GAS URLの変更は「通知・AI共通GAS」で行います。AI専用URLの登録は不要です。</p>
+
+    <div class="admin-group" id="adminGroupNotify">
+      <button class="btn btn-ghost sm admin-back">← 管理メニューに戻る</button>
+      <h2 class="section-title">通知・AI</h2>
+      <div class="form-card">
+        <div class="cat-row"><span class="cname">通知・AI共通GAS<small>Apps Script URL、承認通知、テスト送信</small></span><button class="btn btn-navy sm" id="adminNotify">設定</button></div>
+      </div>
+      <div id="adminNotifyToolPanel"></div>
+      <div class="form-card" style="margin-top:12px">
+        <div style="font-weight:700;font-size:13.5px;margin-bottom:6px">Claude AI中継</div>
+        <p class="hint" style="margin-top:0">メール通知と同じGoogle Apps Scriptを使ってAI読取を中継します。Claude APIキーはアプリやFirebaseには保存せず、GASのScript Propertiesだけで管理します。</p>
+        <p style="margin:8px 0;font-size:13.5px"><b>共通GAS：</b>${settings.notifyUrl?'設定済み':'未設定'}</p>
+      </div>
+    </div>
+
+    <div class="admin-group" id="adminGroupPrivacy">
+      <button class="btn btn-ghost sm admin-back">← 管理メニューに戻る</button>
+      <h2 class="section-title">個人情報保護・運用</h2>
+      <div class="form-card">
+        <div style="font-weight:700">利用目的</div>
+        <p class="hint">自治会の会計処理、支払・精算、監査、決算およびこれらに必要な連絡</p>
+        <div style="font-weight:700">取扱い</div>
+        <p class="hint">役割別に閲覧・操作範囲を制限し、会計業務に必要な情報のみを取り扱います。領収証をAIで読み取る場合は、読取りに必要な画像情報をAIサービスへ送信します。権限変更・会計処理・AI読取後の修正は追跡できる形で記録します。</p>
+      </div>
+    </div>
+
+    <div class="admin-group" id="adminGroupMetrics">
+      <button class="btn btn-ghost sm admin-back">← 管理メニューに戻る</button>
+      <h2 class="section-title">業務時間・導入効果</h2>
+      <div class="form-card">
+        <div class="total-check"><span>${curFY}年度 自動計測（本番）</span><b>${officialMetrics.length}件</b></div>
+        <div class="total-check"><span>テスト計測</span><b>${testMetrics.length}件</b></div>
+        <div class="total-check"><span>推定実作業時間</span><b>${fmtDur(total)}</b></div>
+        <p class="hint">60秒以上の無操作時間とバックグラウンド時間を除いた推定値です。個人ランキングではなく、業務別の導入効果測定に使用します。</p>
+      </div>
+      ${rows||'<div class="empty">計測データはまだありません</div>'}
     </div>`;
 
 
@@ -3096,8 +3156,28 @@ async function renderAdmin(){
     };
   };
 
+  const adminMenu=$('adminMenu');
+  const adminGroups={
+    people:$('adminGroupPeople'), data:$('adminGroupData'), notify:$('adminGroupNotify'),
+    privacy:$('adminGroupPrivacy'), metrics:$('adminGroupMetrics')
+  };
+  const openAdminGroup=(key)=>{
+    if(adminMenu)adminMenu.style.display='none';
+    Object.values(adminGroups).forEach(x=>x&&x.classList.remove('open'));
+    if(adminGroups[key])adminGroups[key].classList.add('open');
+    window.scrollTo({top:0,behavior:'smooth'});
+  };
+  const closeAdminGroup=()=>{
+    Object.values(adminGroups).forEach(x=>x&&x.classList.remove('open'));
+    if(adminMenu)adminMenu.style.display='';
+    window.scrollTo({top:0,behavior:'smooth'});
+  };
+  el.querySelectorAll('[data-admin-group]').forEach(card=>card.onclick=()=>openAdminGroup(card.dataset.adminGroup));
+  el.querySelectorAll('.admin-back').forEach(btn=>btn.onclick=closeAdminGroup);
+
   const tool=$('adminToolPanel');
-  if(!tool){ console.error('adminToolPanel が見つかりません'); return; }
+  const notifyTool=$('adminNotifyToolPanel');
+  if(!tool || !notifyTool){ console.error('管理パネルが見つかりません'); return; }
   if($('adminImport')) $('adminImport').onclick=()=>{ tool.innerHTML=`<div class="form-card"><b>データ取り込み</b><p class="hint">過去データ（CSV・Excel）または会費ペイのファイルを選択します。</p><div class="btn-row"><button class="btn btn-navy" id="admExcel">CSV・Excel</button><button class="btn btn-navy" id="admKaihi">会費ペイ</button></div><div id="kaihipayPreview" style="margin-top:10px"></div><button class="btn btn-navy full" style="margin-top:8px" id="admStmt">会費ペイ支払通知書PDF</button><div id="kaihipayStatementPreview" style="margin-top:10px"></div></div>`;$('admExcel').onclick=()=>$('importInput').click();$('admKaihi').onclick=()=>$('kaihipayInput').click();$('admStmt').onclick=()=>$('kaihipayStatementInput').click();};
   if($('adminBackup')) $('adminBackup').onclick=()=>{
     tool.innerHTML=`<div class="form-card"><b>バックアップ・データ管理</b>
@@ -3116,7 +3196,7 @@ async function renderAdmin(){
     $('admBackupNow').onclick=async()=>{const b=$('admBackupNow');b.disabled=true;try{await createFirebaseBackup('manual');showToast('バックアップを作成しました');}catch(e){console.error(e);showToast('バックアップに失敗しました');}finally{b.disabled=false;}};
     $('admResetPreview').onclick=async()=>{const box=$('admResetBox');try{const p=await getResetPreview();box.innerHTML=`<div class="audit-box" style="border-color:var(--stamp-red)">${p.rows.filter(x=>x.count).map(x=>`<div class="total-check"><span>${esc(x.label)}</span><b>${x.count}件</b></div>`).join('')||'<p class="hint">削除対象はありません。</p>'}<div class="total-check"><span>合計</span><b>${p.total}件</b></div>${p.total?'<button class="btn btn-danger full" id="admResetRun">試行データを初期化する</button>':''}</div>`;if($('admResetRun'))$('admResetRun').onclick=resetTrialData;}catch(e){console.error(e);box.innerHTML='<p class="hint" style="color:var(--stamp-red)">確認できませんでした。</p>';}};
   };
-  if($('adminNotify')) $('adminNotify').onclick=()=>{tool.innerHTML=`<div class="form-card"><b>通知・AI共通GAS</b><div class="field"><label>通知・AI共通 Apps Script URL</label><input type="text" id="admNUrl" value="${esc(settings.notifyUrl||'')}"></div><label class="check-line"><input type="checkbox" id="admNEntry" ${settings.notifyOnEntry!==false?'checked':''}> 支出申請の承認依頼を通知</label><div class="btn-row" style="margin-top:12px"><button class="btn btn-ghost" id="admNTest">テスト送信</button><button class="btn btn-primary" id="admNSave">保存</button></div></div>`;$('admNSave').onclick=async()=>{const u=$('admNUrl').value.trim();if(u&&!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(u))return showToast('URLは https://script.google.com/macros/s/…/exec の形です');await R('settings').update({notifyUrl:u,notifyOnEntry:$('admNEntry').checked});settings.notifyUrl=u;settings.notifyOnEntry=$('admNEntry').checked;await syncRecipients();showToast('通知・AI共通GAS設定を保存しました');};$('admNTest').onclick=async()=>{const u=$('admNUrl').value.trim();if(!u)return showToast('URLを入力してください');const b=$('admNTest');b.disabled=true;b.textContent='送信中…';const r=await notify('test',{},u);b.disabled=false;b.textContent='テスト送信';showToast(r&&r.ok?`テストメールを送りました（${(r.recipients||[]).join('、')}）`:`送信できませんでした：${r&&r.error||'不明なエラー'}`);};};
+  if($('adminNotify')) $('adminNotify').onclick=()=>{notifyTool.innerHTML=`<div class="form-card"><b>通知・AI共通GAS</b><div class="field"><label>通知・AI共通 Apps Script URL</label><input type="text" id="admNUrl" value="${esc(settings.notifyUrl||'')}"></div><label class="check-line"><input type="checkbox" id="admNEntry" ${settings.notifyOnEntry!==false?'checked':''}> 支出申請の承認依頼を通知</label><div class="btn-row" style="margin-top:12px"><button class="btn btn-ghost" id="admNTest">テスト送信</button><button class="btn btn-primary" id="admNSave">保存</button></div></div>`;$('admNSave').onclick=async()=>{const u=$('admNUrl').value.trim();if(u&&!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(u))return showToast('URLは https://script.google.com/macros/s/…/exec の形です');await R('settings').update({notifyUrl:u,notifyOnEntry:$('admNEntry').checked});settings.notifyUrl=u;settings.notifyOnEntry=$('admNEntry').checked;await syncRecipients();showToast('通知・AI共通GAS設定を保存しました');};$('admNTest').onclick=async()=>{const u=$('admNUrl').value.trim();if(!u)return showToast('URLを入力してください');const b=$('admNTest');b.disabled=true;b.textContent='送信中…';const r=await notify('test',{},u);b.disabled=false;b.textContent='テスト送信';showToast(r&&r.ok?`テストメールを送りました（${(r.recipients||[]).join('、')}）`:`送信できませんでした：${r&&r.error||'不明なエラー'}`);};};
 }
 
 /* =========================================================
