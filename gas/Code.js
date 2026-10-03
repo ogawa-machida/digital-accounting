@@ -16,12 +16,33 @@ const ROOT = 'chokai-kaikei';
 const APP_URL = 'https://ogawa-machida.github.io/digital-accounting/';
 const MAX_PER_HOUR = 40;
 
+// Claude AI中継
+// APIキーはGASのScript Propertiesにだけ保存し、HTML/Firebaseには保存しない。
+const CLAUDE_MODEL = 'claude-sonnet-4-6';
+const CLAUDE_MAX_IMAGES = 4;
+const CLAUDE_MAX_IMAGE_CHARS = 8 * 1024 * 1024; // base64文字列/枚
+const CLAUDE_MAX_PER_HOUR = 30;
+
 function doPost(e) {
+  let req = {};
   try {
     const raw = (e && e.parameter && e.parameter.payload) ? e.parameter.payload : (e && e.postData ? e.postData.contents : '');
     if (!raw) throw new Error('送信内容がありません');
-    const req = JSON.parse(raw);
+    req = JSON.parse(raw);
     const user = verifyUser_(req.idToken);
+
+    // AIは画像を含みメール通知より負荷が高いため、専用のレート制限を使う。
+    if (req.action === 'claude') {
+      if (!claudeRateOk_(user.uid)) {
+        return claudeResponse_(req.requestId, false, null, 'AIの利用回数が多すぎます。しばらく待ってください');
+      }
+      try {
+        return claudeResponse_(req.requestId, true, claude_(user, req), null);
+      } catch (aiErr) {
+        return claudeResponse_(req.requestId, false, null, String(aiErr.message || aiErr));
+      }
+    }
+
     const appUrl = APP_URL;
     if (!rateOk_(user.uid)) return json_({ ok:false, error:'送信回数が多すぎます。しばらく待ってください' });
 
@@ -36,6 +57,10 @@ function doPost(e) {
       default:         return json_({ ok:false, error:'不明な操作です' });
     }
   } catch (err) {
+    // Claudeはhidden iframeから呼ばれるため、エラーもpostMessage形式で返す。
+    if (req && req.action === 'claude') {
+      return claudeResponse_(req.requestId, false, null, String(err.message || err));
+    }
     return json_({ ok:false, error:String(err.message || err) });
   }
 }
@@ -331,6 +356,108 @@ function member_(user, appUrl) {
     '支払者名簿との紐付けは不要です。'
   ], appUrl, '会計簿を開く');
   return { ok:true, sent:1 };
+}
+
+/* ---------- Claude AI中継 ----------
+ * ブラウザからは画像・読取指示・Firebase IDトークンだけを受け取る。
+ * Claude APIキーはScript Propertiesの CLAUDE_API_KEY のみ。
+ */
+function claude_(user, req) {
+  // pending/removed はAIを利用できない。その他の承認済みロールは利用可。
+  if (!user || ['pending','removed'].includes(user.role)) {
+    throw new Error('AIを利用する権限がありません');
+  }
+
+  const images = Array.isArray(req.images) ? req.images : [];
+  if (images.length > CLAUDE_MAX_IMAGES) throw new Error('画像は一度に' + CLAUDE_MAX_IMAGES + '枚までです');
+
+  const content = images.map(function(dataUrl) {
+    dataUrl = String(dataUrl || '');
+    if (dataUrl.length > CLAUDE_MAX_IMAGE_CHARS || !/^data:image\//.test(dataUrl)) {
+      throw new Error('画像データを確認できません');
+    }
+    const comma = dataUrl.indexOf(',');
+    if (comma < 0) throw new Error('画像データを確認できません');
+    const mediaType = (dataUrl.slice(5, comma).split(';')[0] || 'image/jpeg');
+    return {
+      type:'image',
+      source:{ type:'base64', media_type:mediaType, data:dataUrl.slice(comma + 1) }
+    };
+  });
+
+  const prompt = String(req.prompt || '');
+  const system = String(req.system || '');
+  if (!prompt) throw new Error('AIへの読取指示がありません');
+  content.push({ type:'text', text:prompt });
+
+  const apiKey = PropertiesService.getScriptProperties().getProperty('CLAUDE_API_KEY');
+  if (!apiKey) throw new Error('CLAUDE_KEY_MISSING');
+
+  const maxTokens = Math.max(100, Math.min(Number(req.maxTokens) || 1000, 5000));
+  const res = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
+    method:'post',
+    contentType:'application/json',
+    headers:{
+      'x-api-key':apiKey,
+      'anthropic-version':'2023-06-01'
+    },
+    payload:JSON.stringify({
+      model:CLAUDE_MODEL,
+      max_tokens:maxTokens,
+      system:system,
+      messages:[{ role:'user', content:content }]
+    }),
+    muteHttpExceptions:true
+  });
+
+  const status = res.getResponseCode();
+  if (status < 200 || status >= 300) {
+    // Claudeのレスポンス本文やAPIキーはブラウザへ返さない。
+    console.error('Claude API error ' + status + ': ' + res.getContentText().slice(0, 500));
+    throw new Error('CLAUDE_' + status);
+  }
+
+  const data = JSON.parse(res.getContentText());
+  const answer = (data.content || [])
+    .filter(function(x){ return x.type === 'text'; })
+    .map(function(x){ return x.text; })
+    .join('')
+    .replace(/```json|```/g, '')
+    .trim();
+
+  const a = answer.indexOf('{');
+  const b = answer.lastIndexOf('}');
+  if (a < 0 || b < a) throw new Error('CLAUDE_JSON');
+  return JSON.parse(answer.slice(a, b + 1));
+}
+
+function claudeRateOk_(uid) {
+  const cache = CacheService.getScriptCache();
+  const key = 'claude_rate_' + uid;
+  const n = Number(cache.get(key) || 0);
+  if (n >= CLAUDE_MAX_PER_HOUR) return false;
+  cache.put(key, String(n + 1), 3600);
+  return true;
+}
+
+function claudeResponse_(requestId, ok, result, error) {
+  const obj = {
+    source:'ogawa-claude-proxy',
+    requestId:String(requestId || ''),
+    ok:!!ok
+  };
+  if (ok) obj.result = result;
+  else obj.error = String(error || 'AIの読み取りに失敗しました');
+
+  // hidden iframe内で実行し、親画面へ結果をpostMessageする。
+  // '<'をUnicodeエスケープしてscriptタグ等の混入を防ぐ。
+  const json = JSON.stringify(obj).replace(/</g, '\\u003c');
+  const html =
+    '<!doctype html><html><head><meta charset="utf-8"></head><body>' +
+    '<script>window.parent.postMessage(' + json + ', "*");<\\/script>' +
+    '</body></html>';
+  return HtmlService.createHtmlOutput(html)
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
 /* ---------- 共通 ---------- */
