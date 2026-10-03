@@ -354,6 +354,11 @@ p,.hint,.notice,.slip-title,.slip-memo,.person-row,.cat-row,.settings-task-btn,
 .ai-confirm-box{background:var(--card);width:min(620px,100%);max-height:82vh;overflow:auto;border-radius:20px 20px 14px 14px;padding:20px;box-shadow:0 -8px 32px rgba(0,0,0,.16)}
 .ai-diff-row{padding:12px 0;border-bottom:1px solid var(--line)} .ai-diff-label{font-weight:700;margin-bottom:5px}
 .ai-diff-values{font-size:13px;line-height:1.7}.ai-old{color:var(--muted)}.ai-new{font-weight:700;color:var(--ink)}
+.ai-compare-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin-top:7px}
+.ai-compare-cell{border:1px solid var(--line);border-radius:10px;padding:8px;min-width:0}
+.ai-compare-head{font-size:10px;color:var(--muted);margin-bottom:4px}.ai-compare-val{font-size:12px;font-weight:700;word-break:break-word}
+.ai-compare-cell.changed{border-color:var(--amber)}
+@media(max-width:520px){.ai-compare-grid{grid-template-columns:1fr}.ai-compare-cell{display:grid;grid-template-columns:92px 1fr;gap:8px}.ai-compare-head{margin:0}}
 </style>
 <style>
 #newMSettle{width:24px;height:24px;flex:0 0 auto;margin:0 12px 0 0;vertical-align:middle}
@@ -619,7 +624,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.03-77';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.03-79';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -719,6 +724,40 @@ function aiChangedFields(e){const o=aiOriginal(e);if(!o)return [];return aiDiffF
 function currentAiComparable(){return {date:$('fDate')?.value||'',amount:Math.round(Number($('fAmount')?.value)||0),payee:$('fPayee')?.value.trim()||'',purpose:$('fPurpose')?.value.trim()||'',accountId:formAccount||'',addressee:formAddressee||''};}
 function aiDiffFrom(o,e){if(!o)return [];const m={date:'日付',amount:'金額',payee:'支払先',purpose:'用途',accountId:'科目',addressee:'宛名'};const fmt=(k,v)=>k==='amount'?yen(v):k==='accountId'?(accById(v)?.name||v||''):(v??'');return Object.keys(m).filter(k=>String(o[k]??'').trim()!==String(e[k]??'').trim()).map(k=>({key:k,label:m[k],before:fmt(k,o[k]),after:fmt(k,e[k])}));}
 function confirmAiDifferences(diffs){return new Promise(resolve=>{if(!diffs.length){resolve(true);return;}const ov=document.createElement('div');ov.className='ai-confirm-overlay';ov.innerHTML=`<div class="ai-confirm-box"><h2 style="margin:0 0 8px">AI読取内容と入力内容が異なります</h2><p class="hint" style="margin-top:0">以下の変更内容を確認してください。この差分は申請後も履歴として保存されます。</p><div>${diffs.map(x=>`<div class="ai-diff-row"><div class="ai-diff-label">${esc(x.label)}</div><div class="ai-diff-values"><span class="ai-old">AI判定：${esc(String(x.before||'（空欄）'))}</span><br><span class="ai-new">入力内容：${esc(String(x.after||'（空欄）'))}</span></div></div>`).join('')}</div><div class="btn-row" style="margin-top:18px"><button class="btn btn-ghost" id="aiDiffBack">入力に戻る</button><button class="btn btn-red" id="aiDiffSubmit">確認して申請する</button></div></div>`;document.body.appendChild(ov);const done=v=>{ov.remove();resolve(v)};ov.querySelector('#aiDiffBack').onclick=()=>done(false);ov.querySelector('#aiDiffSubmit').onclick=()=>done(true);});}
+
+function aiApprovalRows(e){
+ const o=aiOriginal(e); if(!o)return [];
+ const applicant=(e.applicantSubmittedSnapshot&&typeof e.applicantSubmittedSnapshot==='object')?e.applicantSubmittedSnapshot:e;
+ const current=e;
+ const labels={date:'日付',amount:'金額',payee:'支払先',purpose:'用途',accountId:'科目',addressee:'宛名'};
+ const fmt=(k,v)=>k==='amount'?yen(v):k==='accountId'?(accById(v)?.name||v||''):(v??'');
+ return Object.keys(labels).filter(k=>{
+   const a=String(o[k]??'').trim(), b=String(applicant[k]??'').trim(), c=String(current[k]??'').trim();
+   return a!==b || b!==c;
+ }).map(k=>({key:k,label:labels[k],ai:fmt(k,o[k]),applicant:fmt(k,applicant[k]),approver:fmt(k,current[k]),
+   applicantChanged:String(o[k]??'').trim()!==String(applicant[k]??'').trim(),
+   approverChanged:String(applicant[k]??'').trim()!==String(current[k]??'').trim()}));
+}
+function confirmApprovalAi(e){
+ return new Promise(resolve=>{
+   const rows=aiApprovalRows(e); if(!rows.length){resolve(true);return;}
+   const hasApproverEdit=rows.some(x=>x.approverChanged);
+   const ov=document.createElement('div');ov.className='ai-confirm-overlay';
+   ov.innerHTML=`<div class="ai-confirm-box">
+    <h2 style="margin:0 0 8px">AI判定との差分を確認してください</h2>
+    <p class="hint" style="margin-top:0">${hasApproverEdit?'申請後に承認者が修正した内容があります。AI判定・申請内容・承認時内容を確認してから承認してください。':'AI判定と申請内容が異なる項目があります。確認してから承認してください。'}</p>
+    <div>${rows.map(x=>`<div class="ai-diff-row"><div class="ai-diff-label">${esc(x.label)}</div>
+      <div class="ai-compare-grid">
+       <div class="ai-compare-cell"><div class="ai-compare-head">AI判定</div><div class="ai-compare-val">${esc(String(x.ai||'（空欄）'))}</div></div>
+       <div class="ai-compare-cell ${x.applicantChanged?'changed':''}"><div class="ai-compare-head">申請者の申請内容</div><div class="ai-compare-val">${esc(String(x.applicant||'（空欄）'))}</div></div>
+       ${hasApproverEdit?`<div class="ai-compare-cell ${x.approverChanged?'changed':''}"><div class="ai-compare-head">承認者の修正内容</div><div class="ai-compare-val">${esc(String(x.approver||'（空欄）'))}</div></div>`:''}
+      </div></div>`).join('')}</div>
+    <div class="btn-row" style="margin-top:18px"><button class="btn btn-ghost" id="aiApprovalBack">戻る</button><button class="btn btn-red" id="aiApprovalOk">内容を確認して承認</button></div>
+   </div>`;
+   document.body.appendChild(ov);const done=v=>{ov.remove();resolve(v)};
+   ov.querySelector('#aiApprovalBack').onclick=()=>done(false);ov.querySelector('#aiApprovalOk').onclick=()=>done(true);
+ });
+}
 function aiReceiptBadge(e){
  const o=aiOriginal(e); if(!o)return '';
  const c=aiChangedFields(e);
@@ -2250,6 +2289,11 @@ async function persistEntry(prev, f, photos, photosChanged){
   const changes = prev ? diffText(prev, data) : '';
   // 会計が承認前の申請内容を直した場合は、伝票内にも構造化した訂正履歴を残す。
   if (prev && isT() && prev.status==='submitted' && changes) {
+    if (!prev.applicantSubmittedSnapshot) {
+      const applicantSnapshot={date:prev.date||'',amount:Number(prev.amount)||0,payee:prev.payee||'',purpose:prev.purpose||'',accountId:prev.accountId||'',addressee:prev.addressee||'',capturedAt:TS(),capturedFrom:'submitted'};
+      await R(`entries/${ref.key}/applicantSubmittedSnapshot`).set(applicantSnapshot);
+      data.applicantSubmittedSnapshot=applicantSnapshot;
+    }
     const h = R(`entries/${ref.key}/accountingEdits`).push();
     await h.set({ at:TS(), by:me.uid, byName:me.name, changes });
   }
@@ -2464,6 +2508,7 @@ async function rejectGuest(e){
 }
 
 async function approveEntry(e, guestTarget, guestRole){
+  if (!(await confirmApprovalAi(e))) return;
   const pv = payerById(e.payerId);
   if (pv && pv.provisional) {
     const pid = await approveGuest(pv, guestTarget || null, guestRole || 'payer');
@@ -2471,8 +2516,11 @@ async function approveEntry(e, guestTarget, guestRole){
     await approveOne(e);
     await metricEnd('approved');
     if (rest.length && confirm(`${pv.name}さんを本登録しました。\n同じ人のほかの申請 ${rest.length}件（${yen(rest.reduce((s,x)=>s+(Number(x.amount)||0),0))}）もまとめて承認しますか？`)) {
-      for (const x of rest) await approveOne(x);
-      showToast(`${rest.length+1}件を承認しました`);
+      let batchApproved=1;
+      for (const x of rest) {
+        if (await confirmApprovalAi(x)) { await approveOne(x); batchApproved++; }
+      }
+      showToast(`${batchApproved}件を承認しました`);
     } else showToast('本登録して承認しました');
     return;
   }
@@ -2485,12 +2533,19 @@ async function approveEntry(e, guestTarget, guestRole){
   if (next && confirm('次の承認待ちを開きますか？')) openDetail(next.id);
 }
 async function approveOne(e){
+  const approvalAiRows=aiApprovalRows(e);
+  const approvedAt=TS();
+  const approvalAiCheck=approvalAiRows.length?{
+    at:approvedAt,by:me.uid,byName:me.name,
+    rows:approvalAiRows.map(x=>({key:x.key,label:x.label,ai:x.ai,applicant:x.applicant,approver:x.approver,applicantChanged:x.applicantChanged,approverChanged:x.approverChanged}))
+  }:null;
   await R(`entries/${e.id}`).update({
     status:'approved', returnReason:null,
     settleState: e.settleState==='settled' ? 'settled' : (needsSettle(e) ? 'pending' : 'none'),
-    approvedBy: me.uid, approvedByName: me.name, approvedAt: TS()
+    approvedBy: me.uid, approvedByName: me.name, approvedAt,
+    approvalAiCheck
   });
-  writeLog('承認', e, `${payerName(e.payerId)} ${e.purpose||e.payee||''}`);
+  writeLog('承認', e, `${payerName(e.payerId)} ${e.purpose||e.payee||''}${approvalAiRows.length?`／AI差分確認 ${approvalAiRows.length}項目`:''}`);
 }
 async function returnEntry(e){
   const reason = prompt('差し戻す理由を入力してください（申請者に表示されます）', e.cashFeeRequest ? '世帯数または金額を確認してください' : '領収証の宛名を町内会名にしてもらってください');
@@ -2852,7 +2907,7 @@ function renderAudit(){
   if(isA()){
     html+=`<div class="panel"><h3>監査完了前チェック</h3>
       <label style="display:flex;gap:9px;align-items:flex-start;margin:9px 0;font-size:13px"><input type="checkbox" class="audit-final-check" data-k="balance" ${checklist.balance?'checked':''} style="margin-top:3px">年度の収入・支出・帳簿残高を確認した</label>
-      <label style="display:flex;gap:9px;align-items:flex-start;margin:9px 0;font-size:13px"><input type="checkbox" class="audit-final-check" data-k="money" ${checklist.money?'checked':''} style="margin-top:3px">JA口座・現金・仮払等の残高照合を確認した</label>
+      <label style="display:flex;gap:9px;align-items:flex-start;margin:9px 0;font-size:13px"><input type="checkbox" class="audit-final-check" data-k="money" ${checklist.money?'checked':''} style="margin-top:3px">銀行口座・現金・仮払等の残高照合を確認した</label>
       <label style="display:flex;gap:9px;align-items:flex-start;margin:9px 0;font-size:13px"><input type="checkbox" class="audit-final-check" data-k="evidence" ${checklist.evidence?'checked':''} style="margin-top:3px">必要な証憑と未確認・例外伝票を確認した</label>
       <label style="display:flex;gap:9px;align-items:flex-start;margin:9px 0;font-size:13px"><input type="checkbox" class="audit-final-check" data-k="issues" ${checklist.issues?'checked':''} style="margin-top:3px">監査指摘と会計担当の回答・対応を確認した</label>
       <button class="btn ${report?'btn-ghost':'btn-navy'} full" id="auditDone" style="margin-top:12px">${report?'監査完了の記録を更新する':`${curFY}年度の監査を完了する`}</button>
@@ -3252,7 +3307,7 @@ function renderSettings(){
     const reconAdv = advances.filter(a=>a.settleState==='pending').reduce((n,a)=>n+(Number(a.amount)||0),0);
     const reconHist = Object.entries((((settings.balanceChecks||{})[curFY])||{})).map(([id,v])=>({id,...v})).sort((a,b)=>(b.at||0)-(a.at||0));
     html += `<h2 class="section-title" style="margin-top:20px">現預金残高の確認</h2><div class="form-card">
-      <p class="hint" style="margin-top:0">JA口座と手元現金を、帳簿上の現預金と照合します。会費ペイは実際の振込・手数料データが未連携のため、JA・現金とは分けて表示し、照合対象から除外します。</p>
+      <p class="hint" style="margin-top:0">銀行口座と手元現金を、帳簿上の現預金と照合します。会費ペイは実際の振込・手数料データが未連携のため、JA・現金とは分けて表示し、照合対象から除外します。</p>
       <div class="total-check"><span>会計帳簿の総残高</span><b>${yen(reconBook)}</b></div>
       <div class="total-check"><span>会費ペイ（カード決済）<small style="display:block;font-weight:400">精算データ未連携</small></span><b>${yen(kpCard)}</b></div>
       <div class="total-check"><span>会費ペイ（口座引き落とし）<small style="display:block;font-weight:400">CSV取込累計</small></span><b>${yen(kpDebit)}</b></div>
@@ -3339,7 +3394,7 @@ function renderSettings(){
       <div id="kaihipayPreview" style="margin-top:12px"></div>
       <hr style="border:0;border-top:1px solid var(--line);margin:20px 0">
       <div style="font-weight:700;margin-bottom:6px">会費ペイ支払通知書を取り込む</div>
-      <p class="hint" style="margin-top:0">会費ペイの支払通知書PDFから、決済金額・手数料・振込日・振込金額・処理番号を読み取り、CSVで計上した会費ペイ残高をJA口座へ精算します。決済金額を収入として二重計上しません。</p>
+      <p class="hint" style="margin-top:0">会費ペイの支払通知書PDFから、決済金額・手数料・振込日・振込金額・処理番号を読み取り、CSVで計上した会費ペイ残高を銀行口座へ精算します。決済金額を収入として二重計上しません。</p>
       <button class="btn btn-navy full" id="kaihipayStatementBtn">📄 支払通知書PDFを選ぶ</button>
       <div id="kaihipayStatementPreview" style="margin-top:12px"></div>
     </div>`;
@@ -4680,7 +4735,7 @@ function renderKaihipayStatementPreview(){
   box.innerHTML=`
     <div class="total-check"><span>決済金額（CSVで収入計上済み）</span><b>${yen(d.gross)}</b></div>
     <div class="total-check"><span>会費ペイ請求金額・手数料等</span><b>${yen(d.fee)}</b></div>
-    <div class="total-check"><span>JA口座への振込金額</span><b>${yen(d.transfer)}</b></div>
+    <div class="total-check"><span>銀行口座への振込金額</span><b>${yen(d.transfer)}</b></div>
     ${d.carry?`<div class="total-check"><span>前回繰越額</span><b>${yen(d.carry)}</b></div>`:''}
     <p class="hint">${d.period?`集計対象：${esc(d.period)}<br>`:''}${d.transferDate?`振込日：${esc(d.transferDate)}<br>`:''}${d.processNo?`処理番号：${esc(d.processNo)}`:''}</p>
     ${done?`<p class="hint" style="color:var(--moss);font-weight:700">この支払通知書は取込済みです（${fmtTs(done.at)}）。</p>`:`
@@ -4703,7 +4758,7 @@ async function saveKaihipayStatement(){
   const kpIncome=approvedFY().filter(e=>e.type==='income'&&['会費ペイ（カード決済）','会費ペイ（口座引き落とし）'].includes(methodById(e.methodId)?.name)).reduce((n,e)=>n+(Number(e.amount)||0),0);
   const already=Object.values(settings.kaihipaySettlements||{}).filter(x=>Number(x.fy)===Number(curFY)).reduce((n,x)=>n+(Number(x.grossAmount)||0),0);
   if(d.gross > Math.max(0,kpIncome-already)+1 && !confirm(`現在の会費ペイ未精算額 ${yen(Math.max(0,kpIncome-already))} より、この通知書の決済金額 ${yen(d.gross)} が大きくなっています。\nCSVが未取込の期間を含む可能性があります。それでも登録しますか？`)) return;
-  if(!confirm(`支払通知書を登録します。\n\n決済金額 ${yen(d.gross)}（再収入計上しない）\n手数料等 ${yen(d.fee)}（支出計上）\nJA振込 ${yen(d.transfer)}\n\nよろしいですか？`)) return;
+  if(!confirm(`支払通知書を登録します。\n\n決済金額 ${yen(d.gross)}（再収入計上しない）\n手数料等 ${yen(d.fee)}（支出計上）\n銀行振込 ${yen(d.transfer)}\n\nよろしいですか？`)) return;
   const btn=$('kpStmtDo'); btn.disabled=true; btn.textContent='登録中…';
   try{
     const latest=(await R(`settings/kaihipaySettlements/${d.key}`).get()).val(); if(latest) throw new Error('この支払通知書は別端末ですでに登録されています');
@@ -4714,13 +4769,13 @@ async function saveKaihipayStatement(){
       const tx=await R(`counters/${fy}`).transaction(n=>(n||0)+1); voucherNo=`${fy}-${pad(tx.snapshot.val(),3)}`;
       const ref=R('entries').push(); entryId=ref.key;
       await ref.set({type:'expense',date,fy,voucherNo,amount:d.fee,accountId,methodId:method.id,payerId:null,
-        purpose:'会費ペイ利用料・振込手数料等',payee:'会費ペイ',memo:`支払通知書による精算${d.processNo?'／処理番号 '+d.processNo:''}${d.period?'／'+d.period:''}／決済金額 ${d.gross}円／JA振込 ${d.transfer}円`,
+        purpose:'会費ペイ利用料・振込手数料等',payee:'会費ペイ',memo:`支払通知書による精算${d.processNo?'／処理番号 '+d.processNo:''}${d.period?'／'+d.period:''}／決済金額 ${d.gross}円／銀行振込 ${d.transfer}円`,
         storageLocation:'会費ペイ支払通知書',noReceipt:true,noReceiptReason:'会費ペイ支払通知書による精算',addressee:'',excludePublic:false,
         thumb:null,photoCount:0,status:'approved',settleState:'none',auditStale:false,createdBy:me.uid,createdByName:me.name,createdAt:now,updatedAt:now,updatedByName:me.name,approvedBy:me.uid,approvedByName:`${me.name}（会費ペイ支払通知書取込）`,approvedAt:now});
     }
     await R(`settings/kaihipaySettlements/${d.key}`).set({at:now,by:me.uid,byName:me.name,fy,grossAmount:d.gross,feeAmount:d.fee,transferAmount:d.transfer,carryAmount:d.carry||0,transferDate:date,period:d.period||'',processNo:d.processNo||'',entryId,voucherNo});
-    writeLog('会費ペイ支払通知書取込',{voucherNo,amount:d.fee,purpose:'会費ペイ精算'},`決済 ${d.gross}円／手数料等 ${d.fee}円／JA振込 ${d.transfer}円${d.processNo?'／'+d.processNo:''}`);
-    kaihipayStatement=null; showToast(`支払通知書を登録しました：JA振込 ${yen(d.transfer)}／手数料等 ${yen(d.fee)}`); renderSettings();
+    writeLog('会費ペイ支払通知書取込',{voucherNo,amount:d.fee,purpose:'会費ペイ精算'},`決済 ${d.gross}円／手数料等 ${d.fee}円／銀行振込 ${d.transfer}円${d.processNo?'／'+d.processNo:''}`);
+    kaihipayStatement=null; showToast(`支払通知書を登録しました：銀行振込 ${yen(d.transfer)}／手数料等 ${yen(d.fee)}`); renderSettings();
   }catch(err){ console.error(err); btn.disabled=false; btn.textContent='支払通知書を精算登録する'; showToast(`登録できませんでした：${String(err.message||err)}`); }
 }
 
