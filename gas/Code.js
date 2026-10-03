@@ -1,6 +1,6 @@
 /**
  * 町内会 会計簿 ― 承認依頼のメール通知（Google Apps Script）
- * 2026.10.03-73 統合版（通知文言・権限表現統一）
+ * 2026.10.03-74 統合版（複数承認者・本人除外ルーティング）
  *
  * 通知先：
  *  ・役員／支払者からの通常申請 → 会計担当
@@ -91,16 +91,23 @@ function read_(path, token) {
 function register_(user) {
   if (!['treasurer','admin'].includes(user.role)) throw new Error('送信先の登録は会計担当または管理者のみできます');
   const members = read_('members', user.token) || {};
-  const values = Object.keys(members).map(k => members[k] || {});
-  const treasurers = uniqueEmails_(values.filter(m => m.role === 'treasurer' || m.role === 'admin').map(m => m.email));
-  const viewers = uniqueEmails_(values.filter(m => m.role === 'viewer').map(m => m.email));
+  const records = Object.keys(members).map(uid => ({uid:uid, ...(members[uid] || {})}))
+    .filter(m => m.status !== 'removed' && m.status !== 'pending' && m.email);
+  const accounting = records.filter(m => m.role === 'treasurer' || m.role === 'admin')
+    .map(m => ({uid:m.uid,email:String(m.email).trim().toLowerCase(),name:m.name||'',role:m.role}));
+  const officers = records.filter(m => m.role === 'viewer')
+    .map(m => ({uid:m.uid,email:String(m.email).trim().toLowerCase(),name:m.name||'',role:m.role}));
+  const treasurers = uniqueEmails_(accounting.map(m => m.email));
+  const viewers = uniqueEmails_(officers.map(m => m.email));
   const props = PropertiesService.getScriptProperties();
+  props.setProperty('ACCOUNTING_RECIPIENT_RECORDS', JSON.stringify(accounting));
+  props.setProperty('OFFICER_RECIPIENT_RECORDS', JSON.stringify(officers));
   props.setProperty('TREASURER_RECIPIENTS', JSON.stringify(treasurers));
   props.setProperty('VIEWER_RECIPIENTS', JSON.stringify(viewers));
-  // 旧版との互換用。将来削除してもよい。
   props.setProperty('RECIPIENTS', JSON.stringify(treasurers));
-  return { ok:true, recipients:treasurers, treasurerRecipients:treasurers, viewerRecipients:viewers };
+  return {ok:true,recipients:treasurers,treasurerRecipients:treasurers,viewerRecipients:viewers};
 }
+
 function recipientsByRole_(role) {
   const props = PropertiesService.getScriptProperties();
   const key = role === 'viewer' ? 'VIEWER_RECIPIENTS' : 'TREASURER_RECIPIENTS';
@@ -118,68 +125,66 @@ function uniqueEmails_(list) {
   const seen = {};
   return (list || []).map(x => String(x || '').trim().toLowerCase()).filter(x => x && !seen[x] && (seen[x] = true));
 }
+function recipientRecords_(role) {
+  const props=PropertiesService.getScriptProperties();
+  const key=role==='viewer'?'OFFICER_RECIPIENT_RECORDS':'ACCOUNTING_RECIPIENT_RECORDS';
+  let records=[];
+  try{records=JSON.parse(props.getProperty(key)||'[]');}catch(_){}
+  if(records.length)return records;
+  return recipientsByRole_(role).map(email=>({uid:'',email:email,name:'',role:role}));
+}
+function approvalRoute_(applicantUid, applicantEmail) {
+  const own=String(applicantEmail||'').trim().toLowerCase();
+  const accounting=recipientRecords_('treasurer').filter(r =>
+    (!r.uid || r.uid!==applicantUid) && String(r.email||'').trim().toLowerCase()!==own);
+  let to=uniqueEmails_(accounting.map(r=>r.email));
+  if(to.length)return {to:to,targetRole:'treasurer',label:'会計担当・管理者（申請者本人を除く）'};
+  const officers=recipientRecords_('viewer').filter(r =>
+    (!r.uid || r.uid!==applicantUid) && String(r.email||'').trim().toLowerCase()!==own);
+  to=uniqueEmails_(officers.map(r=>r.email));
+  if(to.length)return {to:to,targetRole:'viewer',label:'役員（本人以外の会計担当・管理者がいないため）'};
+  return {to:[],targetRole:'',label:'承認可能者なし'};
+}
+function allTestRecipients_() {
+  return uniqueEmails_(recipientRecords_('treasurer').concat(recipientRecords_('viewer')).map(r=>r.email));
+}
+
 
 /* ---------- 各通知 ---------- */
 function test_(user, appUrl) {
   if (!['treasurer','admin'].includes(user.role)) throw new Error('テスト送信は会計担当または管理者のみできます');
-  const treasurers = recipientsByRole_('treasurer');
-  const viewers = recipientsByRole_('viewer');
-  const to = uniqueEmails_(treasurers.concat(viewers));
-  if (!to.length) throw new Error('通知先が登録されていません。先に「送信先を更新」してください');
-  send_(to, '【会計簿】テスト送信', [
+  const accounting=uniqueEmails_(recipientRecords_('treasurer').map(r=>r.email));
+  const officers=uniqueEmails_(recipientRecords_('viewer').map(r=>r.email));
+  const to=allTestRecipients_();
+  if(!to.length)throw new Error('通知先が登録されていません。先に「送信先を更新」してください');
+  send_(to,'【会計簿】テスト送信',[
     '通知・AI共通GASの設定ができました。',
-    '通常の承認依頼は会計担当・管理者へ通知します。',
-    '会計担当・管理者本人の立替申請は、自己承認を避けるため役員へ通知します。',
+    '承認通知は、申請者本人を除く会計担当・管理者へ送ります。',
+    '本人以外の会計担当・管理者がいない場合は、役員へ送ります。',
     '',
-    '会計・管理者通知先：' + (treasurers.length ? treasurers.join('、') : '未登録'),
-    '役員通知先：' + (viewers.length ? viewers.join('、') : '未登録'),
-    '', '送信操作：' + user.name + '（' + user.email + '）'
-  ], appUrl, '会計簿を開く');
-  return { ok:true, recipients:to, treasurerRecipients:treasurers, viewerRecipients:viewers };
+    '会計・管理者通知先：'+(accounting.length?accounting.join('、'):'未登録'),
+    '役員通知先：'+(officers.length?officers.join('、'):'未登録'),
+    '','送信操作：'+user.name+'（'+user.email+'）'
+  ],appUrl,'会計簿を開く');
+  return {ok:true,recipients:to,treasurerRecipients:accounting,viewerRecipients:officers};
 }
 
 function entry_(user, ids, appUrl) {
-  if (!['payer','guest','viewer','treasurer'].includes(user.role)) throw new Error('申請の通知を送る権限がありません');
-  ids = ids.slice(0, 30);
-  const normal = [];
-  const treasurerOwn = [];
-
-  ids.forEach(function(id) {
-    const ent = read_('entries/' + id, user.token);
-    if (!ent || ent.status !== 'submitted') return;
-
-    // 通知を起こした本人が作った伝票だけを対象にする。
-    // HTMLからentryIdだけを受け取り、宛先判定はDB上の伝票を見てGAS側で行う。
-    if (ent.createdBy && ent.createdBy !== user.uid) return;
-    ent.id = id;
-
-    if (ent.selfApprovalRequired) {
-      // 自己承認回避フラグは「会計担当が自分で作成した伝票」にだけ認める。
-      if (user.role !== 'treasurer' || ent.createdBy !== user.uid) {
-        throw new Error('承認先を確認できない伝票があります');
-      }
-      treasurerOwn.push(ent);
-    } else {
-      // 会計担当の通常伝票を会計自身へ送ることはしない。
-      if (user.role === 'treasurer') throw new Error('会計担当の立替申請には役員承認が必要です');
-      normal.push(ent);
-    }
+  if (!['payer','guest','viewer','treasurer','admin'].includes(user.role)) throw new Error('申請の通知を送る権限がありません');
+  ids=ids.slice(0,30);
+  const entries=[];
+  ids.forEach(function(id){
+    const ent=read_('entries/'+id,user.token);
+    if(!ent||ent.status!=='submitted')return;
+    if(ent.createdBy&&ent.createdBy!==user.uid)return;
+    ent.id=id; entries.push(ent);
   });
+  if(!entries.length)return {ok:true,sent:0};
 
-  let sent = 0;
-  if (normal.length) {
-    const to = recipientsByRole_('treasurer');
-    if (!to.length) throw new Error('会計担当の通知先が登録されていません');
-    sendEntryGroup_(normal, user, to, 'treasurer', appUrl);
-    sent += normal.length;
-  }
-  if (treasurerOwn.length) {
-    const to = recipientsByRole_('viewer');
-    if (!to.length) throw new Error('役員の通知先が登録されていません。会計簿の設定で役員を登録し、通知先を更新してください');
-    sendEntryGroup_(treasurerOwn, user, to, 'viewer', appUrl);
-    sent += treasurerOwn.length;
-  }
-  return { ok:true, sent:sent };
+  const route=approvalRoute_(user.uid,user.email);
+  if(!route.to.length)throw new Error('申請者本人を除く承認可能者が登録されていません');
+  sendEntryGroup_(entries,user,route.to,route.targetRole,appUrl);
+  return {ok:true,sent:entries.length,recipients:route.to,route:route.label};
 }
 
 function sendEntryGroup_(list, user, to, targetRole, appUrl) {
@@ -188,13 +193,13 @@ function sendEntryGroup_(list, user, to, targetRole, appUrl) {
   const p = (list[0].payerId ? read_('payers/' + list[0].payerId, user.token) : null) || {};
   const who = (p.name || user.name || user.email || '利用者') + (p.post ? '（' + p.post + '）' : '');
   const total = list.reduce((s,e) => s + (Number(e.amount) || 0), 0);
-  const isTreasurerOwn = targetRole === 'viewer';
+  const isOfficerFallback = targetRole === 'viewer';
 
   const lines = [
-    isTreasurerOwn
-      ? '会計担当の' + who + 'さんから、本人立替分の承認依頼が' + list.length + '件届きました。'
-      : who + 'さんから支出の承認依頼が' + list.length + '件届きました。',
-    isTreasurerOwn ? '自己承認を避けるため、役員の方が内容を確認して承認してください。' : '会計担当の方が内容を確認してください。',
+    who + 'さんから支出の承認依頼が' + list.length + '件届きました。',
+    isOfficerFallback
+      ? '本人以外の会計担当・管理者がいないため、役員の方が内容を確認して承認してください。'
+      : '申請者本人を除く会計担当・管理者の方が内容を確認してください。',
     ''
   ];
 
