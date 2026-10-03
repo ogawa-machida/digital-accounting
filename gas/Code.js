@@ -1,6 +1,6 @@
 /**
  * 町内会 会計簿 ― 承認依頼のメール通知（Google Apps Script）
- * 2026.10.03-72 統合版（Firebase応答チャネル）
+ * 2026.10.03-73 統合版（通知文言・権限表現統一）
  *
  * 通知先：
  *  ・役員／支払者からの通常申請 → 会計担当
@@ -127,11 +127,12 @@ function test_(user, appUrl) {
   const to = uniqueEmails_(treasurers.concat(viewers));
   if (!to.length) throw new Error('通知先が登録されていません。先に「送信先を更新」してください');
   send_(to, '【会計簿】テスト送信', [
-    'メール通知の設定ができました。',
-    '通常の承認依頼は会計担当へ、会計担当本人の立替申請は役員へ通知します。',
+    '通知・AI共通GASの設定ができました。',
+    '通常の承認依頼は会計担当・管理者へ通知します。',
+    '会計担当・管理者本人の立替申請は、自己承認を避けるため役員へ通知します。',
     '',
-    '会計担当：' + (treasurers.length ? treasurers.join('、') : '未登録'),
-    '役員：' + (viewers.length ? viewers.join('、') : '未登録'),
+    '会計・管理者通知先：' + (treasurers.length ? treasurers.join('、') : '未登録'),
+    '役員通知先：' + (viewers.length ? viewers.join('、') : '未登録'),
     '', '送信操作：' + user.name + '（' + user.email + '）'
   ], appUrl, '会計簿を開く');
   return { ok:true, recipients:to, treasurerRecipients:treasurers, viewerRecipients:viewers };
