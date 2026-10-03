@@ -603,7 +603,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.03-71';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.03-72';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -879,37 +879,53 @@ function writeLog(action, e, detail){
    GASは送信者のログイン情報（IDトークン）でデータベースを読み直してから
    会計のGoogleアドレスへメールを送る。画面側から本文を渡さないので、なりすましや
    でたらめな内容の送信はできない。 */
-async function notify(action, extra, url){
+async function gasRequest(action, extra, url, timeoutMs=60000){
   if(isTestMode()) return {ok:true, skipped:true, testMode:true};
-  const target = String(url || settings.notifyUrl || '').trim();
-  if (!target || !auth || !auth.currentUser) return { ok:false, error:'通知・AI共通Apps Script URLが未設定です' };
-  const requestId = `gas_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-  try {
-    const idToken = await auth.currentUser.getIdToken();
-    const payload = JSON.stringify({action,requestId,idToken,appUrl:location.origin+location.pathname,...(extra||{})});
-    return await new Promise((resolve)=>{
-      let settled=false;
+  const target=String(url||settings.notifyUrl||'').trim();
+  if(!target||!auth||!auth.currentUser) return {ok:false,error:'通知・AI共通Apps Script URLが未設定です'};
+
+  const uid=auth.currentUser.uid;
+  const requestId=`gas_${Date.now()}_${globalThis.crypto?.randomUUID?.()||Math.random().toString(36).slice(2)}`;
+  const responseRef=R(`gasResponses/${uid}/${requestId}`);
+  let timer=null, settled=false;
+
+  return await new Promise(async(resolve)=>{
+    const finish=async result=>{
+      if(settled)return;
+      settled=true;
+      if(timer)clearTimeout(timer);
+      responseRef.off();
+      try{await responseRef.remove();}catch(_){}
+      resolve(result);
+    };
+
+    responseRef.on('value',snap=>{
+      const d=snap.val();
+      if(!d||d.requestId!==requestId)return;
+      finish(d.ok?(d.result||{ok:true}):{ok:false,error:d.error||'GAS処理に失敗しました'});
+    },err=>finish({ok:false,error:'GAS応答の監視ができません：'+String(err?.message||err)}));
+
+    timer=setTimeout(()=>finish({ok:false,error:'GASから60秒以内に処理結果が届きませんでした'}),timeoutMs);
+
+    try{
+      const idToken=await auth.currentUser.getIdToken();
+      const payload=JSON.stringify({action,requestId,idToken,...(extra||{})});
       const frame=document.createElement('iframe');
-      frame.name=`gasFrame_${requestId}`; frame.style.display='none'; document.body.appendChild(frame);
-      const cleanup=()=>{window.removeEventListener('message',onMessage);setTimeout(()=>frame.remove(),100);};
-      const finish=(r)=>{if(settled)return;settled=true;cleanup();resolve(r);};
-      const onMessage=(ev)=>{
-const d=ev.data||{};
-        if(d.source!=='ogawa-accounting-gas'||d.requestId!==requestId)return;
-        finish(d.ok?(d.result||{ok:true}):{ok:false,error:d.error||'GAS処理に失敗しました'});
-      };
-      window.addEventListener('message',onMessage);
+      frame.name=`gasSend_${requestId}`;frame.style.display='none';document.body.appendChild(frame);
       const form=document.createElement('form');
       form.method='POST';form.action=target;form.target=frame.name;form.style.display='none';
-      const input=document.createElement('input');input.type='hidden';input.name='payload';input.value=payload;
+      const input=document.createElement('input');
+      input.type='hidden';input.name='payload';input.value=payload;
       form.appendChild(input);document.body.appendChild(form);form.submit();
-      setTimeout(()=>form.remove(),1500);
-      setTimeout(()=>finish({ok:false,error:'GASから60秒以内に応答がありませんでした'}),60000);
-    });
-  }catch(e){
-    console.warn('GAS処理の送信に失敗',e);
-    return {ok:false,error:String(e.message||e)};
-  }
+      setTimeout(()=>{form.remove();frame.remove();},5000);
+    }catch(e){
+      finish({ok:false,error:'GASへの送信に失敗しました：'+String(e?.message||e)});
+    }
+  });
+}
+
+async function notify(action, extra, url){
+  return gasRequest(action,extra,url,60000);
 }
 function notifyEntries(ids){
   if (!ids.length || settings.notifyOnEntry===false) return Promise.resolve({ok:false, skipped:true, error:'支出申請のメール通知がOFFです'});
@@ -2050,54 +2066,19 @@ async function compressImage(src,maxSize=1400,quality=0.76){
 function aiProxyConfigured(){ return !!String(settings.notifyUrl||'').trim(); }
 
 async function callClaude(images, system, prompt, maxTokens){
-  const target = String(settings.notifyUrl||'').trim();
-  if (!target) throw new Error('NOPROXY');
-  if (!auth || !auth.currentUser) throw new Error('NOAUTH');
+  const target=String(settings.notifyUrl||'').trim();
+  if(!target)throw new Error('NOPROXY');
+  if(!auth||!auth.currentUser)throw new Error('NOAUTH');
 
-  const idToken = await auth.currentUser.getIdToken();
-  const requestId = `ai_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-  const payload = JSON.stringify({
-    action:'claude',
-    requestId,
-    idToken,
+  const r=await gasRequest('claude',{
     system,
     prompt,
     maxTokens:maxTokens||1000,
     images
-  });
+  },target,90000);
 
-  return await new Promise((resolve,reject)=>{
-    let settled=false;
-    const frame=document.createElement('iframe');
-    frame.name=`gasAiFrame_${requestId}`;
-    frame.style.display='none';
-    document.body.appendChild(frame);
-
-    const cleanup=()=>{
-      window.removeEventListener('message',onMessage);
-      setTimeout(()=>frame.remove(),100);
-    };
-    const finishError=msg=>{
-      if(settled)return; settled=true; cleanup(); reject(new Error(msg||'AIPROXY'));
-    };
-    const onMessage=ev=>{
-const d=ev.data||{};
-      if(d.source!=='ogawa-claude-proxy' || d.requestId!==requestId) return;
-      if(settled)return; settled=true; cleanup();
-      if(d.ok) resolve(d.result);
-      else reject(new Error(d.error||'AIPROXY'));
-    };
-    window.addEventListener('message',onMessage);
-
-    const form=document.createElement('form');
-    form.method='POST'; form.action=target; form.target=frame.name; form.style.display='none';
-    const input=document.createElement('input');
-    input.type='hidden'; input.name='payload'; input.value=payload;
-    form.appendChild(input); document.body.appendChild(form);
-    form.submit();
-    setTimeout(()=>form.remove(),1500);
-    setTimeout(()=>finishError('AITIMEOUT'),60000);
-  });
+  if(!r||r.ok===false)throw new Error(r?.error||'AIPROXY');
+  return r;
 }
 function aiErrorText(e){
   const m = String(e && e.message || '');
@@ -2106,7 +2087,7 @@ function aiErrorText(e){
   if (m.includes('401') || m.includes('CLAUDE_401')) return 'Claude APIキーが無効です（GASのScript Propertiesを確認してください）';
   if (m.includes('429')) return 'AIの利用が混み合っています。少し待って再試行してください';
   if (m.includes('529') || m.includes('500')) return 'AIが一時的に応答していません';
-  if (m==='AITIMEOUT') return 'AIの読み取りが60秒以内に完了しませんでした。もう一度お試しください';
+  if (m==='AITIMEOUT' || m.includes('90秒')) return 'AIの読み取りが時間内に完了しませんでした。もう一度お試しください';
   return '読み取れませんでした';
 }
 const nullish = v => (v===null || v===undefined || v==='null' || v==='') ? null : v;
