@@ -381,7 +381,7 @@ label[for="newMSettle"]{display:flex;align-items:center;justify-content:flex-sta
   <div class="center-wrap">
     <div class="mark-big">会計<br>簿</div>
     <h1 style="font-size:22px;">町内会 会計簿</h1>
-    <p>領収証の撮影から立替の精算、監査、会員への報告までをひとつの帳簿で。役員・班長・支隊長のどなたでも使えます。</p>
+    <p>領収書類の撮影から立替の精算、監査、会員への報告までをひとつの帳簿で。役員・班長・支隊長のどなたでも使えます。</p>
     <button class="google-btn" id="googleLoginBtn">
       <svg viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.9 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.6 6.1 29.6 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.7-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.6 15.9 18.9 13 24 13c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.6 6.1 29.6 4 24 4c-7.4 0-13.8 4.1-17.1 10.1z"/><path fill="#4CAF50" d="M24 44c5.5 0 10.4-1.9 14.3-5.1l-6.6-5.4C29.6 35.4 26.9 36.2 24 36.2c-5.3 0-9.7-3.1-11.3-7.5l-6.6 5.1C9.9 39.9 16.4 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.3 4.2-4.2 5.5l6.6 5.4C41.4 35.4 44 30.1 44 24c0-1.3-.1-2.7-.4-3.5z"/></svg>
       Googleでログイン
@@ -551,7 +551,7 @@ label[for="newMSettle"]{display:flex;align-items:center;justify-content:flex-sta
           </div>
         </div>
         <div class="field">
-          <label>領収証・レシート・振込控え（画像またはPDF・3ページまで）</label>
+          <label>領収書類（レシート・振込控え等）（画像またはPDF・3ページまで）</label>
           <div class="photo-strip" id="photoStrip"></div>
           <div class="btn-row" style="margin-top:8px;">
             <button type="button" class="btn btn-ghost" id="cameraBtn">📷 撮影する</button>
@@ -560,8 +560,8 @@ label[for="newMSettle"]{display:flex;align-items:center;justify-content:flex-sta
           <input type="file" id="cameraInput" accept="image/*" capture="environment" style="display:none;">
           <input type="file" id="fileInput" accept="image/*,.pdf,application/pdf" style="display:none;">
           <button type="button" class="btn btn-ghost full" id="aiReadBtn" style="margin-top:8px; display:none;">✨ AIで画像・PDFから自動入力</button>
-          <label class="check-line" style="margin-top:10px;"><input type="checkbox" id="fNoReceipt"> 領収証がない支出（慶弔金・会費の手渡し等）</label>
-          <input type="text" id="fNoReceiptReason" placeholder="領収証がない理由（例：香典のため）" style="display:none; margin-top:8px; width:100%; border:1px solid var(--line); border-radius:8px; padding:10px 12px; font-size:14px; font-family:inherit;">
+          <label class="check-line" style="margin-top:10px;"><input type="checkbox" id="fNoReceipt"> 領収書類がない支出（慶弔金・会費の手渡し等）</label>
+          <input type="text" id="fNoReceiptReason" placeholder="領収書類がない理由（例：香典のため）" style="display:none; margin-top:8px; width:100%; border:1px solid var(--line); border-radius:8px; padding:10px 12px; font-size:14px; font-family:inherit;">
         </div>
         <div class="field">
           <label id="fDateLabel">支払日</label>
@@ -655,7 +655,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.04-82';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.04-83';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1226,7 +1226,7 @@ function showJoinForm(user, mref){
       if (!validAffiliation(branch,group)) { $('jErr').textContent='支部と班を選択してください'; return; }
       if (!name) { $('jErr').textContent='お名前を入力してください'; return; }
       if (!$('jPrivacyConfirm').checked) { $('jErr').textContent='「安心してご利用いただくために」の内容をご確認ください'; return; }
-      const privacyConsentAt=TS(), privacyConsentVersion='2026-10-04-v2';
+      const privacyConsentAt=TS(), privacyConsentVersion='2026-10-04-v3';
       const btn=$('jSubmit'); btn.disabled=true; btn.textContent='申請中…';
       try {
         if (purpose==='report') {
@@ -1678,7 +1678,7 @@ function renderHome(){
     html += `<div class="notice moss"><span class="n-body">監査準備<span class="n-sub">未承認 ${prepUnapproved}件／未精算 ${prepUnsettled}件／領収書類未登録 ${prepNoEvidence}件</span></span><span class="n-val">${prepIssues?prepIssues+'件':'OK'}</span></div>`;
   }
 
-  if (isT()) html += `<button class="btn btn-navy full" id="homeBatchBtn" style="margin:4px 0 12px">📚 レシート・領収証をまとめて読み込む</button>`;
+  if (isT()) html += `<button class="btn btn-navy full" id="homeBatchBtn" style="margin:4px 0 12px">📚 領収書類をまとめて読み込む</button>`;
   html += budgetPanel(ap);
 
   const recentSource = (isT() || isA()) ? fyEntries() : visibleBookEntries().filter(e=>e.fy===curFY);
@@ -1878,7 +1878,7 @@ function renderBook(){
   };
   const chips = isP()
     ? [['all','すべて'],['submitted','会計確認待ち'],['returned','差戻し'],['pending','精算待ち']]
-    : [['all','すべて'],['expense','支出'],['income','収入'],['submitted','確認待ち'],['returned','差戻し'],['pending','要精算'],['noReceipt','領収証なし'],['aiEdited','AI読取後に修正']];
+    : [['all','すべて'],['expense','支出'],['income','収入'],['submitted','確認待ち'],['returned','差戻し'],['pending','要精算'],['noReceipt','領収書類なし'],['aiEdited','AI読取後に修正']];
   const bar = $('bookStatusBar');
   bar.innerHTML = chips.map(([k,l])=>`<button class="chip ${bookFilter.status===k?'active':''}" data-k="${k}">${l}${counts[k]&&k!=='all'?`<span class="cnt">${counts[k]}</span>`:''}</button>`).join('');
   bar.querySelectorAll('.chip').forEach(c=>c.onclick=()=>{ bookFilter.status=c.dataset.k; renderBook(); });
@@ -2186,14 +2186,14 @@ function aiErrorText(e){
 }
 const nullish = v => (v===null || v===undefined || v==='null' || v==='') ? null : v;
 
-/* レシート・領収証・振込控え 1枚を読み取る */
+/* 領収書類（レシート・振込控え等） 1枚を読み取る */
 async function recognizeReceipt(dataUrls, type){
   const images = Array.isArray(dataUrls) ? dataUrls : [dataUrls];
   const accNames = accounts.filter(a=>a.type===(type||'expense') && a.active).map(a=>a.desc?`${a.name}（${a.desc}）`:a.name);
   const r = await callClaude(images,
-    'あなたは町内会・自治会の会計担当を手伝うアシスタントです。レシート・領収証・振込控え・請求書の画像（PDFをページ画像化したものを含む）から情報を抽出し、JSONオブジェクトのみを出力します。前後の説明文やコードブロック記号は付けません。',
+    'あなたは町内会・自治会の会計担当を手伝うアシスタントです。領収書類（レシート・振込控え等）・請求書の画像（PDFをページ画像化したものを含む）から情報を抽出し、JSONオブジェクトのみを出力します。前後の説明文やコードブロック記号は付けません。',
     `次の形式のJSONのみで出力してください。
-{"date":"支払日 YYYY-MM-DD（不明ならnull）","payee":"店名・支払先（不明ならnull）","amount":税込合計の数値（不明なら0）,"items":"品目の簡潔なメモ（30文字程度）","purpose":"町内会の用途として自然な短い説明（例：役員会の茶菓子、防災倉庫の備品）","account":"次の科目名から最も近いものを1つ（括弧内は各科目に含まれる支出の例。科目名だけを出力）：${accNames.join('、')}","payMethod":"支払手段。cash / credit / qr / emoney / transfer / unknown のいずれか","addressee":"領収証の宛名（上様・空欄ならその文字、なければnull）","docType":"receipt / invoice / transfer / other のいずれか"}
+{"date":"支払日 YYYY-MM-DD（不明ならnull）","payee":"店名・支払先（不明ならnull）","amount":税込合計の数値（不明なら0）,"items":"品目の簡潔なメモ（30文字程度）","purpose":"町内会の用途として自然な短い説明（例：役員会の茶菓子、防災倉庫の備品）","account":"次の科目名から最も近いものを1つ（括弧内は各科目に含まれる支出の例。科目名だけを出力）：${accNames.join('、')}","payMethod":"支払手段。cash / credit / qr / emoney / transfer / unknown のいずれか","addressee":"領収書類の宛名（上様・空欄ならその文字、なければnull）","docType":"receipt / invoice / transfer / other のいずれか"}
 和暦は西暦に変換してください。金額は値引き後・税込の支払総額です。お預り・お釣りの金額と取り違えないでください。`);
   return {
     date: nullish(r.date), payee: nullish(r.payee), amount: Math.round(Number(r.amount)||0),
@@ -2255,7 +2255,7 @@ async function runAi(dataUrls){
 function orgCore(){ return (settings.orgName||'').replace(/[〇○]/g,'').replace(/(町内会|自治会|町会)$/,'').trim(); }
 function addresseeWarning(a){
   if (!a) return '';
-  if (/上様|空欄/.test(a)) return '宛名が「上様」です。団体名の領収証だと監査が安心です';
+  if (/上様|空欄/.test(a)) return '宛名が「上様」です。団体名の領収書類だと監査が安心です';
   const core = orgCore();
   if (core && !a.includes(core)) return `宛名が「${a}」です（団体名ではありません）`;
   return '';
@@ -2350,8 +2350,8 @@ $('formSaveBtn').onclick = async () => {
   if (!formAccount) return showToast('科目を選んでください');
   if (!formMethod) return showToast(formType==='income'?'受取方法を選んでください':'支払方法を選んでください');
   if (m && m.settle && formType==='expense' && !payerId) return showToast('立替・仮払の場合は「支払った人」を選んでください');
-  if (noReceipt && !$('fNoReceiptReason').value.trim()) return showToast('領収証がない理由を入力してください');
-  if (formType==='expense' && !noReceipt && !formPhotos.length && !confirm('領収証の写真がありません。このまま保存しますか？')) return;
+  if (noReceipt && !$('fNoReceiptReason').value.trim()) return showToast('領収書類がない理由を入力してください');
+  if (formType==='expense' && !noReceipt && !formPhotos.length && !confirm('領収書類の写真がありません。このまま保存しますか？')) return;
   if (editing && editing.settleState==='settled' && Number(editing.amount)!==amount) return showToast('精算済みの伝票は金額を変更できません。先に精算を取り消してください');
 
   const aiOriginalForSubmit = (editing && editing.aiReceiptOriginal) || formAiReceiptOriginal;
@@ -2434,7 +2434,7 @@ async function renderDetail(id){
       ${!inc?`<dt>精算</dt><dd>${e.settleState==='pending'?'未精算（精算待ち）':e.settleState==='settled'?`精算済み ${stl?`（${fmtDateFull(stl.date)}・${esc(stl.way)}）`:''}`:'精算不要'}</dd>`:''}
       ${e.addressee?`<dt>宛名</dt><dd>${esc(e.addressee)}${addresseeWarning(e.addressee)?' <span class="stamp-tag" style="border-color:var(--amber);color:var(--amber)">要確認</span>':''}</dd>`:''}
       <dt>原本の保管</dt><dd>${esc(e.storageLocation||'－')}</dd>
-      ${e.noReceipt?`<dt>領収証なし</dt><dd>${esc(e.noReceiptReason)}</dd>`:''}
+      ${e.noReceipt?`<dt>領収書類なし</dt><dd>${esc(e.noReceiptReason)}</dd>`:''}
       ${e.cashFeeRequest?`<dt>現金会費</dt><dd>${esc(e.cashFeeBranch||'')} ${esc(e.cashFeeGroup||'')}　${Number(e.cashFeeCount)||0}世帯</dd><dt>申告額</dt><dd>${yen(e.cashFeeDeclaredAmount||e.amount)}</dd>${e.cashFeeCheckedAt?`<dt>現金確認</dt><dd>${esc(e.cashFeeCheckedByName||'')} ${fmtTs(e.cashFeeCheckedAt)}　${yen(e.cashFeeActualAmount||e.amount)}</dd>`:''}`:''}
       ${e.memo?`<dt>メモ</dt><dd>${esc(e.memo)}</dd>`:''}
       ${e.excludePublic?`<dt>公開</dt><dd>会員向け報告では明細を伏せる</dd>`:''}
@@ -2466,7 +2466,7 @@ async function renderDetail(id){
     else html += `<div class="btn-row" style="margin-bottom:10px"><button class="btn btn-danger" id="dReturn">差し戻す</button><button class="btn btn-moss" id="dApprove">${pv&&pv.provisional?'本登録して承認する':'承認する'}</button></div>`;
   }
   if (isViewer() && e.status==='submitted' && e.selfApprovalRequired===true && e.createdBy!==me.uid) {
-    html += `<div class="audit-box" style="border-color:var(--amber);margin-bottom:10px"><div style="font-weight:700;font-size:13.5px;margin-bottom:4px">会計担当本人の支出です</div><p class="hint" style="margin:0 0 8px">自己承認を防ぐため、役員が内容と領収証を確認して承認します。</p><div class="btn-row"><button class="btn btn-danger" id="dReturn">差し戻す</button><button class="btn btn-moss" id="dApprove">承認する</button></div></div>`;
+    html += `<div class="audit-box" style="border-color:var(--amber);margin-bottom:10px"><div style="font-weight:700;font-size:13.5px;margin-bottom:4px">会計担当本人の支出です</div><p class="hint" style="margin:0 0 8px">自己承認を防ぐため、役員が内容と領収書類を確認して承認します。</p><div class="btn-row"><button class="btn btn-danger" id="dReturn">差し戻す</button><button class="btn btn-moss" id="dApprove">承認する</button></div></div>`;
   }
   // 監査欄
   if (e.status==='approved' && (isStaff())) {
@@ -2586,7 +2586,7 @@ async function approveOne(e){
   writeLog('承認', e, `${payerName(e.payerId)} ${e.purpose||e.payee||''}${approvalAiRows.length?`／AI差分確認 ${approvalAiRows.length}項目`:''}`);
 }
 async function returnEntry(e){
-  const reason = prompt('差し戻す理由を入力してください（申請者に表示されます）', e.cashFeeRequest ? '世帯数または金額を確認してください' : '領収証の宛名を町内会名にしてもらってください');
+  const reason = prompt('差し戻す理由を入力してください（申請者に表示されます）', e.cashFeeRequest ? '世帯数または金額を確認してください' : '領収書類の宛名を町内会名にしてもらってください');
   if (reason===null) return;
   await R(`entries/${e.id}`).update({ status:'returned', returnReason: reason.trim() || '内容を確認してください' });
   writeLog('差戻し', e, reason);
@@ -2866,11 +2866,11 @@ function openPrint(title, body){
 function autoChecks(ap){
   const out = [];
   const noPhoto = ap.filter(e=>e.type==='expense' && !e.photoCount && !e.noReceipt && !e.imported);
-  if (noPhoto.length) out.push({ label:'写真も「領収証なし」理由もない支出', list:noPhoto });
+  if (noPhoto.length) out.push({ label:'写真も「領収書類なし」理由もない支出', list:noPhoto });
   const noRc = ap.filter(e=>e.noReceipt);
-  if (noRc.length) out.push({ label:'領収証なしの支出（理由を確認）', list:noRc });
+  if (noRc.length) out.push({ label:'領収書類なしの支出（理由を確認）', list:noRc });
   const badAddr = ap.filter(e=>e.type==='expense' && addresseeWarning(e.addressee));
-  if (badAddr.length) out.push({ label:'宛名が団体名ではない領収証（上様・個人名など）', list:badAddr });
+  if (badAddr.length) out.push({ label:'宛名が団体名ではない領収書類（上様・個人名など）', list:badAddr });
   const seen = {}, dup = new Set();
   ap.forEach(e=>{ const k=`${e.date}|${e.amount}|${(e.payee||'').trim()}`; if (seen[k]) { dup.add(seen[k]); dup.add(e); } else seen[k]=e; });
   if (dup.size) out.push({ label:'同じ日・同じ金額・同じ支払先（二重登録の可能性）', list:[...dup] });
@@ -2915,7 +2915,7 @@ function renderAudit(){
     <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px">
       ${card('帳簿残高',yen(book),`期首 ${yen(opening)} ＋ 収入 ${yen(inc)} − 支出 ${yen(exp)}`,null)}
       ${card('現預金照合',latestRecon?(moneyOK?'差額 0円':'差額 '+yen(Number(latestRecon.diff)||0)):'未確認',
-        latestRecon?`${fmtTs(latestRecon.at)}　JA ${yen(Number(latestRecon.bank)||0)}／現金 ${yen(Number(latestRecon.cash)||0)}／仮払 ${yen(Number(latestRecon.pendingAdvance)||0)}`:'会計担当が「現預金残高の確認」を記録すると表示されます',latestRecon?moneyOK:false)}
+        latestRecon?`${fmtTs(latestRecon.at)}　銀行口座 ${yen(Number(latestRecon.bank)||0)}／現金 ${yen(Number(latestRecon.cash)||0)}／仮払 ${yen(Number(latestRecon.pendingAdvance)||0)}`:'会計担当が「現預金残高の確認」を記録すると表示されます',latestRecon?moneyOK:false)}
       ${card('未確認伝票',`${todo.length}件`,`確認済み ${ok.length+issue.length}/${ap.length}件${stale?`・監査後修正 ${stale}件`:''}`,todo.length===0)}
       ${card('要確認事項',`${exceptionCount}件`,`未確認領収書類 ${noEvidence}件${unresolvedIssue?`・未回答の監査指摘 ${unresolvedIssue}件`:''}`,exceptionCount===0&&unresolvedIssue===0)}
     </div>
@@ -3000,7 +3000,7 @@ function ledgerRows(){
   });
 }
 function exportCsv(){
-  const head = ['伝票番号','日付','区分','科目','用途・行事','支払先・入金元','支払方法','支払った人','収入','支出','残高','精算状況','精算日','精算番号','領収証','原本保管場所','監査','監査コメント','登録者','メモ'];
+  const head = ['伝票番号','日付','区分','科目','用途・行事','支払先・入金元','支払方法','支払った人','収入','支出','残高','精算状況','精算日','精算番号','領収書類','原本保管場所','監査','監査コメント','登録者','メモ'];
   const opening = Number((settings.opening||{})[curFY])||0;
   const rows = [head, ['', '', '', '前年度繰越金', '', '', '', '', opening, '', opening]];
   ledgerRows().forEach(({e,bal,stl})=>{
@@ -3031,7 +3031,7 @@ async function printVouchers(){
         <b>${e.type==='income'?'入金元':'支払先'}</b><span>${esc(e.payee||'')}</span><b>支払方法</b><span>${esc(methodById(e.methodId)?.name||'')}</span>
         <b>支払った人</b><span>${esc(payerLabel(e.payerId)||'－')}</span><b>原本</b><span>${esc(e.storageLocation||'－')}</span>
         <b>監査</b><span>${e.audit?(e.audit.result==='ok'?'確認済':'指摘：'+esc(e.audit.comment)):'未確認'}</span><b>承認</b><span>${esc(e.approvedByName||e.createdByName||'')}</span></div>
-      ${e.noReceipt?`<p>領収証なし：${esc(e.noReceiptReason)}</p>`:''}
+      ${e.noReceipt?`<p>領収書類なし：${esc(e.noReceiptReason)}</p>`:''}
       ${(photos[e.id]||[]).map(p=>`<img src="${p}">`).join('')}
     </div>`).join('');
   openPrint(`領収書類台帳 ${curFY}年度`, body);
@@ -3345,18 +3345,18 @@ function renderSettings(){
     const reconAdv = advances.filter(a=>a.settleState==='pending').reduce((n,a)=>n+(Number(a.amount)||0),0);
     const reconHist = Object.entries((((settings.balanceChecks||{})[curFY])||{})).map(([id,v])=>({id,...v})).sort((a,b)=>(b.at||0)-(a.at||0));
     html += `<h2 class="section-title" style="margin-top:20px">現預金残高の確認</h2><div class="form-card">
-      <p class="hint" style="margin-top:0">銀行口座と手元現金を、帳簿上の現預金と照合します。会費ペイは実際の振込・手数料データが未連携のため、JA・現金とは分けて表示し、照合対象から除外します。</p>
+      <p class="hint" style="margin-top:0">銀行口座と手元現金を、帳簿上の現預金と照合します。会費ペイは実際の振込・手数料データが未連携のため、銀行口座・現金とは分けて表示し、照合対象から除外します。</p>
       <div class="total-check"><span>会計帳簿の総残高</span><b>${yen(reconBook)}</b></div>
       <div class="total-check"><span>会費ペイ（カード決済）<small style="display:block;font-weight:400">精算データ未連携</small></span><b>${yen(kpCard)}</b></div>
       <div class="total-check"><span>会費ペイ（口座引き落とし）<small style="display:block;font-weight:400">CSV取込累計</small></span><b>${yen(kpDebit)}</b></div>
       <div class="total-check"><span>支払通知書で精算済み<small style="display:block;font-weight:400">決済金額ベース</small></span><b>${yen(kpSettledGross)}</b></div>
       <div class="total-check"><span>会費ペイ未精算残高</span><b>${yen(kpUnlinked)}</b></div>
-      <div class="total-check"><span>JA＋現金として照合する帳簿残高</span><b>${yen(reconPhysicalBook)}</b></div>
-      <div class="field" style="margin-top:12px"><label>JA普通預金の実残高</label><input type="number" id="reconBank" class="amount-input" inputmode="numeric" placeholder="通帳の残高"></div>
+      <div class="total-check"><span>銀行口座＋現金として照合する帳簿残高</span><b>${yen(reconPhysicalBook)}</b></div>
+      <div class="field" style="margin-top:12px"><label>銀行口座の実残高</label><input type="number" id="reconBank" class="amount-input" inputmode="numeric" placeholder="通帳の残高"></div>
       <div class="field"><label>手元現金の実残高</label><input type="number" id="reconCash" class="amount-input" inputmode="numeric" placeholder="実際に数えた現金"></div>
       <div class="total-check"><span>未清算の仮払金（自動）</span><b>${yen(reconAdv)}</b></div>
       <div class="field" style="margin-top:12px"><label>確認メモ（任意）</label><input type="text" id="reconMemo" placeholder="例）9月末残高確認"></div>
-      <div id="reconPreview" class="total-check" style="margin-top:10px"><span>JA＋現金＋仮払金との差額</span><b>金額を入力してください</b></div>
+      <div id="reconPreview" class="total-check" style="margin-top:10px"><span>銀行口座＋現金＋仮払金との差額</span><b>金額を入力してください</b></div>
       <button class="btn btn-primary full" id="reconSave" style="margin-top:10px">残高確認を記録する</button>
       ${reconHist.length?`<div style="font-weight:700;font-size:13.5px;margin:16px 0 6px">確認履歴</div>`+reconHist.slice(0,12).map(x=>`<div class="cat-row"><span class="cname">${fmtTs(x.at)}<small>${esc(x.byName||'')}・照合帳簿 ${yen(Number(x.physicalBookBalance??x.bookBalance)||0)}／実残高 ${yen(Number(x.actualTotal)||0)}${Number(x.kaihipayUnlinked||0)?`・会費ペイ未連携 ${yen(Number(x.kaihipayUnlinked)||0)}`:''}${x.memo?`・${esc(x.memo)}`:''}</small></span><span class="stamp-tag" style="border-color:${Number(x.diff)===0?'var(--moss)':'var(--stamp-red)'};color:${Number(x.diff)===0?'var(--moss)':'var(--stamp-red)'}">${Number(x.diff)===0?'一致':'差額 '+yen(Number(x.diff)||0)}</span></div>`).join(''):''}
     </div>`;
@@ -3443,7 +3443,7 @@ function renderSettings(){
       <button class="btn btn-navy full" id="impBtn">📥 CSV・Excelファイルを取り込む</button>
       ${importsList.length?`<div style="margin-top:12px;font-size:12.5px;font-weight:700">取り込みの履歴</div>`+importsList.slice(0,10).map(x=>`<div class="cat-row"><span class="cname">${esc(x.fileName)}<small>${fmtTs(x.at)}・${esc(x.byName)}・${x.count}件（${asList(x.fys).map(y=>y+'年度').join('、')}）</small></span><button class="lnk" data-undoimp="${x.id}" style="color:var(--stamp-red)">取り消す</button></div>`).join(''):''}
       <div style="font-weight:700;font-size:13.5px;margin:16px 0 6px">バックアップ（CSVで書き出し）</div>
-      <p class="hint" style="margin-top:0">伝票のCSVは全年度・全状態を含み、このアプリにそのまま取り込み直せる形式です。領収証の写真は含まれません（データベースに保存されています）。</p>
+      <p class="hint" style="margin-top:0">伝票のCSVは全年度・全状態を含み、このアプリにそのまま取り込み直せる形式です。領収書類の写真は含まれません（データベースに保存されています）。</p>
       <div class="btn-row"><button class="btn btn-ghost" id="bkEntries">伝票（全年度）</button><button class="btn btn-ghost" id="bkAccounts">科目・予算・名簿</button></div>
       ${settings.lastBackupAt?`<p class="hint">前回のバックアップ：${fmtTs(settings.lastBackupAt)}</p>`:''}
       <hr style="border:0;border-top:1px solid var(--line);margin:20px 0">
@@ -4000,7 +4000,7 @@ async function publishReport(){
 }
 
 /* =========================================================
-   レシート・領収証のまとめて読み込み（AI自動入力）
+   領収書類のまとめて読み込み（AI自動入力）
    ========================================================= */
 let batchItems = [];     // {id, photo, state:'reading'|'done'|'error'|'saved', msg, on, f:{...}}
 let batchSeq = 0;
@@ -4027,7 +4027,7 @@ function renderBatch(){
   const el = $('batchScreen');
   const keyOk = !!aiProxyConfigured();
   el.innerHTML = `<button class="text-link" id="bBack" style="padding-left:0">‹ ホームへ戻る</button>
-    <p class="hint" style="margin-top:0">レシート・領収証・振込控えの画像またはPDFを何件でも選ぶと、AIが日付・金額・支払先・科目・支払方法を読み取って下書きを作ります。内容を確認して「まとめて登録」を押してください。${keyOk?'':'<br><b style="color:var(--stamp-red)">通知・AI共通Apps Script URLが未設定のため、今は手入力の下書きになります。</b>'}</p>
+    <p class="hint" style="margin-top:0">領収書類（レシート・振込控え等）の画像またはPDFを何件でも選ぶと、AIが日付・金額・支払先・科目・支払方法を読み取って下書きを作ります。内容を確認して「まとめて登録」を押してください。${keyOk?'':'<br><b style="color:var(--stamp-red)">通知・AI共通Apps Script URLが未設定のため、今は手入力の下書きになります。</b>'}</p>
     <div class="btn-row" style="margin-bottom:12px"><button class="btn btn-ghost" id="bCam">📷 撮影して追加</button><button class="btn btn-navy" id="bPick">📎 画像・PDFを選ぶ（複数可）</button></div>
     <div class="panel"><h3>全件共通の設定 <small>個別に変えることもできます</small></h3>
       <div class="field"><label>支払方法</label><select id="bcMethod" style="width:100%">${batchMethodOptions(batchCommon.methodId, true)}</select></div>
@@ -4374,7 +4374,7 @@ function downloadText(text, filename, type){
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
 }
-const BACKUP_HEAD = ['伝票番号','日付','年度','区分','科目','用途・行事','支払先・入金元','支払方法','支払った人','金額','状態','精算状況','精算番号','精算日','領収証なし理由','宛名','原本保管場所','写真枚数','監査','監査コメント','公開除外','メモ','登録者','登録日時','伝票ID'];
+const BACKUP_HEAD = ['伝票番号','日付','年度','区分','科目','用途・行事','支払先・入金元','支払方法','支払った人','金額','状態','精算状況','精算番号','精算日','領収書類なし理由','宛名','原本保管場所','写真枚数','監査','監査コメント','公開除外','メモ','登録者','登録日時','伝票ID'];
 
 /* 全年度の伝票をバックアップ（このCSVはそのまま取り込み直せる） */
 async function exportBackupCsv(){
@@ -4778,7 +4778,7 @@ function renderKaihipayStatementPreview(){
     <p class="hint">${d.period?`集計対象：${esc(d.period)}<br>`:''}${d.transferDate?`振込日：${esc(d.transferDate)}<br>`:''}${d.processNo?`処理番号：${esc(d.processNo)}`:''}</p>
     ${done?`<p class="hint" style="color:var(--moss);font-weight:700">この支払通知書は取込済みです（${fmtTs(done.at)}）。</p>`:`
       <div class="field"><label>手数料の支出科目</label><select id="kpStmtAccount">${accounts.filter(a=>a.type==='expense'&&a.active).map(a=>`<option value="${a.id}" ${a.id===expAcc?.id?'selected':''}>${esc(a.name)}</option>`).join('')}</select></div>
-      <p class="hint">登録すると、決済金額は再収入計上せず、${yen(d.fee)}だけを支出として計上します。同時に決済金額${yen(d.gross)}を会費ペイ精算済みとして記録し、JA＋現金の照合対象へ移します。</p>
+      <p class="hint">登録すると、決済金額は再収入計上せず、${yen(d.fee)}だけを支出として計上します。同時に決済金額${yen(d.gross)}を会費ペイ精算済みとして記録し、銀行口座＋現金の照合対象へ移します。</p>
       <button class="btn btn-primary full" id="kpStmtDo">支払通知書を精算登録する</button>`}`;
   const b=$('kpStmtDo'); if(b) b.onclick=saveKaihipayStatement;
 }
@@ -4821,14 +4821,14 @@ const IMPORT_FIELDS = [
   ['date','日付',''], ['month','月',''], ['day','日',''], ['type','区分（収入／支出）',''], ['amount','金額',''], ['income','収入の金額（収入列）',''], ['expense','支出の金額（支出列）',''],
   ['account','科目',''], ['purpose','用途・摘要',''], ['payee','支払先・入金元',''], ['method','支払方法',''], ['payer','支払った人',''],
   ['memo','メモ・備考',''], ['voucher','伝票番号',''], ['storage','原本保管場所',''], ['settle','精算状況',''],
-  ['noReceiptReason','領収証なし理由',''], ['addressee','宛名',''], ['exclude','公開除外',''], ['id','伝票ID（バックアップ）','']
+  ['noReceiptReason','領収書類なし理由',''], ['addressee','宛名',''], ['exclude','公開除外',''], ['id','伝票ID（バックアップ）','']
 ];
 const IMPORT_GUESS = [
   ['id', /^伝票ID$/], ['voucher', /伝票番号|伝票No|^No\.?$|^番号$/i], ['date', /日付|年月日|支払日|入金日|取引日/], ['month', /^月$/], ['day', /^日$/], ['type', /^区分$|収支|^種別$/],
   ['income', /^収入$|入金額|^入金$|収入金額/], ['expense', /^支出$|出金額|^出金$|支出金額/], ['amount', /^金額|^額$|税込/],
   ['account', /科目|費目/], ['method', /支払方法|決済|受取方法|^方法$/], ['payer', /支払った人|支払者|立替者|担当/],
   ['payee', /支払先|入金元|相手先|取引先|店名/], ['purpose', /用途|摘要|内容|行事|件名/], ['settle', /精算状況/],
-  ['noReceiptReason', /領収証なし/], ['addressee', /宛名/], ['storage', /保管/], ['exclude', /公開除外/], ['memo', /メモ|備考/]
+  ['noReceiptReason', /領収(?:書類|証)なし/], ['addressee', /宛名/], ['storage', /保管/], ['exclude', /公開除外/], ['memo', /メモ|備考/]
 ];
 let imp = null;
 
@@ -5285,12 +5285,12 @@ async function renderPublic(years, fy){
     if (groups.length) html += `<div class="panel"><h3>用途別の集計 <small>何に使われたか・何から入ったか</small></h3><div class="tbl-wrap"><table class="pub"><thead><tr><th>科目</th><th>用途</th><th class="r">件数</th><th class="r">合計</th></tr></thead><tbody>
       ${groups.map(g=>`<tr><td>${esc(g.account)}</td><td>${esc(g.purpose)}</td><td class="r">${Number(g.count)||0}件</td><td class="r" style="color:${g.type==='income'?'var(--stamp-navy)':'inherit'}">${g.type==='income'?'+':''}${yen(g.amount)}</td></tr>`).join('')}
       </tbody></table></div></div>`;
-    html += `<div class="panel"><details><summary style="cursor:pointer;font-weight:800">個別明細を見る <small style="font-weight:400">${asList(d.items).length}件</small></summary><p class="hint">透明性のため、承認済みの伝票を日付・科目・用途・金額まで公開しています。支払先・支払者名・領収証画像・内部メモは公開しません。個人情報を含む用途は匿名表示しています。</p><div class="tbl-wrap"><table class="pub"><thead><tr><th>日付</th><th>科目</th><th>用途</th><th class="r">金額</th></tr></thead><tbody>
+    html += `<div class="panel"><details><summary style="cursor:pointer;font-weight:800">個別明細を見る <small style="font-weight:400">${asList(d.items).length}件</small></summary><p class="hint">透明性のため、承認済みの伝票を日付・科目・用途・金額まで公開しています。支払先・支払者名・領収書類画像・内部メモは公開しません。個人情報を含む用途は匿名表示しています。</p><div class="tbl-wrap"><table class="pub"><thead><tr><th>日付</th><th>科目</th><th>用途</th><th class="r">金額</th></tr></thead><tbody>
       ${asList(d.items).map(i=>`<tr><td style="white-space:nowrap">${fmtDate(i.date)}</td><td>${esc(i.account)}</td><td>${esc(i.purpose)}</td><td class="r" style="color:${i.type==='income'?'var(--stamp-navy)':'inherit'}">${i.type==='income'?'+':''}${yen(i.amount)}</td></tr>`).join('')}
       </tbody></table></div></details></div>`;
   }
   if (d.audit && d.audit.comment) html += `<div class="panel"><h3>監査報告</h3><p style="margin:0;font-size:13.5px;line-height:1.7">${esc(d.audit.comment)}</p></div>`;
-  html += `<p class="hint" style="text-align:center">最終更新 ${fmtTs(d.updatedAt)}　／　支払先・支払者名・領収証画像・内部メモは掲載していません。<br>領収証の原本は会計担当が保管しています。ご質問は役員までお寄せください。</p>
+  html += `<p class="hint" style="text-align:center">最終更新 ${fmtTs(d.updatedAt)}　／　支払先・支払者名・領収書類画像・内部メモは掲載していません。<br>領収書類の原本は会計担当が保管しています。ご質問は役員までお寄せください。</p>
     <div style="text-align:center"><button class="text-link" onclick="${me&&me.role==='report'?'auth.signOut()':'location.href=location.pathname'}">${me&&me.role==='report'?'ログアウト':'会計アプリへ戻る'}</button></div>`;
   body.innerHTML = html;
   body.querySelectorAll('[data-y]').forEach(b=>b.onclick=()=>renderPublic(years, Number(b.dataset.y)));
