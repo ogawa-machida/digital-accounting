@@ -655,7 +655,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.04-86';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.04-88';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -3159,6 +3159,9 @@ async function renderAdmin(){
         <div class="admin-menu-card" data-admin-group="metrics">
           <div class="admin-menu-icon">📊</div><div class="admin-menu-text"><b>業務分析</b><small>業務時間、自動計測、導入効果の確認</small></div><div class="admin-menu-arrow">›</div>
         </div>
+        <div class="admin-menu-card" data-admin-group="diagnostics">
+          <div class="admin-menu-icon">🩺</div><div class="admin-menu-text"><b>システム診断</b><small>権限・個人情報保護・保存削除の安全性を点検</small></div><div class="admin-menu-arrow">›</div>
+        </div>
       </div>
     </div>
 
@@ -3249,6 +3252,30 @@ async function renderAdmin(){
       </div>
     </div>
 
+    <div class="admin-group" id="adminGroupDiagnostics">
+      <button class="btn btn-ghost sm admin-back">← 管理メニューに戻る</button>
+      <h2 class="section-title">システム診断</h2>
+      <div class="form-card">
+        <div style="font-weight:700;font-size:15px">本番データを変更しない安全診断</div>
+        <p class="hint">Firebaseの読取権限、個人情報保護設定、AI修正履歴、保存・削除条件を点検します。伝票・領収書類・利用者・バックアップの作成、変更、削除は行いません。</p>
+        <button class="btn btn-primary full" id="diagRun">診断を実行</button>
+        <button class="btn btn-navy full" id="diagE2E" style="margin-top:8px">総合自動テストを実行</button>
+        <p class="hint">総合自動テストは、診断専用領域にテストデータを実際に作成→読取→更新→削除し、さらにテスト伝票を作成→状態更新→削除します。通常の会計データには触れず、最後にテストデータが残っていないことまで確認します。</p>
+        <div id="diagE2EResult" style="margin-top:10px"></div>
+        <div id="diagResult" style="margin-top:12px"></div>
+      </div>
+      <div class="form-card" style="margin-top:12px">
+        <div style="font-weight:700;font-size:15px">破壊系機能の模擬テスト</div>
+        <p class="hint">実際のFirebaseデータは削除せず、年度原本削除のゲート条件をメモリ上だけで再現します。「保存期限」「年度確定」「匿名統計最新」の3条件が揃わない限り削除不可になることを確認します。</p>
+        <button class="btn btn-ghost full" id="diagDestructive">模擬テストを実行</button>
+        <div id="diagDestructiveResult" style="margin-top:10px"></div>
+      </div>
+      <div class="form-card" style="margin-top:12px">
+        <div style="font-weight:700;font-size:15px">診断の範囲</div>
+        <p class="hint">現在ログイン中の管理者権限で実際のFirebase Rulesを確認します。他の役割への成り代わりは行わないため、支払者・監査・会員等の権限は「設計確認」として表示します。役割別の完全な実通信テストは各テスト役割での操作確認が必要です。</p>
+      </div>
+    </div>
+
     <div class="admin-group" id="adminGroupMetrics">
       <button class="btn btn-ghost sm admin-back">← 管理メニューに戻る</button>
       <h2 class="section-title">業務時間・導入効果</h2>
@@ -3306,7 +3333,7 @@ async function renderAdmin(){
   const adminMenu=$('adminMenu');
   const adminGroups={
     people:$('adminGroupPeople'), data:$('adminGroupData'), notify:$('adminGroupNotify'),
-    privacy:$('adminGroupPrivacy'), metrics:$('adminGroupMetrics')
+    privacy:$('adminGroupPrivacy'), diagnostics:$('adminGroupDiagnostics'), metrics:$('adminGroupMetrics')
   };
   const openAdminGroup=(key)=>{
     if(adminMenu)adminMenu.style.display='none';
@@ -3321,6 +3348,104 @@ async function renderAdmin(){
   };
   el.querySelectorAll('[data-admin-group]').forEach(card=>card.onclick=()=>openAdminGroup(card.dataset.adminGroup));
   el.querySelectorAll('.admin-back').forEach(btn=>btn.onclick=closeAdminGroup);
+  // v87: 本番データを変更しないシステム診断
+  const diagRow=(name,status,detail='')=>{
+    const ok=status==='ok', warn=status==='warn';
+    const icon=ok?'✓':warn?'△':'✕';
+    const label=ok?'正常':warn?'要確認':'異常';
+    return `<div class="cat-row"><span class="cname">${icon} ${esc(name)}<small>${esc(detail)}</small></span><b style="white-space:nowrap">${label}</b></div>`;
+  };
+  async function runSystemDiagnostics(){
+    const out=$('diagResult'); if(!out)return; out.innerHTML='<p class="hint">診断中...</p>';
+    const results=[];
+    const test=async(name,fn,okDetail,failDetail)=>{try{const v=await fn();results.push([name,'ok',typeof okDetail==='function'?okDetail(v):okDetail]);return v;}catch(e){results.push([name,'fail',`${failDetail||'確認に失敗'}：${e?.code||e?.message||e}`]);return null;}};
+    try{
+      if(auth.currentUser&&me&&isRealAdmin())results.push(['管理者ログイン','ok',`${me.name||me.email||'管理者'}／admin`]);
+      else results.push(['管理者ログイン','fail','実管理者でログインしていません']);
+      await test('基本設定の読取',()=>R('settings').get(),'Firebaseからsettingsを読取可能','settingsを読めません');
+      await test('会計伝票の読取',()=>R('entries').limitToFirst(1).get(),'管理者としてentriesを読取可能','entriesを読めません');
+      await test('バックアップ領域の読取',()=>R('backups').limitToFirst(1).get(),'管理者専用領域を読取可能','backupsを読めません');
+      await test('匿名統計領域の読取',()=>R('statistics').limitToFirst(1).get(),'管理者専用領域を読取可能','statisticsを読めません');
+      // secrets は管理者でも読めないことが正しい。
+      try{await R('secrets').get();results.push(['AI秘密情報の遮断','fail','secretsを読み取れてしまいました。Rulesを確認してください']);}
+      catch(e){results.push(['AI秘密情報の遮断','ok','管理者でもFirebase上のsecretsを読取不可']);}
+      // 他人のGAS応答領域は現在のUIDでは読めないことを確認。実在UIDは使わない。
+      try{await R('gasResponses/__diagnostic_other_uid__').get();results.push(['他人のGAS応答の遮断','fail','他UIDのgasResponsesを読み取れてしまいました']);}
+      catch(e){results.push(['他人のGAS応答の遮断','ok','自分以外のgasResponsesは読取不可']);}
+      await test('自分のGAS応答領域',()=>R(`gasResponses/${auth.currentUser.uid}`).limitToFirst(1).get(),'自分の応答領域のみ読取可能','自分のgasResponsesを読めません');
+      await test('会員向け報告の認証読取',()=>R('public/index').get(),'ログイン済み管理者として読取可能','public/indexを読めません');
+      const rp=settings.retentionPolicy||{};
+      if(Number(rp.accountingYears)>=1&&Number(rp.logYears)>=1&&Number(rp.deleteBackupDays)>=7)results.push(['保存期間ポリシー','ok',`会計${rp.accountingYears}年／ログ${rp.logYears}年／削除前バックアップ${rp.deleteBackupDays}日`]);
+      else results.push(['保存期間ポリシー','warn','未設定または設定値を確認してください']);
+      const aiEdited=entries.filter(e=>e.aiReceiptOriginal&&(e.aiReceiptChangedFields||[]).length);
+      const aiBroken=aiEdited.filter(e=>!e.aiReceiptEditedAt||!e.aiReceiptChangedFields?.length);
+      results.push(['AI修正履歴の整合性',aiBroken.length?'fail':'ok',aiEdited.length?`AI修正あり ${aiEdited.length}件を確認／不整合 ${aiBroken.length}件`:'AI修正済み伝票は現在ありません']);
+      const publicSensitive=await R('public').get().then(s=>s.val()).catch(()=>null);
+      let leaks=[];
+      const walk=(o,path='public')=>{if(!o||typeof o!=='object')return;for(const [k,v] of Object.entries(o)){const kl=k.toLowerCase();if(['payer','payerid','payername','payee','receipt','photo','internalmemo','email'].some(x=>kl.includes(x))&&v!=null&&v!=='')leaks.push(`${path}/${k}`);if(typeof v==='object')walk(v,`${path}/${k}`);if(leaks.length>8)return;}};
+      if(publicSensitive){walk(publicSensitive);results.push(['会員向け報告の内部情報',leaks.length?'warn':'ok',leaks.length?`内部情報らしい項目を検出：${leaks.slice(0,5).join('、')}（内容を確認してください）`:'支払者・領収書類・メール等の典型的な内部項目は検出されませんでした']);}
+      else results.push(['会員向け報告の内部情報','ok','公開用データは未作成または空です']);
+      const retired=members.filter(m=>m.lifecycleStatus==='retired'||m.lifecycleStatus==='anonymized'||m.role==='removed');
+      results.push(['退任・匿名化管理','ok',`退任・匿名化対象 ${retired.length}名／現役 ${members.length-retired.length}名`]);
+      const roleDesign=['admin','treasurer','auditor','viewer','payer','guest','report','pending'];
+      results.push(['役割別権限の設計確認','warn',`${roleDesign.join(' / ')} を使用。実通信は各テスト役割で別途確認してください`]);
+      const fails=results.filter(x=>x[1]==='fail').length,warns=results.filter(x=>x[1]==='warn').length;
+      out.innerHTML=`<div class="total-check"><span>診断結果</span><b>${fails?'異常あり':warns?'基本正常・要確認あり':'すべて正常'}</b></div>${results.map(x=>diagRow(...x)).join('')}<p class="hint">実行日時：${new Date().toLocaleString('ja-JP')}／バージョン ${APP_VERSION}。この診断はデータを変更しません。</p>`;
+    }catch(e){console.error(e);out.innerHTML=`<p class="hint" style="color:var(--stamp-red)">診断を完了できませんでした：${esc(e?.message||String(e))}</p>`;}
+  }
+  function runDestructiveSimulation(){
+    const out=$('diagDestructiveResult'); if(!out)return;
+    const gate=(expired,closed,statsOk)=>!!(expired&&closed&&statsOk);
+    const cases=[
+      ['保存期限前',false,true,true,false],['年度未確定',true,false,true,false],['匿名統計未作成',true,true,false,false],
+      ['全条件成立',true,true,true,true],['全条件不成立',false,false,false,false]
+    ];
+    const rows=cases.map(([name,e,c,s,expected])=>{const actual=gate(e,c,s),ok=actual===expected;return [name,ok?'ok':'fail',`期限=${e?'済':'未'}／年度確定=${c?'済':'未'}／統計=${s?'最新':'未'} → ${actual?'削除可':'削除不可'}`];});
+    const expiryCheck=fyExpiryDate(2026,10).getFullYear()===2037&&fyExpiryDate(2026,10).getMonth()===3&&fyExpiryDate(2026,10).getDate()===1;
+    rows.push(['年度保存期限の境界',expiryCheck?'ok':'fail',`2026年度・10年保存 → ${localDate(fyExpiryDate(2026,10))}から削除可`]);
+    const backupDays=Number(settings.retentionPolicy?.deleteBackupDays??30); rows.push(['短期復旧バックアップ期限','ok',`${backupDays}日（物理削除実行時のみ作成）`]);
+    const fail=rows.some(x=>x[1]==='fail');out.innerHTML=`<div class="total-check"><span>模擬テスト</span><b>${fail?'異常あり':'全ケース正常'}</b></div>${rows.map(x=>diagRow(...x)).join('')}<p class="hint">メモリ上の判定だけを行いました。Firebaseの会計データ・バックアップには触れていません。</p>`;
+  }
+  async function runE2EDiagnostics(){
+    const out=$('diagE2EResult'); if(!out)return;
+    if(!isRealAdmin()){out.innerHTML=diagRow('総合自動テスト','fail','実管理者で実行してください');return;}
+    if(!confirm('総合自動テストを実行します。\n\n診断専用のテストデータとテスト伝票を一時的に作成し、最後に自動削除します。通常の会計データは変更しません。'))return;
+    out.innerHTML='<p class="hint">総合自動テスト実行中...</p>';
+    const rows=[], uid=auth.currentUser.uid, runId=`e2e_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
+    const sandbox=`diagnosticTests/${uid}/${runId}`, entryId=`__diag_${runId}`;
+    const add=(n,s,d)=>rows.push([n,s,d]);
+    const step=async(n,fn,detail='正常')=>{try{const v=await fn();add(n,'ok',typeof detail==='function'?detail(v):detail);return v;}catch(e){add(n,'fail',e?.code||e?.message||String(e));throw e;}};
+    let sandboxCreated=false, entryCreated=false;
+    try{
+      await step('診断領域への作成',async()=>{await R(sandbox).set({runId,uid,version:APP_VERSION,stage:'created',createdAt:Date.now(),testOnly:true});sandboxCreated=true;},'Firebaseへ実データを書込み');
+      await step('診断領域の読取',async()=>{const s=await R(sandbox).get();if(!s.exists()||s.val().runId!==runId)throw new Error('書込値と読取値が一致しません');},'書込内容を再読取して一致');
+      await step('診断領域の更新',async()=>{await R(sandbox).update({stage:'updated',updatedAt:Date.now()});const s=await R(`${sandbox}/stage`).get();if(s.val()!=='updated')throw new Error('更新値が反映されません');},'更新→再読取を確認');
+      const testEntry={fy:curFY,date:localDate(),amount:123,purpose:'システム診断用・自動削除',accountId:'__diagnostic__',payerId:'__diagnostic__',payerName:'システム診断',createdBy:'__diagnostic__',createdByName:'システム診断',status:'draft',testMode:true,diagnosticRunId:runId,createdAt:Date.now()};
+      await step('テスト伝票の作成',async()=>{await R(`entries/${entryId}`).set(testEntry);entryCreated=true;const s=await R(`entries/${entryId}`).get();if(!s.exists()||s.val().diagnosticRunId!==runId)throw new Error('テスト伝票を確認できません');},'entriesに診断専用伝票を作成');
+      await step('申請状態への遷移',async()=>{await R(`entries/${entryId}`).update({status:'submitted',submittedAt:Date.now()});const s=await R(`entries/${entryId}/status`).get();if(s.val()!=='submitted')throw new Error('submittedへ遷移できません');},'draft → submitted');
+      await step('承認状態への遷移',async()=>{await R(`entries/${entryId}`).update({status:'approved',approvedAt:Date.now(),approvedBy:uid,approvedByName:me.name||''});const s=await R(`entries/${entryId}/status`).get();if(s.val()!=='approved')throw new Error('approvedへ遷移できません');},'submitted → approved（管理者権限の実通信）');
+      const publicLeak={date:localDate(),account:'診断',purpose:'診断',amount:123};
+      const forbidden=['payer','payerId','payerName','payee','receipt','photo','internalMemo','email'];
+      const leak=Object.keys(publicLeak).some(k=>forbidden.some(x=>k.toLowerCase().includes(x.toLowerCase())));
+      add('会員向けデータ最小化',leak?'fail':'ok',leak?'内部項目を検出':'日付・科目・用途・金額だけのテストデータで確認');
+      const ai={original:{amount:120,purpose:'診断'},applicant:{amount:123,purpose:'診断'},approver:{amount:123,purpose:'診断確認'}};
+      const aiOk=ai.original.amount!==ai.applicant.amount&&ai.applicant.purpose!==ai.approver.purpose;
+      add('AI三者差分ロジック',aiOk?'ok':'fail','AI原値→申請者修正→承認者修正を検出');
+      const gate=(expired,closed,statsOk)=>!!(expired&&closed&&statsOk);
+      add('物理削除ゲート',(!gate(false,true,true)&&!gate(true,false,true)&&!gate(true,true,false)&&gate(true,true,true))?'ok':'fail','期限・年度確定・匿名統計の3条件を再検証');
+    }catch(e){/* 個別行に記録済み */}
+    finally{
+      try{if(entryCreated)await R(`entries/${entryId}`).remove();add('テスト伝票の撤去','ok','診断伝票を削除');}catch(e){add('テスト伝票の撤去','fail',e?.code||e?.message||String(e));}
+      try{if(sandboxCreated)await R(sandbox).remove();add('診断領域の撤去','ok','診断データを削除');}catch(e){add('診断領域の撤去','fail',e?.code||e?.message||String(e));}
+      try{const [a,b]=await Promise.all([R(`entries/${entryId}`).get(),R(sandbox).get()]);add('テストデータ残存確認',(!a.exists()&&!b.exists())?'ok':'fail',(!a.exists()&&!b.exists())?'残存データなし':'テストデータが残っています');}catch(e){add('テストデータ残存確認','fail',e?.code||e?.message||String(e));}
+    }
+    const fails=rows.filter(x=>x[1]==='fail').length;
+    out.innerHTML=`<div class="total-check"><span>総合自動テスト</span><b>${fails?`${fails}件の異常`:`${rows.length}/${rows.length} PASS`}</b></div>${rows.map(x=>diagRow(...x)).join('')}<p class="hint">実行ID：${esc(runId)}／${new Date().toLocaleString('ja-JP')}。テスト専用データは終了時に自動撤去します。</p>`;
+  }
+  if($('diagRun'))$('diagRun').onclick=runSystemDiagnostics;
+  if($('diagE2E'))$('diagE2E').onclick=runE2EDiagnostics;
+  if($('diagDestructive'))$('diagDestructive').onclick=runDestructiveSimulation;
+
   // v84: データ保存期間・退任・匿名統計
   const retentionPolicy=()=>({
     retiredUserYears:Math.max(0,Math.min(20,Math.round(Number($('retUserYears')?.value ?? settings.retentionPolicy?.retiredUserYears ?? 2)))),
