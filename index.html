@@ -655,7 +655,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.04-84';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.04-85';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -3331,8 +3331,8 @@ async function renderAdmin(){
 \
 アプリの利用権限を停止しますが、過去の会計・監査記録は削除しません。`))return;
     try{
-      const at=TS();
-      await R(`members/${m.id}`).update({priorRole:m.role||'',role:'removed',lifecycleStatus:'retired',retiredAt:at,roleEndDate:localDate(new Date(at)),retiredBy:me.uid,retiredByName:me.name||''});
+      const clientAt=Date.now(), at=TS();
+      await R(`members/${m.id}`).update({priorRole:m.role||'',role:'removed',lifecycleStatus:'retired',retiredAt:at,roleEndDate:localDate(new Date(clientAt)),retiredBy:me.uid,retiredByName:me.name||''});
       if(m.payerId) await R(`payers/${m.payerId}`).update({active:false,retiredAt:at});
       await R('dataLifecycleRuns').push().set({at,by:me.uid,byName:me.name||'',kind:'retireMember',memberId:m.id,previousRole:m.role||''});
       writeLog('利用者退任',null,`${m.name||m.email}：${m.role||''}→removed`); showToast('退任処理を完了しました'); setTimeout(()=>location.reload(),400);
