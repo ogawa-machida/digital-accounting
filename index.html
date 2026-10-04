@@ -655,7 +655,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.04-83';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.04-84';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -3208,6 +3208,32 @@ async function renderAdmin(){
         <div style="font-weight:700">取扱い</div>
         <p class="hint">役割別に閲覧・操作範囲を制限し、会計業務に必要な情報のみを取り扱います。領収書類をAIで読み取る場合は、読取りに必要な画像情報をAIサービスへ送信します。権限変更・会計処理・AI読取後の修正は追跡できる形で記録します。</p>
       </div>
+      <div class="form-card" style="margin-top:12px">
+        <div style="font-weight:700;font-size:15px">データ保存・削除ポリシー</div>
+        <p class="hint">役員交代後の個人情報、会計原本、操作履歴を同じ期間で一律保存せず、用途ごとに管理します。削除は自動実行せず、管理者が候補を確認してバックアップ後に実行します。</p>
+        <div class="field"><label>退任者の個人情報</label><div style="display:flex;gap:8px;align-items:center"><input id="retUserYears" type="number" min="0" max="20" value="${Number(settings.retentionPolicy?.retiredUserYears??2)}" style="max-width:90px"><span>年後に匿名化候補</span></div></div>
+        <div class="field"><label>会計記録・領収書類</label><div style="display:flex;gap:8px;align-items:center"><input id="retAccountingYears" type="number" min="1" max="30" value="${Number(settings.retentionPolicy?.accountingYears??10)}" style="max-width:90px"><span>年保存</span></div></div>
+        <div class="field"><label>操作ログ</label><div style="display:flex;gap:8px;align-items:center"><input id="retLogYears" type="number" min="1" max="20" value="${Number(settings.retentionPolicy?.logYears??5)}" style="max-width:90px"><span>年保存</span></div></div>
+        <div class="field"><label>匿名統計</label><div style="font-weight:700">無期限保存</div><p class="hint">氏名・メール・領収書類・個別伝票を含めず、年度別の収支・件数・AI利用状況などだけを保存します。</p></div>
+        <button class="btn btn-navy full" id="retSavePolicy">保存ポリシーを保存</button>
+      </div>
+      <div class="form-card" style="margin-top:12px">
+        <div style="font-weight:700;font-size:15px">年度更新・退任管理</div>
+        <p class="hint">班長など任期が終わる方は「退任」にすると、過去記録を残したままアプリの利用権限を停止します。管理者自身はここから退任できません。</p>
+        <div id="retMemberList"></div>
+      </div>
+      <div class="form-card" style="margin-top:12px">
+        <div style="font-weight:700;font-size:15px">保存期限チェック</div>
+        <p class="hint">現在のポリシーに基づいて削除・匿名化候補を確認します。確認しただけではデータは変更されません。</p>
+        <button class="btn btn-ghost full" id="retPreview">削除・匿名化候補を確認</button>
+        <div id="retPreviewResult" style="margin-top:10px"></div>
+      </div>
+      <div class="form-card" style="margin-top:12px">
+        <div style="font-weight:700;font-size:15px">匿名統計アーカイブ</div>
+        <p class="hint">個人を特定する情報を含めず、年度別の収入・支出・科目別集計・伝票件数・AI利用件数などを長期保存します。</p>
+        <div style="display:flex;gap:8px;align-items:end"><div class="field" style="flex:1;margin:0"><label>対象年度</label><input id="retStatsFY" type="number" value="${curFY}" min="2000" max="2200"></div><button class="btn btn-navy" id="retBuildStats">統計を作成・更新</button></div>
+        <div id="retStatsResult" class="hint" style="margin-top:8px"></div>
+      </div>
     </div>
 
     <div class="admin-group" id="adminGroupMetrics">
@@ -3282,6 +3308,75 @@ async function renderAdmin(){
   };
   el.querySelectorAll('[data-admin-group]').forEach(card=>card.onclick=()=>openAdminGroup(card.dataset.adminGroup));
   el.querySelectorAll('.admin-back').forEach(btn=>btn.onclick=closeAdminGroup);
+  // v84: データ保存期間・退任・匿名統計
+  const retentionPolicy=()=>({
+    retiredUserYears:Math.max(0,Math.min(20,Math.round(Number($('retUserYears')?.value ?? settings.retentionPolicy?.retiredUserYears ?? 2)))),
+    accountingYears:Math.max(1,Math.min(30,Math.round(Number($('retAccountingYears')?.value ?? settings.retentionPolicy?.accountingYears ?? 10)))),
+    logYears:Math.max(1,Math.min(20,Math.round(Number($('retLogYears')?.value ?? settings.retentionPolicy?.logYears ?? 5)))),
+    statisticsYears:null
+  });
+  const ageYears=(at)=>at?((Date.now()-Number(at))/(365.2425*86400000)):0;
+  const lifecycleMembers=members.filter(m=>m.id!==me.uid && !['pending'].includes(m.role));
+  const retList=$('retMemberList');
+  if(retList){
+    retList.innerHTML=lifecycleMembers.length?lifecycleMembers.map(m=>{
+      const retired=m.lifecycleStatus==='retired'||m.lifecycleStatus==='anonymized'||m.role==='removed';
+      const label=m.lifecycleStatus==='anonymized'?'匿名化済':retired?'退任済':'利用中';
+      return `<div class="cat-row"><span class="cname">${esc(m.name||m.email||'名称なし')}<small>${esc(m.post||'')}${m.branch?`・${esc(m.branch)}`:''}${m.group?` ${esc(m.group)}`:''}／${label}${m.retiredAt?`・${fmtTs(m.retiredAt)}`:''}</small></span>${retired?'<span class="hint">利用停止</span>':`<button class="btn btn-ghost sm" data-retire-member="${m.id}">退任</button>`}</div>`;
+    }).join(''):'<p class="hint">対象の利用者はいません</p>';
+  }
+  el.querySelectorAll('[data-retire-member]').forEach(b=>b.onclick=async()=>{
+    const m=members.find(x=>x.id===b.dataset.retireMember); if(!m)return;
+    if(!confirm(`${m.name||m.email}さんを退任にしますか？\
+\
+アプリの利用権限を停止しますが、過去の会計・監査記録は削除しません。`))return;
+    try{
+      const at=TS();
+      await R(`members/${m.id}`).update({priorRole:m.role||'',role:'removed',lifecycleStatus:'retired',retiredAt:at,roleEndDate:localDate(new Date(at)),retiredBy:me.uid,retiredByName:me.name||''});
+      if(m.payerId) await R(`payers/${m.payerId}`).update({active:false,retiredAt:at});
+      await R('dataLifecycleRuns').push().set({at,by:me.uid,byName:me.name||'',kind:'retireMember',memberId:m.id,previousRole:m.role||''});
+      writeLog('利用者退任',null,`${m.name||m.email}：${m.role||''}→removed`); showToast('退任処理を完了しました'); setTimeout(()=>location.reload(),400);
+    }catch(e){console.error(e);showToast('退任処理に失敗しました');}
+  });
+  if($('retSavePolicy')) $('retSavePolicy').onclick=async()=>{
+    try{const p=retentionPolicy(); await R('settings/retentionPolicy').set({...p,updatedAt:TS(),updatedBy:me.uid,policyVersion:'v1'}); settings.retentionPolicy=p; writeLog('保存ポリシー変更',null,`退任者${p.retiredUserYears}年／会計${p.accountingYears}年／ログ${p.logYears}年`); showToast('保存ポリシーを保存しました');}
+    catch(e){console.error(e);showToast('保存ポリシーを保存できませんでした');}
+  };
+  if($('retPreview')) $('retPreview').onclick=async()=>{
+    const out=$('retPreviewResult'); out.innerHTML='<p class="hint">確認中...</p>';
+    try{
+      const p=retentionPolicy(), cutoffFY=curFY-p.accountingYears;
+      const retired=members.filter(m=>(m.lifecycleStatus==='retired'||m.role==='removed') && m.retiredAt && ageYears(m.retiredAt)>=p.retiredUserYears && m.lifecycleStatus!=='anonymized');
+      const oldEntries=entries.filter(e=>Number(e.fy)<=cutoffFY);
+      const logs=toArr((await R('log').get()).val()); const oldLogs=logs.filter(x=>x.at && ageYears(x.at)>=p.logYears);
+      out.innerHTML=`<div class="total-check"><span>退任者の匿名化候補</span><b>${retired.length}名</b></div><div class="total-check"><span>${cutoffFY}年度以前の会計伝票</span><b>${oldEntries.length}件</b></div><div class="total-check"><span>保存期限を超えた操作ログ</span><b>${oldLogs.length}件</b></div><p class="hint">この画面では削除していません。会計原本の削除は年度統計の作成とバックアップを確認したうえで、今後の実行画面から行います。</p>${retired.length?`<div style="margin-top:8px;font-weight:700">匿名化候補</div>${retired.map(m=>`<div class="cat-row"><span class="cname">${esc(m.name||m.email||m.id)}<small>退任 ${fmtTs(m.retiredAt)}</small></span><button class="btn btn-ghost sm" data-anon-member="${m.id}">匿名化</button></div>`).join('')}`:''}`;
+      out.querySelectorAll('[data-anon-member]').forEach(b=>b.onclick=async()=>{
+        const m=members.find(x=>x.id===b.dataset.anonMember); if(!m)return;
+        if(!confirm(`${m.name||m.email}さんの利用者情報を匿名化しますか？\
+\
+氏名・メール等は元に戻せません。過去の会計原本・監査記録は保存期間中は維持します。実行前にバックアップを作成します。`))return;
+        try{
+          await createFirebaseBackup('before-anonymize',true);
+          const at=TS(), alias=`旧利用者 #${String(m.id).slice(-6)}`;
+          await R(`members/${m.id}`).update({name:alias,email:null,post:null,branch:null,group:null,lifecycleStatus:'anonymized',anonymizedAt:at,anonymizedBy:me.uid});
+          if(m.payerId) await R(`payers/${m.payerId}`).update({name:alias,post:null,active:false,anonymizedAt:at});
+          await R('dataLifecycleRuns').push().set({at,by:me.uid,byName:me.name||'',kind:'anonymizeMember',memberId:m.id,alias});
+          writeLog('利用者匿名化',null,`${alias} に匿名化`); showToast('匿名化しました'); setTimeout(()=>location.reload(),400);
+        }catch(e){console.error(e);showToast('匿名化に失敗しました');}
+      });
+    }catch(e){console.error(e);out.innerHTML='<p class="hint">候補を確認できませんでした</p>';}
+  };
+  if($('retBuildStats')) $('retBuildStats').onclick=async()=>{
+    const out=$('retStatsResult'), fy=Math.round(Number($('retStatsFY').value)); if(!fy)return;
+    try{
+      const list=entries.filter(e=>Number(e.fy)===fy && e.status==='approved');
+      const byAccount={}; let income=0,expense=0,aiUsage=0,aiCorrection=0;
+      list.forEach(e=>{const aid=e.accountId||'unclassified', an=accById(e.accountId)?.name||'未分類',amt=Number(e.amount)||0; if(!byAccount[aid])byAccount[aid]={name:an,amount:0,count:0}; byAccount[aid].amount+=amt; byAccount[aid].count++; const acc=accById(e.accountId); const isIncome=(e.type==='income'||e.kind==='income'||acc?.type==='income'); if(isIncome)income+=amt; else expense+=amt; if(e.aiReceiptOriginal)aiUsage++; if((e.aiReceiptChangedFields||[]).length)aiCorrection++;});
+      const payload={fy,createdAt:TS(),updatedAt:TS(),sourceVersion:APP_VERSION,approvedEntryCount:list.length,totalIncome:income,totalExpense:expense,byAccount,aiUsageCount:aiUsage,aiCorrectionCount:aiCorrection,personalDataIncluded:false};
+      await R(`statistics/${fy}`).set(payload); await R('dataLifecycleRuns').push().set({at:TS(),by:me.uid,byName:me.name||'',kind:'buildStatistics',fy,entryCount:list.length});
+      writeLog('匿名統計作成',null,`${fy}年度 ${list.length}件`); out.textContent=`${fy}年度の匿名統計を保存しました（承認済伝票 ${list.length}件）`;
+    }catch(e){console.error(e);out.textContent='統計の作成に失敗しました';}
+  };
 
   const tool=$('adminToolPanel');
   const notifyTool=$('adminNotifyToolPanel');
@@ -3532,7 +3627,7 @@ async function collectBackupData(){
   // 容量節約：領収書類（photos）は世代バックアップへ複製しない。
   // entries側のphoto有無・ID等の紐付け情報は残るため、通常のFirebase内データは維持される。
   const paths=['entries','advances','settlements','auditReports','imports','log','counters','public',
-    'accounts','methods','payers','members','storageTags','settings'];
+    'accounts','methods','payers','members','storageTags','settings','statistics','dataLifecycleRuns'];
   const snaps=await Promise.all(paths.map(p=>R(p).get()));
   const data={};
   paths.forEach((p,i)=>{ const v=snaps[i].val(); if(v!==null) data[p]=v; });
