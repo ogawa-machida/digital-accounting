@@ -655,7 +655,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.04-85';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.04-86';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -3214,6 +3214,7 @@ async function renderAdmin(){
         <div class="field"><label>退任者の個人情報</label><div style="display:flex;gap:8px;align-items:center"><input id="retUserYears" type="number" min="0" max="20" value="${Number(settings.retentionPolicy?.retiredUserYears??2)}" style="max-width:90px"><span>年後に匿名化候補</span></div></div>
         <div class="field"><label>会計記録・領収書類</label><div style="display:flex;gap:8px;align-items:center"><input id="retAccountingYears" type="number" min="1" max="30" value="${Number(settings.retentionPolicy?.accountingYears??10)}" style="max-width:90px"><span>年保存</span></div></div>
         <div class="field"><label>操作ログ</label><div style="display:flex;gap:8px;align-items:center"><input id="retLogYears" type="number" min="1" max="20" value="${Number(settings.retentionPolicy?.logYears??5)}" style="max-width:90px"><span>年保存</span></div></div>
+        <div class="field"><label>削除直前バックアップ</label><div style="display:flex;gap:8px;align-items:center"><input id="retDeleteBackupDays" type="number" min="7" max="90" value="${Number(settings.retentionPolicy?.deleteBackupDays??30)}" style="max-width:90px"><span>日後に削除</span></div><p class="hint">会計原本を物理削除する直前だけ作る復旧用バックアップです。期限後は、次回管理者がアプリを利用した際に削除します。</p></div>
         <div class="field"><label>匿名統計</label><div style="font-weight:700">無期限保存</div><p class="hint">氏名・メール・領収書類・個別伝票を含めず、年度別の収支・件数・AI利用状況などだけを保存します。</p></div>
         <button class="btn btn-navy full" id="retSavePolicy">保存ポリシーを保存</button>
       </div>
@@ -3233,6 +3234,18 @@ async function renderAdmin(){
         <p class="hint">個人を特定する情報を含めず、年度別の収入・支出・科目別集計・伝票件数・AI利用件数などを長期保存します。</p>
         <div style="display:flex;gap:8px;align-items:end"><div class="field" style="flex:1;margin:0"><label>対象年度</label><input id="retStatsFY" type="number" value="${curFY}" min="2000" max="2200"></div><button class="btn btn-navy" id="retBuildStats">統計を作成・更新</button></div>
         <div id="retStatsResult" class="hint" style="margin-top:8px"></div>
+      </div>
+      <div class="form-card" style="margin-top:12px">
+        <div style="font-weight:700;font-size:15px">保存期限到来データの物理削除</div>
+        <p class="hint">自動削除はしません。保存期限を過ぎた年度について、①年度確定 ②匿名統計作成・最新確認 ③削除直前バックアップ作成 ④管理者の最終確認、のすべてを満たした場合だけ削除できます。</p>
+        <div style="display:flex;gap:8px;align-items:end"><div class="field" style="flex:1;margin:0"><label>対象年度</label><input id="retDeleteFY" type="number" value="${Math.max(2000,curFY-Number(settings.retentionPolicy?.accountingYears??10)-1)}" min="2000" max="2200"></div><button class="btn btn-ghost" id="retCheckDelete">削除条件を確認</button></div>
+        <div id="retDeleteResult" style="margin-top:10px"></div>
+      </div>
+      <div class="form-card" style="margin-top:12px">
+        <div style="font-weight:700;font-size:15px">期限超過の操作ログ</div>
+        <p class="hint">操作ログは会計原本とは別に保存期間を判定します。削除前に短期バックアップを作成し、管理者確認後に物理削除します。</p>
+        <button class="btn btn-ghost full" id="retCheckLogs">期限超過ログを確認</button>
+        <div id="retLogDeleteResult" style="margin-top:10px"></div>
       </div>
     </div>
 
@@ -3313,6 +3326,7 @@ async function renderAdmin(){
     retiredUserYears:Math.max(0,Math.min(20,Math.round(Number($('retUserYears')?.value ?? settings.retentionPolicy?.retiredUserYears ?? 2)))),
     accountingYears:Math.max(1,Math.min(30,Math.round(Number($('retAccountingYears')?.value ?? settings.retentionPolicy?.accountingYears ?? 10)))),
     logYears:Math.max(1,Math.min(20,Math.round(Number($('retLogYears')?.value ?? settings.retentionPolicy?.logYears ?? 5)))),
+    deleteBackupDays:Math.max(7,Math.min(90,Math.round(Number($('retDeleteBackupDays')?.value ?? settings.retentionPolicy?.deleteBackupDays ?? 30)))),
     statisticsYears:null
   });
   const ageYears=(at)=>at?((Date.now()-Number(at))/(365.2425*86400000)):0;
@@ -3339,13 +3353,13 @@ async function renderAdmin(){
     }catch(e){console.error(e);showToast('退任処理に失敗しました');}
   });
   if($('retSavePolicy')) $('retSavePolicy').onclick=async()=>{
-    try{const p=retentionPolicy(); await R('settings/retentionPolicy').set({...p,updatedAt:TS(),updatedBy:me.uid,policyVersion:'v1'}); settings.retentionPolicy=p; writeLog('保存ポリシー変更',null,`退任者${p.retiredUserYears}年／会計${p.accountingYears}年／ログ${p.logYears}年`); showToast('保存ポリシーを保存しました');}
+    try{const p=retentionPolicy(); await R('settings/retentionPolicy').set({...p,updatedAt:TS(),updatedBy:me.uid,policyVersion:'v2'}); settings.retentionPolicy=p; writeLog('保存ポリシー変更',null,`退任者${p.retiredUserYears}年／会計${p.accountingYears}年／ログ${p.logYears}年／削除前バックアップ${p.deleteBackupDays}日`); showToast('保存ポリシーを保存しました');}
     catch(e){console.error(e);showToast('保存ポリシーを保存できませんでした');}
   };
   if($('retPreview')) $('retPreview').onclick=async()=>{
     const out=$('retPreviewResult'); out.innerHTML='<p class="hint">確認中...</p>';
     try{
-      const p=retentionPolicy(), cutoffFY=curFY-p.accountingYears;
+      const p=retentionPolicy(), currentFiscalFY=fyOf(localDate()), cutoffFY=currentFiscalFY-p.accountingYears-1;
       const retired=members.filter(m=>(m.lifecycleStatus==='retired'||m.role==='removed') && m.retiredAt && ageYears(m.retiredAt)>=p.retiredUserYears && m.lifecycleStatus!=='anonymized');
       const oldEntries=entries.filter(e=>Number(e.fy)<=cutoffFY);
       const logs=toArr((await R('log').get()).val()); const oldLogs=logs.filter(x=>x.at && ageYears(x.at)>=p.logYears);
@@ -3369,7 +3383,7 @@ async function renderAdmin(){
   if($('retBuildStats')) $('retBuildStats').onclick=async()=>{
     const out=$('retStatsResult'), fy=Math.round(Number($('retStatsFY').value)); if(!fy)return;
     try{
-      const list=entries.filter(e=>Number(e.fy)===fy && e.status==='approved');
+      const list=(await loadFYEntries(fy)).filter(e=>e.status==='approved');
       const byAccount={}; let income=0,expense=0,aiUsage=0,aiCorrection=0;
       list.forEach(e=>{const aid=e.accountId||'unclassified', an=accById(e.accountId)?.name||'未分類',amt=Number(e.amount)||0; if(!byAccount[aid])byAccount[aid]={name:an,amount:0,count:0}; byAccount[aid].amount+=amt; byAccount[aid].count++; const acc=accById(e.accountId); const isIncome=(e.type==='income'||e.kind==='income'||acc?.type==='income'); if(isIncome)income+=amt; else expense+=amt; if(e.aiReceiptOriginal)aiUsage++; if((e.aiReceiptChangedFields||[]).length)aiCorrection++;});
       const payload={fy,createdAt:TS(),updatedAt:TS(),sourceVersion:APP_VERSION,approvedEntryCount:list.length,totalIncome:income,totalExpense:expense,byAccount,aiUsageCount:aiUsage,aiCorrectionCount:aiCorrection,personalDataIncluded:false};
@@ -3377,6 +3391,116 @@ async function renderAdmin(){
       writeLog('匿名統計作成',null,`${fy}年度 ${list.length}件`); out.textContent=`${fy}年度の匿名統計を保存しました（承認済伝票 ${list.length}件）`;
     }catch(e){console.error(e);out.textContent='統計の作成に失敗しました';}
   };
+
+
+  // v86: 保存期限到来後の物理削除。自動では実行せず、年度確定・匿名統計・短期バックアップ・管理者確認を必須にする。
+  const fyExpiryDate=(fy,years)=>new Date(Number(fy)+Number(years)+1,3,1); // 年度末(翌年3/31)から指定年数経過後の4/1
+  const fyExpired=(fy,years)=>Date.now()>=fyExpiryDate(fy,years).getTime();
+  const statsSignatureFromList=(fy,list)=>{
+    const approved=list.filter(e=>Number(e.fy)===Number(fy)&&e.status==='approved');
+    let income=0,expense=0,aiUsage=0,aiCorrection=0;
+    approved.forEach(e=>{const amt=Number(e.amount)||0,acc=accById(e.accountId),inc=(e.type==='income'||e.kind==='income'||acc?.type==='income');if(inc)income+=amt;else expense+=amt;if(e.aiReceiptOriginal)aiUsage++;if((e.aiReceiptChangedFields||[]).length)aiCorrection++;});
+    return {approvedEntryCount:approved.length,totalIncome:income,totalExpense:expense,aiUsageCount:aiUsage,aiCorrectionCount:aiCorrection};
+  };
+  const loadFYEntries=async(fy)=>toArr((await R('entries').orderByChild('fy').equalTo(Number(fy)).get()).val());
+  const statisticsAreCurrent=(fy,st,list)=>{
+    if(!st||st.personalDataIncluded!==false)return false;
+    const sig=statsSignatureFromList(fy,list);
+    return ['approvedEntryCount','totalIncome','totalExpense','aiUsageCount','aiCorrectionCount'].every(k=>Number(st[k]||0)===Number(sig[k]||0));
+  };
+  const yearDeleteTargets=async(fy)=>{
+    const [en,ph,ad,st,ar,pub]=await Promise.all([R('entries').get(),R('photos').get(),R('advances').get(),R('settlements').get(),R(`auditReports/${fy}`).get(),R(`public/${fy}`).get()]);
+    const ev=en.val()||{}, pv=ph.val()||{}, av=ad.val()||{}, sv=st.val()||{};
+    const entryIds=Object.keys(ev).filter(id=>Number(ev[id]?.fy)===Number(fy));
+    const photoIds=entryIds.filter(id=>pv[id]!=null);
+    const advanceIds=Object.keys(av).filter(id=>av[id]?.date && fyOf(av[id].date)===Number(fy));
+    const settlementIds=Object.keys(sv).filter(id=>sv[id]?.date && fyOf(sv[id].date)===Number(fy));
+    return {entryIds,photoIds,advanceIds,settlementIds,auditReport:ar.exists(),publicReport:pub.exists()};
+  };
+  async function cleanupExpiredLifecycleBackups(){
+    if(!isRealAdmin())return 0;
+    const snap=await R('backups').get(), now=Date.now(), ups={}; let n=0;
+    Object.entries(snap.val()||{}).forEach(([id,b])=>{if(b?.expiresAt && Number(b.expiresAt)<=now){ups[`backups/${id}`]=null;n++;}});
+    if(n) await db.ref(ROOT).update(ups);
+    return n;
+  }
+  async function createDeletionBackup(fy,kind='before-delete'){
+    const p=retentionPolicy(), data=await collectBackupData(), json=JSON.stringify(data), bytes=new Blob([json]).size;
+    if(bytes>8*1024*1024) throw new Error(`削除前バックアップが大きすぎます（${formatBytes(bytes)}）`);
+    const at=Date.now(), expiresAt=at+p.deleteBackupDays*86400000, id=`del_${fy}_${at}_${Math.random().toString(36).slice(2,8)}`;
+    const metaFy=Number(fy);
+    await R(`backups/${id}`).set({createdAt:TS(),createdBy:me.uid,createdByName:me.name||'',kind,...(Number.isFinite(metaFy)?{fy:metaFy}:{}),version:APP_VERSION,itemCount:countBackupItems(data),bytes,expiresAt,shortTermRecovery:true,data});
+    return {id,at,expiresAt,bytes};
+  }
+  async function purgeOlderBackupsAfterDeletion(keepId,deletedAt){
+    const snap=await R('backups').get(), ups={};
+    Object.entries(snap.val()||{}).forEach(([id,b])=>{if(id!==keepId && Number(b?.createdAt||0)<=Number(deletedAt))ups[`backups/${id}`]=null;});
+    if(Object.keys(ups).length)await db.ref(ROOT).update(ups);
+    // 通常バックアップ履歴に、既に削除したバックアップを残さない。
+    await R('settings/autoBackup/history').remove();
+  }
+  async function deletionState(fy){
+    const p=retentionPolicy(), [cl,ss,targetEntries,targets]=await Promise.all([R(`yearClosures/${fy}`).get(),R(`statistics/${fy}`).get(),loadFYEntries(fy),yearDeleteTargets(fy)]);
+    const closure=cl.val(), stats=ss.val(), expired=fyExpired(fy,p.accountingYears), statsOk=statisticsAreCurrent(fy,stats,targetEntries);
+    return {p,closure,stats,expired,statsOk,targets,targetEntries,expiry:fyExpiryDate(fy,p.accountingYears)};
+  }
+  async function renderDeleteState(fy){
+    const out=$('retDeleteResult'); if(!out)return; out.innerHTML='<p class="hint">確認中...</p>';
+    try{
+      const d=await deletionState(fy), t=d.targets;
+      const can=!!d.closure&&d.expired&&d.statsOk;
+      out.innerHTML=`<div class="total-check"><span>保存期限</span><b>${d.expired?'到来済':'未到来'}（${localDate(d.expiry)}以降）</b></div>
+        <div class="total-check"><span>年度確定</span><b>${d.closure?'✓ 確定済':'未確定'}</b></div>
+        <div class="total-check"><span>匿名統計</span><b>${d.statsOk?'✓ 作成済・最新':'未作成または要更新'}</b></div>
+        <div class="total-check"><span>削除対象</span><b>伝票 ${t.entryIds.length}／領収書類 ${t.photoIds.length}／仮払 ${t.advanceIds.length}／精算 ${t.settlementIds.length}</b></div>
+        <p class="hint">年度監査記録：${t.auditReport?'削除対象':'なし'}／会員向け年度報告：${t.publicReport?'削除対象':'なし'}。科目別・年度別の匿名統計は削除しません。</p>
+        ${!d.closure?`<button class="btn btn-navy full" id="retCloseFY">${fy}年度を削除前確定する</button>`:''}
+        ${d.closure&&!d.statsOk?`<p class="hint">先に上の「匿名統計アーカイブ」で${fy}年度の統計を作成・更新してください。</p>`:''}
+        ${can?`<button class="btn btn-danger full" id="retExecuteDelete" style="margin-top:8px">${fy}年度の原本を物理削除する</button><p class="hint">実行時に短期復旧バックアップを作成し、それ以前の個人情報入りバックアップを削除します。短期バックアップは${d.p.deleteBackupDays}日後、次回管理者利用時に削除されます。</p>`:''}`;
+      if($('retCloseFY'))$('retCloseFY').onclick=async()=>{
+        if(!confirm(`${fy}年度を「削除前確定済み」として記録しますか？\n\nこれは物理削除そのものではありません。後で統計と保存期限を確認してから削除します。`))return;
+        const targetEntries=await loadFYEntries(fy), sig=statsSignatureFromList(fy,targetEntries); await R(`yearClosures/${fy}`).set({fy:Number(fy),closedAt:TS(),closedBy:me.uid,closedByName:me.name||'',sourceVersion:APP_VERSION,...sig});
+        await R('dataLifecycleRuns').push().set({at:TS(),by:me.uid,byName:me.name||'',kind:'closeFiscalYearForRetention',fy:Number(fy)}); writeLog('年度確定',null,`${fy}年度 保存期限管理用`); await renderDeleteState(fy);
+      };
+      if($('retExecuteDelete'))$('retExecuteDelete').onclick=async()=>{
+        const fresh=await deletionState(fy); if(!fresh.expired||!fresh.closure||!fresh.statsOk)return showToast('削除条件が変わりました。再確認してください');
+        const count=fresh.targets.entryIds.length+fresh.targets.photoIds.length+fresh.targets.advanceIds.length+fresh.targets.settlementIds.length;
+        if(!confirm(`${fy}年度の会計原本を物理削除します。\n\n伝票 ${fresh.targets.entryIds.length}件\n領収書類 ${fresh.targets.photoIds.length}件\n仮払 ${fresh.targets.advanceIds.length}件\n精算 ${fresh.targets.settlementIds.length}件\n\n匿名統計は残ります。続けますか？`))return;
+        const typed=prompt(`誤削除防止のため「${fy}」と入力してください。`); if(String(typed)!==String(fy))return showToast('年度が一致しないため中止しました');
+        const btn=$('retExecuteDelete'); btn.disabled=true; btn.textContent='バックアップ・削除中…';
+        try{
+          await cleanupExpiredLifecycleBackups();
+          const backup=await createDeletionBackup(fy);
+          const at=Date.now(), ups={};
+          fresh.targets.entryIds.forEach(id=>ups[`entries/${id}`]=null);
+          fresh.targets.photoIds.forEach(id=>ups[`photos/${id}`]=null);
+          fresh.targets.advanceIds.forEach(id=>ups[`advances/${id}`]=null);
+          fresh.targets.settlementIds.forEach(id=>ups[`settlements/${id}`]=null);
+          if(fresh.targets.auditReport)ups[`auditReports/${fy}`]=null;
+          if(fresh.targets.publicReport){ups[`public/${fy}`]=null;ups[`public/index/years/${fy}`]=null;}
+          await db.ref(ROOT).update(ups);
+          await purgeOlderBackupsAfterDeletion(backup.id,at);
+          await R(`yearClosures/${fy}`).update({physicallyDeletedAt:TS(),physicallyDeletedBy:me.uid,physicallyDeletedByName:me.name||'',deletionBackupId:backup.id,deletionBackupExpiresAt:backup.expiresAt,deletedCounts:{entries:fresh.targets.entryIds.length,photos:fresh.targets.photoIds.length,advances:fresh.targets.advanceIds.length,settlements:fresh.targets.settlementIds.length}});
+          await R('dataLifecycleRuns').push().set({at:TS(),by:me.uid,byName:me.name||'',kind:'physicalDeleteFiscalYear',fy:Number(fy),backupId:backup.id,backupExpiresAt:backup.expiresAt,deletedCounts:{entries:fresh.targets.entryIds.length,photos:fresh.targets.photoIds.length,advances:fresh.targets.advanceIds.length,settlements:fresh.targets.settlementIds.length}});
+          showToast(`${fy}年度の原本を削除しました。匿名統計は保持しています`); setTimeout(()=>location.reload(),700);
+        }catch(e){console.error(e);showToast('物理削除に失敗しました：'+(e.message||e)); if(btn){btn.disabled=false;btn.textContent=`${fy}年度の原本を物理削除する`;}}
+      };
+    }catch(e){console.error(e);out.innerHTML='<p class="hint">削除条件を確認できませんでした</p>';}
+  }
+  if($('retCheckDelete'))$('retCheckDelete').onclick=()=>{const fy=Math.round(Number($('retDeleteFY').value));if(fy)renderDeleteState(fy);};
+  if($('retCheckLogs'))$('retCheckLogs').onclick=async()=>{
+    const out=$('retLogDeleteResult'); out.innerHTML='<p class="hint">確認中...</p>';
+    try{
+      const p=retentionPolicy(), snap=await R('log').get(), old=Object.entries(snap.val()||{}).filter(([,x])=>x?.at&&ageYears(x.at)>=p.logYears);
+      out.innerHTML=`<div class="total-check"><span>${p.logYears}年を超えた操作ログ</span><b>${old.length}件</b></div>${old.length?'<button class="btn btn-danger full" id="retDeleteLogs">期限超過ログを物理削除</button>':'<p class="hint">削除対象はありません。</p>'}`;
+      if($('retDeleteLogs'))$('retDeleteLogs').onclick=async()=>{
+        if(!confirm(`${old.length}件の期限超過ログを物理削除します。\n削除前に短期復旧バックアップを作成します。`))return;
+        try{const backup=await createDeletionBackup('logs','before-log-delete'),at=Date.now(),ups={};old.forEach(([id])=>ups[`log/${id}`]=null);await db.ref(ROOT).update(ups);await purgeOlderBackupsAfterDeletion(backup.id,at);await R('dataLifecycleRuns').push().set({at:TS(),by:me.uid,byName:me.name||'',kind:'physicalDeleteExpiredLogs',deletedCount:old.length,backupId:backup.id,backupExpiresAt:backup.expiresAt});showToast('期限超過ログを削除しました');out.innerHTML='<p class="hint">削除を完了しました。</p>';}catch(e){console.error(e);showToast('ログ削除に失敗しました');}
+      };
+    }catch(e){console.error(e);out.innerHTML='<p class="hint">操作ログを確認できませんでした</p>';}
+  };
+  // 期限付きの削除前バックアップは、管理者がこの画面を利用した際にも整理する。
+  cleanupExpiredLifecycleBackups().catch(e=>console.warn('期限切れ削除前バックアップの整理に失敗',e));
 
   const tool=$('adminToolPanel');
   const notifyTool=$('adminNotifyToolPanel');
@@ -3627,7 +3751,7 @@ async function collectBackupData(){
   // 容量節約：領収書類（photos）は世代バックアップへ複製しない。
   // entries側のphoto有無・ID等の紐付け情報は残るため、通常のFirebase内データは維持される。
   const paths=['entries','advances','settlements','auditReports','imports','log','counters','public',
-    'accounts','methods','payers','members','storageTags','settings','statistics','dataLifecycleRuns'];
+    'accounts','methods','payers','members','storageTags','settings','statistics','dataLifecycleRuns','yearClosures'];
   const snaps=await Promise.all(paths.map(p=>R(p).get()));
   const data={};
   paths.forEach((p,i)=>{ const v=snaps[i].val(); if(v!==null) data[p]=v; });
@@ -3651,13 +3775,15 @@ async function createFirebaseBackup(kind='manual', quiet=false){
 
   // 新しい世代の保存成功後に古い世代を削除。削除に失敗しても新バックアップは残る。
   const all=toArr((await R('backups').get()).val()).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
-  const remove=all.slice(3);
+  // 削除直前の短期復旧バックアップは通常3世代とは別枠。expiresAtまでは通常バックアップ作成で消さない。
+  const regular=all.filter(x=>!x.shortTermRecovery);
+  const remove=regular.slice(3);
   let cleanupFailed=false;
   if(remove.length){
     const ups={}; remove.forEach(x=>ups[`backups/${x.id}`]=null);
     try{ await db.ref(ROOT).update(ups); }catch(e){ cleanupFailed=true; console.warn('古いバックアップの削除に失敗',e); }
   }
-  const kept=all.slice(0,3).map(x=>({id:x.id,at:x.createdAt||at,kind:x.kind||'auto',itemCount:x.itemCount||0,bytes:x.bytes||0,version:x.version||''}));
+  const kept=regular.slice(0,3).map(x=>({id:x.id,at:x.createdAt||at,kind:x.kind||'auto',itemCount:x.itemCount||0,bytes:x.bytes||0,version:x.version||''}));
   await R('settings/autoBackup').update({lastAt:at,lastKind:kind,history:kept.reduce((o,x)=>(o[x.id]=x,o),{})});
   settings.autoBackup={...(settings.autoBackup||{}),lastAt:at,lastKind:kind,history:kept.reduce((o,x)=>(o[x.id]=x,o),{})};
   if(!quiet) showToast(cleanupFailed?`バックアップしました（${formatBytes(bytes)}）。古い世代の削除だけ失敗したため次回再整理します`:`バックアップしました（${formatBytes(bytes)}）`);
