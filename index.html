@@ -655,7 +655,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.04-88';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.04-89';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -3377,7 +3377,8 @@ async function renderAdmin(){
       const rp=settings.retentionPolicy||{};
       if(Number(rp.accountingYears)>=1&&Number(rp.logYears)>=1&&Number(rp.deleteBackupDays)>=7)results.push(['保存期間ポリシー','ok',`会計${rp.accountingYears}年／ログ${rp.logYears}年／削除前バックアップ${rp.deleteBackupDays}日`]);
       else results.push(['保存期間ポリシー','warn','未設定または設定値を確認してください']);
-      const aiEdited=entries.filter(e=>e.aiReceiptOriginal&&(e.aiReceiptChangedFields||[]).length);
+      const diagnosticEntries=toArr((await R('entries').get()).val());
+      const aiEdited=diagnosticEntries.filter(e=>e.aiReceiptOriginal&&(e.aiReceiptChangedFields||[]).length);
       const aiBroken=aiEdited.filter(e=>!e.aiReceiptEditedAt||!e.aiReceiptChangedFields?.length);
       results.push(['AI修正履歴の整合性',aiBroken.length?'fail':'ok',aiEdited.length?`AI修正あり ${aiEdited.length}件を確認／不整合 ${aiBroken.length}件`:'AI修正済み伝票は現在ありません']);
       const publicSensitive=await R('public').get().then(s=>s.val()).catch(()=>null);
@@ -3440,7 +3441,17 @@ async function renderAdmin(){
       try{const [a,b]=await Promise.all([R(`entries/${entryId}`).get(),R(sandbox).get()]);add('テストデータ残存確認',(!a.exists()&&!b.exists())?'ok':'fail',(!a.exists()&&!b.exists())?'残存データなし':'テストデータが残っています');}catch(e){add('テストデータ残存確認','fail',e?.code||e?.message||String(e));}
     }
     const fails=rows.filter(x=>x[1]==='fail').length;
-    out.innerHTML=`<div class="total-check"><span>総合自動テスト</span><b>${fails?`${fails}件の異常`:`${rows.length}/${rows.length} PASS`}</b></div>${rows.map(x=>diagRow(...x)).join('')}<p class="hint">実行ID：${esc(runId)}／${new Date().toLocaleString('ja-JP')}。テスト専用データは終了時に自動撤去します。</p>`;
+    // entries の作成・更新・削除で Firebase の onData → renderAll() が走るため、
+    // 開始時に保持した out は古いDOMになることがある。最新DOMを取り直して結果を表示する。
+    const latestOut=$('diagE2EResult');
+    const diagnosticsGroup=$('adminGroupDiagnostics');
+    const adminMenuNow=$('adminMenu');
+    if(adminMenuNow)adminMenuNow.style.display='none';
+    if(diagnosticsGroup){
+      Object.values(adminGroups).forEach(x=>x&&x.classList.remove('open'));
+      diagnosticsGroup.classList.add('open');
+    }
+    if(latestOut)latestOut.innerHTML=`<div class="total-check"><span>総合自動テスト</span><b>${fails?`${fails}件の異常`:`${rows.length}/${rows.length} PASS`}</b></div>${rows.map(x=>diagRow(...x)).join('')}<p class="hint">実行ID：${esc(runId)}／${new Date().toLocaleString('ja-JP')}。テスト専用データは終了時に自動撤去します。</p>`;
   }
   if($('diagRun'))$('diagRun').onclick=runSystemDiagnostics;
   if($('diagE2E'))$('diagE2E').onclick=runE2EDiagnostics;
