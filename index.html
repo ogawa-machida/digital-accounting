@@ -695,7 +695,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.06-117';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.06-118';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -3066,11 +3066,13 @@ function renderAudit(){
   let html=auditFontPickerHtml()+`<div class="panel"><h3 style="margin-bottom:10px">${curFY}年度 監査ダッシュボード <small>紙を使わず、この画面で確認できます</small></h3>
     <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px">
       ${card('帳簿残高',yen(book),`期首 ${yen(opening)} ＋ 収入 ${yen(inc)} − 支出 ${yen(exp)}`,null)}
-      ${card('現預金照合',latestRecon?(moneyOK?'差額 0円':'差額 '+yen(Number(latestRecon.diff)||0)):'未確認',
-        latestRecon?`${fmtTs(latestRecon.at)}　銀行口座 ${yen(Number(latestRecon.bank)||0)}／現金 ${yen(Number(latestRecon.cash)||0)}／仮払 ${yen(Number(latestRecon.pendingAdvance)||0)}`:'会計担当が「現預金残高の確認」を記録すると表示されます',latestRecon?moneyOK:false)}
+      ${card('現預金残高の照合',latestRecon?(moneyOK?'照合済み・差額 0円':'照合済み・差額 '+yen(Number(latestRecon.diff)||0)):'照合待ち',
+        latestRecon?`${fmtTs(latestRecon.at)}　会計担当：${esc(latestRecon.byName||'')}　銀行口座 ${yen(Number(latestRecon.bank)||0)}／現金 ${yen(Number(latestRecon.cash)||0)}／仮払 ${yen(Number(latestRecon.pendingAdvance)||0)}`:'会計担当者が、銀行口座・現金の実残高と帳簿残高を照合すると監査を完了できます。監査担当者の入力は不要です。',latestRecon?moneyOK:false)}
       ${card('未確認伝票',`${todo.length}件`,`確認済み ${ok.length+issue.length}/${ap.length}件${stale?`・監査後修正 ${stale}件`:''}`,todo.length===0)}
       ${card('要確認事項',`${exceptionCount}件`,`未確認領収書類 ${noEvidence}件${unresolvedIssue?`・未回答の監査指摘 ${unresolvedIssue}件`:''}`,exceptionCount===0&&unresolvedIssue===0)}
     </div>
+    ${!latestRecon?`<div class="notice amber" style="cursor:default;margin-top:12px"><span class="n-body"><b>現預金残高の照合待ち</b><span class="n-sub">会計担当者が「会計設定 → 会計の基本設定 → 現預金残高の確認」で、銀行口座・現金の実残高と帳簿残高を照合します。監査担当者は操作不要です。</span></span></div>`:
+      `<div class="notice ${moneyOK?'moss':'amber'}" style="cursor:default;margin-top:12px"><span class="n-body"><b>${moneyOK?'✓ 現預金残高の照合済み':'⚠ 現預金残高に差額があります'}</b><span class="n-sub">${fmtTs(latestRecon.at)}　${esc(latestRecon.byName||'会計担当')}が確認${moneyOK?'・帳簿残高と一致しています':`・差額 ${yen(Number(latestRecon.diff)||0)}を監査で確認してください`}</span></span></div>`}
     ${report?`<div class="audit-box" style="border-color:var(--moss);margin-top:12px"><b style="color:var(--moss)">✓ 監査完了記録</b><div class="hint">${fmtTs(report.at)}　${esc(report.byName)}</div>${report.comment?`<div style="margin-top:5px;font-size:13px">${esc(report.comment)}</div>`:''}</div>`:''}
   </div>`;
 
@@ -3130,7 +3132,7 @@ function renderAudit(){
     const final={};
     el.querySelectorAll('.audit-final-check').forEach(x=>final[x.dataset.k]=x.checked);
     if(Object.values(final).filter(Boolean).length<4) return showToast('監査完了前チェックを4項目すべて確認してください');
-    if(!latestRecon) return showToast('会計担当による現預金残高の確認がまだありません');
+    if(!latestRecon) return showToast('現預金残高の照合待ちです。会計担当者が会計設定から照合を行ってください');
     if(Number(latestRecon.diff)!==0 && !confirm(`現預金照合に${yen(Number(latestRecon.diff)||0)}の差額があります。内容を確認済みとして監査完了しますか？`)) return;
     if(todo.length && !confirm(`未確認の伝票が${todo.length}件あります。内容を確認済みとして監査完了しますか？`)) return;
     if(unresolvedIssue && !confirm(`会計担当の回答がない監査指摘が${unresolvedIssue}件あります。それでも完了しますか？`)) return;
@@ -3687,6 +3689,13 @@ async function renderAdmin(){
       try{if(sandboxCreated)await R(sandbox).remove();add('診断領域の撤去','ok','診断データを削除');}catch(e){add('診断領域の撤去','fail',e?.code||e?.message||String(e));}
       try{const [a,b]=await Promise.all([R(`entries/${entryId}`).get(),R(sandbox).get()]);add('テストデータ残存確認',(!a.exists()&&!b.exists())?'ok':'fail',(!a.exists()&&!b.exists())?'残存データなし':'テストデータが残っています');}catch(e){add('テストデータ残存確認','fail',e?.code||e?.message||String(e));}
     }
+    try{
+      const auditSrc=renderAudit.toString();
+      add('監査：現預金照合の役割表示',auditSrc.includes('監査担当者の入力は不要です')?'ok':'fail','照合は会計担当、監査担当は結果確認と明示');
+      add('監査：照合待ち表示',auditSrc.includes('現預金残高の照合待ち')?'ok':'fail','未照合時の次の行動を明示');
+      add('監査：照合済み表示',auditSrc.includes('現預金残高の照合済み')?'ok':'fail','照合後は結果・確認者・差額を表示');
+    }catch(e){ add('監査：現預金照合表示','fail',e?.message||String(e)); }
+
     try{
       const savedAuditFont=localStorage.getItem('auditFontSize');
       localStorage.removeItem('auditFontSize');
@@ -4520,7 +4529,8 @@ function renderSettings(){
     const reconAdv = advances.filter(a=>a.settleState==='pending').reduce((n,a)=>n+(Number(a.amount)||0),0);
     const reconHist = Object.entries((((settings.balanceChecks||{})[curFY])||{})).map(([id,v])=>({id,...v})).sort((a,b)=>(b.at||0)-(a.at||0));
     html += `<h2 class="section-title" style="margin-top:20px">現預金残高の確認</h2><div class="form-card">
-      <p class="hint" style="margin-top:0">銀行口座と手元現金を、帳簿上の現預金と照合します。会費ペイは実際の振込・手数料データが未連携のため、銀行口座・現金とは分けて表示し、照合対象から除外します。</p>
+      <div class="notice navy" style="cursor:default;margin-top:0"><span class="n-body"><b>監査前に会計担当者が行う確認です</b><span class="n-sub">銀行口座と現金の実残高を入力し、帳簿残高と一致することを確認してください。ここでの確認結果が監査画面に表示されます。</span></span></div>
+      <p class="hint">銀行口座と手元現金を、帳簿上の現預金と照合します。会費ペイは実際の振込・手数料データが未連携のため、銀行口座・現金とは分けて表示し、照合対象から除外します。</p>
       <div class="total-check"><span>会計帳簿の総残高</span><b>${yen(reconBook)}</b></div>
       <div class="total-check"><span>会費ペイ（カード決済）<small style="display:block;font-weight:400">精算データ未連携</small></span><b>${yen(kpCard)}</b></div>
       <div class="total-check"><span>会費ペイ（口座引き落とし）<small style="display:block;font-weight:400">CSV取込累計</small></span><b>${yen(kpDebit)}</b></div>
@@ -4532,7 +4542,7 @@ function renderSettings(){
       <div class="total-check"><span>未清算の仮払金（自動）</span><b>${yen(reconAdv)}</b></div>
       <div class="field" style="margin-top:12px"><label>確認メモ（任意）</label><input type="text" id="reconMemo" placeholder="例）9月末残高確認"></div>
       <div id="reconPreview" class="total-check" style="margin-top:10px"><span>銀行口座＋現金＋仮払金との差額</span><b>金額を入力してください</b></div>
-      <button class="btn btn-primary full" id="reconSave" style="margin-top:10px">残高確認を記録する</button>
+      <button class="btn btn-primary full" id="reconSave" style="margin-top:10px">現預金残高を照合して記録する</button>
       ${reconHist.length?`<div style="font-weight:700;font-size:13.5px;margin:16px 0 6px">確認履歴</div>`+reconHist.slice(0,12).map(x=>`<div class="cat-row"><span class="cname">${fmtTs(x.at)}<small>${esc(x.byName||'')}・照合帳簿 ${yen(Number(x.physicalBookBalance??x.bookBalance)||0)}／実残高 ${yen(Number(x.actualTotal)||0)}${Number(x.kaihipayUnlinked||0)?`・会費ペイ未連携 ${yen(Number(x.kaihipayUnlinked)||0)}`:''}${x.memo?`・${esc(x.memo)}`:''}</small></span><span class="stamp-tag" style="border-color:${Number(x.diff)===0?'var(--moss)':'var(--stamp-red)'};color:${Number(x.diff)===0?'var(--moss)':'var(--stamp-red)'}">${Number(x.diff)===0?'一致':'差額 '+yen(Number(x.diff)||0)}</span></div>`).join(''):''}
     </div>`;
 
