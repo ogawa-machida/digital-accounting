@@ -655,7 +655,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.05-94';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.05-95';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1117,6 +1117,8 @@ function startAuth(){
     document.querySelectorAll('[data-app-version]').forEach(el=>el.textContent=APP_VERSION);
   }
   syncVersionDisplays();
+window.addEventListener('offline',()=>{ if(uiAutoTestContext) uiTestNetworkInterrupted=true; });
+window.addEventListener('online',()=>{ if(uiAutoTestContext) uiAutoTestContext.networkRecoveredAt=Date.now(); });
 
   /* ---- メールアドレスだけでログイン（Firebaseのメールリンク認証） ---- */
   const EMAIL_KEY = 'kaikei_emailForSignIn';
@@ -1949,6 +1951,9 @@ let uiAutoTestContext = null;
 // v94: Firebaseのリアルタイム再描画が走っても診断画面と結果を失わないよう保持
 let adminActiveGroup = null;
 let lastUiTestResultHtml = '';
+let uiTestNetworkInterrupted = false;
+const uiTestSessionPath = uid => `diagnosticTests/${uid}/uiSession`;
+const uiTestResiduePath = uid => `diagnosticTests/${uid}/uiResidue`;
 
 async function openForm(e){
   if (canOwnSubmit() && !me.payerId) { showToast('立替・仮払の対象設定が済んでいません'); return; }
@@ -3277,6 +3282,9 @@ async function renderAdmin(){
         <button class="btn btn-navy full" id="diagE2E" style="margin-top:8px">総合自動テストを実行</button>
         <p class="hint">総合自動テストは、診断専用領域にテストデータを実際に作成→読取→更新→削除し、さらにテスト伝票を作成→状態更新→削除します。通常の会計データには触れず、最後にテストデータが残っていないことまで確認します。</p>
         <div id="diagE2EResult" style="margin-top:10px"></div>
+        <div id="diagSessionStatus" class="hint" style="margin-top:12px"></div>
+        <button class="btn btn-ghost full" id="diagCleanup" style="margin-top:8px">前回中断テストを確認・清掃</button>
+        <div id="diagCleanupResult" style="margin-top:8px"></div>
         <button class="btn btn-ghost full" id="diagUI" style="margin-top:14px">実画面操作テストを実行</button>
         <p class="hint">実際の支出登録画面を開き、入力欄への入力・科目/支払方法の選択・領収書類なし設定・保存ボタン押下・詳細画面への遷移まで、ユーザー操作と同じDOMイベント経路で自動実行します。診断専用伝票は終了時に削除し、本番の伝票番号カウンタや通知メールは動かしません。</p>
         <div id="diagUIResult" style="margin-top:10px">${lastUiTestResultHtml||''}</div>
@@ -3444,6 +3452,7 @@ async function renderAdmin(){
     const rows=[], uid=auth.currentUser.uid, runId=`e2e_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
     const sandbox=`diagnosticTests/${uid}/${runId}`, entryId=`__diag_${runId}`;
     const add=(n,s,d)=>rows.push([n,s,d]);
+    add('開始時の通信状態',navigator.onLine?'ok':'fail',navigator.onLine?'オンライン':'オフライン');
     const step=async(n,fn,detail='正常')=>{try{const v=await fn();add(n,'ok',typeof detail==='function'?detail(v):detail);return v;}catch(e){add(n,'fail',e?.code||e?.message||String(e));throw e;}};
     let sandboxCreated=false, entryCreated=false;
     try{
@@ -3482,6 +3491,48 @@ async function renderAdmin(){
     }
     if(latestOut)latestOut.innerHTML=`<div class="total-check"><span>総合自動テスト</span><b>${fails?`${fails}件の異常`:`${rows.length}/${rows.length} PASS`}</b></div>${rows.map(x=>diagRow(...x)).join('')}<p class="hint">実行ID：${esc(runId)}／${new Date().toLocaleString('ja-JP')}。テスト専用データは終了時に自動撤去します。</p>`;
   }
+  async function inspectAndCleanupInterruptedUiTest(auto=false){
+    const out=$('diagCleanupResult');
+    if(!auth.currentUser)return;
+    const uid=auth.currentUser.uid;
+    let session=null;
+    try{
+      const ss=await R(uiTestSessionPath(uid)).get();
+      session=ss.exists()?ss.val():null;
+      const stale=session && session.status==='running';
+      if(!stale){
+        if(out&&!auto)out.innerHTML=diagRow('中断テスト確認','ok','未完了のテストセッションはありません');
+        return;
+      }
+      const ids=[];
+      if(session.entryId)ids.push(session.entryId);
+      const es=await R('entries').orderByChild('diagnosticRunId').equalTo(session.runId).get();
+      es.forEach(c=>ids.push(c.key));
+      const unique=[...new Set(ids)];
+      for(const id of unique){await R(`entries/${id}`).remove();await R(`photos/${id}`).remove();}
+      if(session.payerId && session.payerCreated){
+        const ps=await R(`payers/${session.payerId}`).get();
+        if(ps.exists()&&ps.val()?.testMode)await R(`payers/${session.payerId}`).remove();
+      }
+      await R(uiTestSessionPath(uid)).set({...session,status:'cleaned',cleanedAt:firebase.database.ServerValue.TIMESTAMP,residueCount:0});
+      if(out&&!auto)out.innerHTML=diagRow('中断テストの清掃','ok',`${unique.length}件の診断伝票を確認・撤去`);
+    }catch(e){
+      if(out&&!auto)out.innerHTML=diagRow('中断テストの清掃','fail',e?.message||String(e));
+    }
+  }
+  async function refreshUiSessionStatus(){
+    const el=$('diagSessionStatus'); if(!el||!auth.currentUser)return;
+    try{
+      const ss=await R(uiTestSessionPath(auth.currentUser.uid)).get();
+      const v=ss.exists()?ss.val():null;
+      if(v?.status==='running')el.textContent=`前回の実画面テストが未完了です（${v.runId||''}）。清掃してから再実行してください。`;
+      else if(v?.status==='interrupted')el.textContent='前回の実画面テストは通信中断として記録されています。';
+      else el.textContent='未完了の実画面テストはありません。';
+    }catch(_){el.textContent='テストセッション状態を確認できませんでした。';}
+  }
+  refreshUiSessionStatus();
+  if($('diagCleanup'))$('diagCleanup').onclick=async()=>{await inspectAndCleanupInterruptedUiTest(false);await refreshUiSessionStatus();};
+
   async function runUIScreenTest(){
     let out=$('diagUIResult'); if(!out)return;
     if(!isRealAdmin()){out.innerHTML=diagRow('実画面操作テスト','fail','実管理者で実行してください');return;}
@@ -3493,9 +3544,15 @@ async function renderAdmin(){
     const oldProfile=testProfile, oldMe=me, oldFY=curFY;
     let entryId=null, testPayerId=null, testPayerExisted=false;
     try{
-      uiAutoTestContext={runId,savedEntryId:null};
+      uiAutoTestContext={runId,savedEntryId:null,startedOnline:navigator.onLine,networkRecoveredAt:null};
+      uiTestNetworkInterrupted=false;
+      await R(uiTestSessionPath(auth.currentUser.uid)).set({
+        runId,status:'running',startedAt:firebase.database.ServerValue.TIMESTAMP,
+        appVersion:APP_VERSION,entryId:null,payerId:null,payerCreated:false
+      });
       // 支払者の実画面経路を通すため、管理者の既存テストモードを利用する。
       testProfile='payer'; applyEffectiveProfile(); testPayerId=me.payerId; testPayerExisted=(await R(`payers/${testPayerId}`).get()).exists(); await ensureTestPayer();
+      await R(uiTestSessionPath(auth.currentUser.uid)).update({payerId:testPayerId,payerCreated:!testPayerExisted});
       add('テスト利用者への切替','ok',`${me.testRoleLabel||'支払者'}として画面操作`);
       // 実際の＋ボタンをクリックしてフォームを開く。
       $('fabAdd').click(); await waitFor(()=>$('formScreen')?.classList.contains('active'));
@@ -3510,6 +3567,8 @@ async function renderAdmin(){
       add('選択UIの操作','ok',`科目・支払方法を実ボタンのclickイベントで選択`);
       $('formSaveBtn').click();
       await waitFor(()=>uiAutoTestContext?.savedEntryId,8000); entryId=uiAutoTestContext.savedEntryId;
+      await R(uiTestSessionPath(auth.currentUser.uid)).update({entryId});
+      if(uiTestNetworkInterrupted)throw new Error('テスト中に通信断を検知しました');
       const snap=await R(`entries/${entryId}`).get(); if(!snap.exists())throw new Error('保存後の診断伝票がFirebaseにありません');
       const e=snap.val(); if(Number(e.amount)!==321||e.purpose!==`自動UIテスト ${runId}`||e.status!=='submitted')throw new Error('画面入力値または申請状態が保存値と一致しません');
       add('保存ボタン→Firebase','ok','実ボタン押下からsubmitted伝票の保存まで確認');
@@ -3523,13 +3582,23 @@ async function renderAdmin(){
     finally{
       try{if(entryId){await R(`entries/${entryId}`).remove();await R(`photos/${entryId}`).remove();}add('テスト伝票の撤去','ok',entryId?'診断伝票を削除':'作成済み伝票なし');}catch(e){add('テスト伝票の撤去','fail',e?.message||String(e));}
       try{if(testPayerId&&!testPayerExisted){const ps=await R(`payers/${testPayerId}`).get();if(ps.exists()&&ps.val()?.testMode)await R(`payers/${testPayerId}`).remove();}}catch(_){}
+      try{
+        const residue=await R('entries').orderByChild('diagnosticRunId').equalTo(runId).get();
+        if(residue.exists()) add('テストデータ残存確認','fail',`${residue.numChildren()}件の診断伝票が残っています`);
+        else add('テストデータ残存確認','ok','診断伝票の残存なし');
+        await R(uiTestSessionPath(auth.currentUser.uid)).update({
+          status:uiTestNetworkInterrupted?'interrupted':'completed',
+          finishedAt:firebase.database.ServerValue.TIMESTAMP,
+          residueCount:residue.numChildren()
+        });
+      }catch(e){add('テストセッション終了処理','fail',e?.message||String(e));}
       uiAutoTestContext=null; testProfile=oldProfile; me=oldMe; curFY=oldFY; applyEffectiveProfile();
       try{renderAll();}catch(_){}
     }
     const fails=rows.filter(x=>x[1]==='fail').length;
     // 結果をDOMだけでなく状態として保持する。Firebaseの遅延onValueで管理画面が
     // 再描画されても、renderAdmin() が診断グループとこの結果を復元する。
-    lastUiTestResultHtml=`<div class="total-check"><span>実画面操作テスト</span><b>${fails?`${fails}件の異常`:`${rows.length}/${rows.length} PASS`}</b></div>${rows.map(x=>diagRow(...x)).join('')}<p class="hint">実行ID：${esc(runId)}。入力→選択→保存→Firebase→画面遷移まで実際の画面イベント経路を確認しました。</p>`;
+    lastUiTestResultHtml=`<div class="total-check"><span>実画面操作テスト</span><b>${uiTestNetworkInterrupted?'通信中断':(fails?`${fails}件の異常`:`${rows.length}/${rows.length} PASS`)}</b></div>${rows.map(x=>diagRow(...x)).join('')}<p class="hint">実行ID：${esc(runId)}。入力→選択→保存→Firebase→画面遷移まで実際の画面イベント経路を確認しました。</p>`;
     adminActiveGroup='diagnostics';
     // テスト中は実際の伝票詳細画面まで遷移するため、終了時に必ず管理画面へ戻す。
     // adminGroupDiagnostics を開くだけでは currentScreen が detailScreen のままなので、
