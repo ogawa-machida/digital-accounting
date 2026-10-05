@@ -655,7 +655,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.05-93';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.05-94';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1946,6 +1946,9 @@ let formAccount = '', formMethod = '', formAddressee = '';
 let formAiReceiptOriginal = null;
 // v92: 実画面操作自動テスト中だけ使用。通常操作には影響しない。
 let uiAutoTestContext = null;
+// v94: Firebaseのリアルタイム再描画が走っても診断画面と結果を失わないよう保持
+let adminActiveGroup = null;
+let lastUiTestResultHtml = '';
 
 async function openForm(e){
   if (canOwnSubmit() && !me.payerId) { showToast('立替・仮払の対象設定が済んでいません'); return; }
@@ -3276,7 +3279,7 @@ async function renderAdmin(){
         <div id="diagE2EResult" style="margin-top:10px"></div>
         <button class="btn btn-ghost full" id="diagUI" style="margin-top:14px">実画面操作テストを実行</button>
         <p class="hint">実際の支出登録画面を開き、入力欄への入力・科目/支払方法の選択・領収書類なし設定・保存ボタン押下・詳細画面への遷移まで、ユーザー操作と同じDOMイベント経路で自動実行します。診断専用伝票は終了時に削除し、本番の伝票番号カウンタや通知メールは動かしません。</p>
-        <div id="diagUIResult" style="margin-top:10px"></div>
+        <div id="diagUIResult" style="margin-top:10px">${lastUiTestResultHtml||''}</div>
         <div id="diagResult" style="margin-top:12px"></div>
       </div>
       <div class="form-card" style="margin-top:12px">
@@ -3351,16 +3354,24 @@ async function renderAdmin(){
     privacy:$('adminGroupPrivacy'), diagnostics:$('adminGroupDiagnostics'), metrics:$('adminGroupMetrics')
   };
   const openAdminGroup=(key)=>{
+    adminActiveGroup=key;
     if(adminMenu)adminMenu.style.display='none';
     Object.values(adminGroups).forEach(x=>x&&x.classList.remove('open'));
     if(adminGroups[key])adminGroups[key].classList.add('open');
     window.scrollTo({top:0,behavior:'smooth'});
   };
   const closeAdminGroup=()=>{
+    adminActiveGroup=null;
     Object.values(adminGroups).forEach(x=>x&&x.classList.remove('open'));
     if(adminMenu)adminMenu.style.display='';
     window.scrollTo({top:0,behavior:'smooth'});
   };
+  // Firebase onValue 等で renderAdmin() が再実行されても、開いていた管理グループを復元する。
+  if(adminActiveGroup && adminGroups[adminActiveGroup]){
+    if(adminMenu)adminMenu.style.display='none';
+    Object.values(adminGroups).forEach(x=>x&&x.classList.remove('open'));
+    adminGroups[adminActiveGroup].classList.add('open');
+  }
   el.querySelectorAll('[data-admin-group]').forEach(card=>card.onclick=()=>openAdminGroup(card.dataset.adminGroup));
   el.querySelectorAll('.admin-back').forEach(btn=>btn.onclick=closeAdminGroup);
   // v87: 本番データを変更しないシステム診断
@@ -3516,6 +3527,10 @@ async function renderAdmin(){
       try{renderAll();}catch(_){}
     }
     const fails=rows.filter(x=>x[1]==='fail').length;
+    // 結果をDOMだけでなく状態として保持する。Firebaseの遅延onValueで管理画面が
+    // 再描画されても、renderAdmin() が診断グループとこの結果を復元する。
+    lastUiTestResultHtml=`<div class="total-check"><span>実画面操作テスト</span><b>${fails?`${fails}件の異常`:`${rows.length}/${rows.length} PASS`}</b></div>${rows.map(x=>diagRow(...x)).join('')}<p class="hint">実行ID：${esc(runId)}。入力→選択→保存→Firebase→画面遷移まで実際の画面イベント経路を確認しました。</p>`;
+    adminActiveGroup='diagnostics';
     // テスト中は実際の伝票詳細画面まで遷移するため、終了時に必ず管理画面へ戻す。
     // adminGroupDiagnostics を開くだけでは currentScreen が detailScreen のままなので、
     // showScreen('adminScreen') を明示的に通してから診断グループを再表示する。
@@ -3531,7 +3546,7 @@ async function renderAdmin(){
     if(diagnosticsGroup)diagnosticsGroup.classList.add('open');
     out=document.getElementById('diagUIResult');
     if(out){
-      out.innerHTML=`<div class="total-check"><span>実画面操作テスト</span><b>${fails?`${fails}件の異常`:`${rows.length}/${rows.length} PASS`}</b></div>${rows.map(x=>diagRow(...x)).join('')}<p class="hint">実行ID：${esc(runId)}。入力→選択→保存→Firebase→画面遷移まで実際の画面イベント経路を確認しました。</p>`;
+      out.innerHTML=lastUiTestResultHtml;
       out.scrollIntoView({behavior:'smooth',block:'start'});
     }
   }
