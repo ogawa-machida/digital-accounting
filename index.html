@@ -655,7 +655,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.05-90';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.05-93';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1112,7 +1112,11 @@ function startAuth(){
     $('loginError').textContent = `エラーコード：${e.code||'unknown'}　${msg}`;
   };
   auth.getRedirectResult().catch(showLoginError);
-  $('verLogin').textContent = `バージョン ${APP_VERSION}`;
+  function syncVersionDisplays(){
+    if($('verLogin')) $('verLogin').textContent = `バージョン ${APP_VERSION}`;
+    document.querySelectorAll('[data-app-version]').forEach(el=>el.textContent=APP_VERSION);
+  }
+  syncVersionDisplays();
 
   /* ---- メールアドレスだけでログイン（Firebaseのメールリンク認証） ---- */
   const EMAIL_KEY = 'kaikei_emailForSignIn';
@@ -3369,6 +3373,9 @@ async function renderAdmin(){
   async function runSystemDiagnostics(){
     const out=$('diagResult'); if(!out)return; out.innerHTML='<p class="hint">診断中...</p>';
     const results=[];
+    const displayedVersion=($('verLogin')?.textContent||'').replace(/^バージョン\s*/,'').trim();
+    results.push(['バージョン整合性',displayedVersion===APP_VERSION?'ok':'fail',
+      displayedVersion===APP_VERSION?`表示・内部とも ${APP_VERSION}`:`内部 ${APP_VERSION}／表示 ${displayedVersion||'取得不可'}`]);
     const test=async(name,fn,okDetail,failDetail)=>{try{const v=await fn();results.push([name,'ok',typeof okDetail==='function'?okDetail(v):okDetail]);return v;}catch(e){results.push([name,'fail',`${failDetail||'確認に失敗'}：${e?.code||e?.message||e}`]);return null;}};
     try{
       if(auth.currentUser&&me&&isRealAdmin())results.push(['管理者ログイン','ok',`${me.name||me.email||'管理者'}／admin`]);
