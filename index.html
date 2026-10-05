@@ -665,7 +665,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.05-107';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.05-108';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -3803,8 +3803,27 @@ async function renderAdmin(){
       await waitFor(()=>$('publicBody')?.textContent.includes(`${publicTestFY}年度 会計報告`),5000);
       const pubText=$('publicBody')?.textContent||'';
       add('会員向け報告の実画面表示',pubText.includes('自治会運営用品')||pubText.includes('個人情報のため詳細非表示')?'ok':'fail','会計報告画面を実描画');
-      const pubHtml=$('publicBody')?.innerHTML||'';
-      add('会員報告の非公開情報除外',!/支払った人|領収書類画像|内部メモ.*診断秘密/.test(pubHtml)?'ok':'fail','支払者・領収書類画像・内部メモを公開データに含めない');
+      // 画面の説明文には「支払者名・領収書類画像・内部メモは公開しません」という語句自体が
+      // 正常時にも表示されるため、画面テキストの単語検索では判定しない。
+      // 実際にFirebaseへ公開したpayloadのキーと値を再帰走査し、非公開フィールド/診断秘密値が
+      // 公開データそのものに混入していないことを検査する。
+      const forbiddenPublicKeys=new Set(['payee','payerId','payerName','createdBy','createdByName','storageLocation','receipt','receipts','photo','photos','internalMemo','memo','note']);
+      const forbiddenPublicValues=['診断秘密','支払者テスト秘密','領収書類テスト秘密'];
+      const publicLeaks=[];
+      const scanPublicPayload=(v,path='public')=>{
+        if(v==null)return;
+        if(Array.isArray(v)){v.forEach((x,i)=>scanPublicPayload(x,`${path}[${i}]`));return;}
+        if(typeof v==='object'){
+          Object.entries(v).forEach(([k,x])=>{
+            if(forbiddenPublicKeys.has(k))publicLeaks.push(`${path}.${k}`);
+            scanPublicPayload(x,`${path}.${k}`);
+          });
+          return;
+        }
+        if(typeof v==='string'&&forbiddenPublicValues.some(x=>v.includes(x)))publicLeaks.push(path);
+      };
+      scanPublicPayload(pubSaved);
+      add('会員報告の非公開情報除外',publicLeaks.length===0?'ok':'fail',publicLeaks.length?`公開データ混入: ${publicLeaks.join('、')}`:'支払先・支払者・領収書類・内部メモ等の非公開フィールド混入なし');
       add('会員報告の匿名表示',pubText.includes('個人情報のため詳細非表示')?'ok':'fail','匿名指定した用途をそのまま表示');
       await R(`public/${publicTestFY}`).remove(); await R(`public/index/years/${publicTestFY}`).remove();
       publicTestCreated=false;
