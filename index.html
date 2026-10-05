@@ -665,7 +665,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.05-106';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.05-107';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -3300,9 +3300,9 @@ async function renderAdmin(){
         <div id="diagSessionStatus" class="hint" style="margin-top:12px"></div>
         <button class="btn btn-ghost full" id="diagCleanup" style="margin-top:8px">中断したテストを確認・清掃</button><div id="diagCleanupResult" style="margin-top:8px"></div>
         <details style="margin-top:12px"><summary>総合実画面テストの対象範囲</summary><div class="hint" style="margin-top:8px">
-          <b>現在：</b>支出申請、収入登録、会計承認、監査、AI修正履歴、精算、入力検証、Firebase保存・遷移、異常系、診断データ撤去。<br>
+          <b>現在：</b>支出申請、収入登録、会計承認、監査、AI修正履歴、精算、会員向け会計報告、年度処理、入力検証、Firebase保存・遷移、異常系、診断データ撤去。<br>
           <b>内部安全確認：</b>Firebase診断領域の作成・読取・更新・削除、物理削除ゲートの模擬確認。<br>
-          <b>次期拡張：</b>会員向け報告、年度処理。未実装項目はPASS件数に含めません。
+          実メール受信・実物の領収書類撮影・端末固有動作など、アプリ外部の確認はこのテストには含みません。
         </div></details><div id="diagUIResult" style="margin-top:10px">${lastUiTestResultHtml||''}</div>
       </div>
     <div class="form-card" style="margin-top:12px">
@@ -3563,7 +3563,7 @@ async function renderAdmin(){
     const sleep=ms=>new Promise(r=>setTimeout(r,ms));
     const waitFor=async(fn,ms=5000)=>{const end=Date.now()+ms;while(Date.now()<end){try{const v=fn();if(v)return v;}catch(_){}await sleep(80);}throw new Error('画面の応答がタイムアウトしました');};
     const oldProfile=testProfile, oldMe=me, oldFY=curFY;
-    let entryId=null, incomeEntryId=null, settlementEntryId=null, settlementId=null, testPayerId=null, testPayerExisted=false;
+    let entryId=null, incomeEntryId=null, settlementEntryId=null, settlementId=null, testPayerId=null, testPayerExisted=false, publicTestFY=9998, publicTestCreated=false, yearTestCreated=false;
     // v103: finally でも参照するため try の外側で宣言する。
     const sandbox=`diagnosticTests/${auth.currentUser.uid}/${runId}`;
     let sandboxCreated=false;
@@ -3779,8 +3779,67 @@ async function renderAdmin(){
       add('収入テスト伝票の撤去',!incomeGone.exists()?'ok':'fail',!incomeGone.exists()?'撤去済み':'残存');
       incomeEntryId=null;
       await R(uiTestSessionPath(auth.currentUser.uid)).update({entryId});
+
+      // ---- 会員向け会計報告：診断専用年度で公開データ→実表示→非公開まで確認 ----
+      const pubPayload={
+        orgName:settings.orgName||'小川自治会',fy:publicTestFY,range:'診断専用年度',
+        opening:1000,income:500,expense:321,balance:1179,pendingReimburse:0,
+        accounts:[
+          {name:'診断収入',type:'income',budget:500,actual:500,color:'#999'},
+          {name:'診断支出',type:'expense',budget:400,actual:321,color:'#999'}
+        ],
+        months:[{label:'4月',expense:321}],
+        purposeGroups:[{type:'expense',account:'診断支出',purpose:'自治会運営用品',amount:321,count:1}],
+        items:[{date:`${publicTestFY}-04-01`,type:'expense',account:'診断支出',purpose:'個人情報のため詳細非表示',amount:321}],
+        audit:{at:Date.now(),byName:'診断監査',comment:'診断用監査報告'},
+        count:1,updatedAt:Date.now(),testMode:true,diagnosticRunId:runId
+      };
+      await R(`public/${publicTestFY}`).set(pubPayload);
+      await R(`public/index/years/${publicTestFY}`).set(true);
+      publicTestCreated=true;
+      const pubSaved=(await R(`public/${publicTestFY}`).get()).val();
+      add('会員向け報告の公開データ保存',pubSaved?.balance===1179&&pubSaved?.items?.[0]?.amount===321?'ok':'fail','診断専用年度へ保存');
+      await renderPublic([publicTestFY],publicTestFY);
+      await waitFor(()=>$('publicBody')?.textContent.includes(`${publicTestFY}年度 会計報告`),5000);
+      const pubText=$('publicBody')?.textContent||'';
+      add('会員向け報告の実画面表示',pubText.includes('自治会運営用品')||pubText.includes('個人情報のため詳細非表示')?'ok':'fail','会計報告画面を実描画');
+      const pubHtml=$('publicBody')?.innerHTML||'';
+      add('会員報告の非公開情報除外',!/支払った人|領収書類画像|内部メモ.*診断秘密/.test(pubHtml)?'ok':'fail','支払者・領収書類画像・内部メモを公開データに含めない');
+      add('会員報告の匿名表示',pubText.includes('個人情報のため詳細非表示')?'ok':'fail','匿名指定した用途をそのまま表示');
+      await R(`public/${publicTestFY}`).remove(); await R(`public/index/years/${publicTestFY}`).remove();
+      publicTestCreated=false;
+      const pubGone=await R(`public/${publicTestFY}`).get();
+      add('会員向け報告の非公開・撤去',!pubGone.exists()?'ok':'fail','診断公開データを撤去');
+
+      // ---- 年度処理：匿名統計→年度確定→削除ゲートの成立を診断専用年度で確認 ----
+      const yearList=[
+        {fy:publicTestFY,status:'approved',type:'income',amount:500,aiReceiptOriginal:null,aiReceiptChangedFields:[]},
+        {fy:publicTestFY,status:'approved',type:'expense',amount:321,aiReceiptOriginal:{amount:320},aiReceiptChangedFields:['amount']}
+      ];
+      const sig=statsSignatureFromList(publicTestFY,yearList);
+      add('年度集計の計算',sig.approvedEntryCount===2&&sig.totalIncome===500&&sig.totalExpense===321?'ok':'fail',`収入 ${sig.totalIncome}／支出 ${sig.totalExpense}`);
+      const stat={fy:publicTestFY,personalDataIncluded:false,source: {...sig},...sig,generatedAt:Date.now(),testMode:true,diagnosticRunId:runId};
+      await R(`statistics/${publicTestFY}`).set(stat);
+      await R(`yearClosures/${publicTestFY}`).set({fy:publicTestFY,closedAt:Date.now(),closedBy:me.uid,closedByName:me.name||'',sourceVersion:APP_VERSION,testMode:true,diagnosticRunId:runId,...sig});
+      yearTestCreated=true;
+      const [statSnap,closeSnap]=await Promise.all([R(`statistics/${publicTestFY}`).get(),R(`yearClosures/${publicTestFY}`).get()]);
+      add('匿名統計の保存',statSnap.exists()&&statSnap.val()?.personalDataIncluded===false?'ok':'fail','個人情報を含まない年度統計');
+      add('年度確定の保存',closeSnap.exists()&&Number(closeSnap.val()?.fy)===publicTestFY?'ok':'fail','診断専用年度を確定');
+      const gateOk=!!closeSnap.val() && statSnap.val()?.personalDataIncluded===false;
+      add('年度処理→削除ゲート連携',gateOk?'ok':'fail','年度確定＋匿名統計を確認');
+      await R(`statistics/${publicTestFY}`).remove(); await R(`yearClosures/${publicTestFY}`).remove();
+      yearTestCreated=false;
+      const [sg,cg]=await Promise.all([R(`statistics/${publicTestFY}`).get(),R(`yearClosures/${publicTestFY}`).get()]);
+      add('年度処理テストデータの撤去',!sg.exists()&&!cg.exists()?'ok':'fail','統計・年度確定を撤去');
+
+      // 管理画面へ戻して結果表示へ
+      showScreen('adminScreen');
     }catch(e){add('実画面操作テスト','fail',e?.message||String(e));}
     finally{
+      try{
+        if(publicTestCreated){await R(`public/${publicTestFY}`).remove();await R(`public/index/years/${publicTestFY}`).remove();}
+        if(yearTestCreated){await R(`statistics/${publicTestFY}`).remove();await R(`yearClosures/${publicTestFY}`).remove();}
+      }catch(e){add('会員報告・年度処理の後処理','fail',e?.message||String(e));}
       try{
         if(settlementId) await R(`settlements/${settlementId}`).remove();
         if(settlementEntryId){await R(`entries/${settlementEntryId}`).remove();await R(`photos/${settlementEntryId}`).remove();}
@@ -3806,6 +3865,10 @@ async function renderAdmin(){
           const residue=await R(`settlements/${settlementId}`).get();
           if(residue.exists()) residueCount++;
         }
+        const [pr,sr,yr]=await Promise.all([R(`public/${publicTestFY}`).get(),R(`statistics/${publicTestFY}`).get(),R(`yearClosures/${publicTestFY}`).get()]);
+        if(pr.exists())residueCount++;
+        if(sr.exists())residueCount++;
+        if(yr.exists())residueCount++;
         if(residueCount) add('テストデータ残存確認','fail',`${residueCount}件の診断伝票が残っています`);
         else add('テストデータ残存確認','ok','診断伝票の残存なし');
         await R(uiTestSessionPath(auth.currentUser.uid)).update({
@@ -3821,6 +3884,8 @@ async function renderAdmin(){
     // 結果をDOMだけでなく状態として保持する。Firebaseの遅延onValueで管理画面が
     // 再描画されても、renderAdmin() が診断グループとこの結果を復元する。
     const categoryOf=(name)=>{
+      if(/会員向け報告|会員報告/.test(name))return '会員向け報告';
+      if(/年度集計|匿名統計|年度確定|年度処理/.test(name))return '年度処理';
       if(/Firebase診断|物理削除ゲート/.test(name))return '安全・後処理';
       if(/AI/.test(name))return 'AI修正履歴';
       if(/精算/.test(name))return '精算';
@@ -3832,7 +3897,7 @@ async function renderAdmin(){
       if(/Firebase|保存|画面遷移/.test(name))return '保存・遷移';
       return '支出・入力';
     };
-    const cats=['支出・入力','収入登録','会計承認','監査','AI修正履歴','精算','保存・遷移','異常系','安全・後処理'];
+    const cats=['支出・入力','収入登録','会計承認','監査','AI修正履歴','精算','会員向け報告','年度処理','保存・遷移','異常系','安全・後処理'];
     const catHtml=cats.map(c=>{
       const rr=rows.filter(x=>categoryOf(x[0])===c), ng=rr.filter(x=>x[1]==='fail').length;
       return `<div class="total-check"><span>${c}</span><b>${ng?`${ng} FAIL`:`${rr.length}/${rr.length} PASS`}</b></div>`;
@@ -3843,7 +3908,7 @@ async function renderAdmin(){
     const stateText=fails?`${fails}件の異常`:(interrupted?'通信中断あり':'すべて正常');
     const failRows=rows.filter(x=>x[1]==='fail');
     const failHtml=failRows.length?`<div class="diag-failbox"><b>異常項目</b>${failRows.map(x=>diagRow(...x)).join('')}</div>`:'';
-    lastUiTestResultHtml=`<div class="diag-summary ${stateClass}"><span>総合実画面テスト<br><small>${stateText}</small></span><span class="diag-score">${passed}/${rows.length} PASS</span></div>${failHtml}<details class="diag-details"><summary>詳細を確認（${rows.length}項目）</summary>${catHtml}${rows.map(x=>diagRow(...x)).join('')}<p class="hint">実行ID：${esc(runId)}。支出申請→会計承認→監査→AI修正履歴→精算→収入登録→異常系→Firebase保存→撤去まで一括確認しました。</p></details>`;
+    lastUiTestResultHtml=`<div class="diag-summary ${stateClass}"><span>総合実画面テスト<br><small>${stateText}</small></span><span class="diag-score">${passed}/${rows.length} PASS</span></div>${failHtml}<details class="diag-details"><summary>詳細を確認（${rows.length}項目）</summary>${catHtml}${rows.map(x=>diagRow(...x)).join('')}<p class="hint">実行ID：${esc(runId)}。支出申請→会計承認→監査→AI修正履歴→精算→収入登録→会員向け報告→年度処理→異常系→Firebase保存→撤去まで一括確認しました。</p></details>`;
     adminActiveGroup='diagnostics';
     // テスト中は実際の伝票詳細画面まで遷移するため、終了時に必ず管理画面へ戻す。
     // adminGroupDiagnostics を開くだけでは currentScreen が detailScreen のままなので、
