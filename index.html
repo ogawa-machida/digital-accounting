@@ -272,6 +272,16 @@ table.pub th{font-family:'Shippori Mincho',serif; background:var(--tint);}
 .imp-row.off{opacity:.45;}
 .total-check{display:flex; justify-content:space-between; font-size:12.5px; padding:8px 10px; border-radius:6px; margin-top:8px; background:var(--tint);}
 .total-check.ng{background:#F7E3DD; color:var(--stamp-red);}
+.diag-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-radius:12px;margin-top:10px;font-weight:700}
+.diag-summary.ok{background:#E8F3EA;color:#245C35;border:1px solid #BFD9C5}
+.diag-summary.warn{background:#FFF3D9;color:#7A5711;border:1px solid #E9D29A}
+.diag-summary.fail{background:#F9E1DC;color:#9A3426;border:1px solid #E6B7AD}
+.diag-summary .diag-score{font-size:18px;white-space:nowrap}
+.diag-details{margin-top:10px}
+.diag-details>summary{cursor:pointer;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;font-weight:700}
+.diag-details[open]>summary{margin-bottom:8px}
+.diag-failbox{background:#F9E1DC;border:1px solid #E6B7AD;border-radius:10px;padding:8px;margin-top:8px}
+
 .big-photo{position:fixed; inset:0; background:rgba(0,0,0,.85); z-index:80; display:flex; align-items:center; justify-content:center; padding:16px;}
 .big-photo img{max-width:100%; max-height:100%; border-radius:6px;}
 
@@ -655,7 +665,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.05-103';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.05-104';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -3429,7 +3439,9 @@ async function renderAdmin(){
       const retired=members.filter(m=>m.lifecycleStatus==='retired'||m.lifecycleStatus==='anonymized'||m.role==='removed');
       results.push(['退任・匿名化管理','ok',`退任・匿名化対象 ${retired.length}名／現役 ${members.length-retired.length}名`]);
       const roleDesign=['admin','treasurer','auditor','viewer','payer','guest','report','pending'];
-      results.push(['役割別権限の設計確認','warn',`${roleDesign.join(' / ')} を使用。実通信は各テスト役割で別途確認してください`]);
+      // v104: 日常診断で自動判定できない「各役割での実通信」は恒常的な警告にしない。
+      // 役割別の実操作確認は総合実画面テストの対象として分離する。
+      results.push(['権限設計の定義','ok',`${roleDesign.length}種類の役割定義を確認。役割別の実操作は総合実画面テストで確認します`]);
       const fails=results.filter(x=>x[1]==='fail').length,warns=results.filter(x=>x[1]==='warn').length;
       out.innerHTML=`<div class="total-check"><span>診断結果</span><b>${fails?'異常あり':warns?'基本正常・要確認あり':'すべて正常'}</b></div>${results.map(x=>diagRow(...x)).join('')}<p class="hint">実行日時：${new Date().toLocaleString('ja-JP')}／バージョン ${APP_VERSION}。この診断はデータを変更しません。</p>`;
     }catch(e){console.error(e);out.innerHTML=`<p class="hint" style="color:var(--stamp-red)">診断を完了できませんでした：${esc(e?.message||String(e))}</p>`;}
@@ -3824,7 +3836,13 @@ async function renderAdmin(){
       const rr=rows.filter(x=>categoryOf(x[0])===c), ng=rr.filter(x=>x[1]==='fail').length;
       return `<div class="total-check"><span>${c}</span><b>${ng?`${ng} FAIL`:`${rr.length}/${rr.length} PASS`}</b></div>`;
     }).join('');
-    lastUiTestResultHtml=`<div class="total-check"><span>総合実画面テスト</span><b>${uiTestNetworkInterrupted?'通信中断':(fails?`${fails}件の異常`:`${rows.length}/${rows.length} PASS`)}</b></div>${catHtml}${rows.map(x=>diagRow(...x)).join('')}<p class="hint">実行ID：${esc(runId)}。支出申請→会計承認→監査→AI修正履歴→精算→収入登録→異常系→Firebase保存→撤去まで一括確認しました。</p>`;
+    const passed=rows.length-fails;
+    const interrupted=uiTestNetworkInterrupted;
+    const stateClass=fails?'fail':(interrupted?'warn':'ok');
+    const stateText=fails?`${fails}件の異常`:(interrupted?'通信中断あり':'すべて正常');
+    const failRows=rows.filter(x=>x[1]==='fail');
+    const failHtml=failRows.length?`<div class="diag-failbox"><b>異常項目</b>${failRows.map(x=>diagRow(...x)).join('')}</div>`:'';
+    lastUiTestResultHtml=`<div class="diag-summary ${stateClass}"><span>総合実画面テスト<br><small>${stateText}</small></span><span class="diag-score">${passed}/${rows.length} PASS</span></div>${failHtml}<details class="diag-details"><summary>詳細を確認（${rows.length}項目）</summary>${catHtml}${rows.map(x=>diagRow(...x)).join('')}<p class="hint">実行ID：${esc(runId)}。支出申請→会計承認→監査→AI修正履歴→精算→収入登録→異常系→Firebase保存→撤去まで一括確認しました。</p></details>`;
     adminActiveGroup='diagnostics';
     // テスト中は実際の伝票詳細画面まで遷移するため、終了時に必ず管理画面へ戻す。
     // adminGroupDiagnostics を開くだけでは currentScreen が detailScreen のままなので、
