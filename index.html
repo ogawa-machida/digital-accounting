@@ -655,7 +655,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.05-100';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.05-101';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -3567,7 +3567,7 @@ async function renderAdmin(){
     const sleep=ms=>new Promise(r=>setTimeout(r,ms));
     const waitFor=async(fn,ms=5000)=>{const end=Date.now()+ms;while(Date.now()<end){try{const v=fn();if(v)return v;}catch(_){}await sleep(80);}throw new Error('画面の応答がタイムアウトしました');};
     const oldProfile=testProfile, oldMe=me, oldFY=curFY;
-    let entryId=null, incomeEntryId=null, settlementId=null, testPayerId=null, testPayerExisted=false;
+    let entryId=null, incomeEntryId=null, settlementEntryId=null, settlementId=null, testPayerId=null, testPayerExisted=false;
     try{
       uiAutoTestContext={runId,savedEntryId:null,startedOnline:navigator.onLine,networkRecoveredAt:null};
       uiTestNetworkInterrupted=false;
@@ -3694,34 +3694,49 @@ async function renderAdmin(){
       testProfile='auditor'; applyEffectiveProfile(); renderAll(); openDetail(entryId); await waitFor(()=>$('detailScreen')?.classList.contains('active'),5000);
       add('AI差分の監査表示',$('detailScreen').textContent.includes('AIレシート読取の確認')&&$('detailScreen').textContent.includes('AI読取後の修正')?'ok':'fail','監査詳細画面で差分を表示');
 
-      // ---- 精算：承認済みの診断支出を、会計の精算画面から実ボタンで記録 ----
+      // ---- 精算：監査済み伝票とは分離した専用診断伝票を作り、会計の精算画面から実ボタンで記録 ----
+      // 監査済み伝票を書き換えると auditStale / Rules の整合性に影響するため、精算専用伝票を使用する。
       testProfile='treasurer'; applyEffectiveProfile(); renderAll();
+      const stRef=R('entries').push(); settlementEntryId=stRef.key;
+      const settleMethod=methods.find(m=>m.settle) || methods[0];
+      if(!settleMethod)throw new Error('精算対象にできる支払方法がありません');
+      await stRef.set({
+        type:'expense',date:localDate(),fy:fyOf(localDate()),amount:321,
+        payee:'実画面精算テスト',purpose:`自動UI精算 ${runId}`,
+        accountId:approved.accountId||accounts.find(a=>a.type!=='income')?.id||accounts[0]?.id||'',
+        methodId:settleMethod.id,payerId:testPayerId,
+        voucherNo:`TEST-ST-${runId}`,status:'approved',settleState:'pending',
+        createdBy:me.uid,createdByName:me.name,createdAt:firebase.database.ServerValue.TIMESTAMP,
+        updatedAt:firebase.database.ServerValue.TIMESTAMP,updatedByName:me.name,
+        testMode:true,testRole:'ui-auto',testOwnerUid:auth.currentUser?.uid||'',diagnosticRunId:runId
+      });
+      // attachDataの非同期反映待ちに依存せず、診断中だけ現在年度マップへ即時反映する。
+      fyMap[settlementEntryId]={id:settlementEntryId,...(await stRef.get()).val()};
       showScreen('settleScreen'); settleView=testPayerId; renderSettle();
-      await waitFor(()=>$('stDo') && !$('stDo').disabled,5000);
-      add('精算画面を開く','ok','承認済み診断支出を精算対象として表示');
+      await waitFor(()=>$('stDo') && !$('stDo').disabled,8000);
+      add('精算画面を開く','ok','精算専用の承認済み診断支出を表示');
       if(!$('stDate')||!$('stWay'))throw new Error('精算入力欄がありません');
       $('stMemo').value=`自動UI精算 ${runId}`; $('stMemo').dispatchEvent(new Event('input',{bubbles:true}));
       add('精算入力・選択','ok','精算日・方法・メモ・対象伝票を実画面で確認');
       uiAutoTestContext.savedSettlementId=null;
-      // confirm() は実運用と同じ確認ダイアログを通すため、テスト中だけ1回自動承認する。
       const originalConfirm=window.confirm;
       window.confirm=()=>true;
-      try{$('stDo').click(); await waitFor(()=>uiAutoTestContext?.savedSettlementId,8000);}
+      try{$('stDo').click(); await waitFor(()=>uiAutoTestContext?.savedSettlementId,12000);}
       finally{window.confirm=originalConfirm;}
       settlementId=uiAutoTestContext.savedSettlementId;
+      if(!settlementId)throw new Error('精算保存の完了を確認できません');
       const stSnap=await R(`settlements/${settlementId}`).get(), st=stSnap.val();
       add('精算保存→Firebase',st?.payerId===testPayerId&&Number(st?.net)===321?'ok':'fail',st?`${st.no} ${st.net}`:'取得不可');
-      const settledEntry=(await R(`entries/${entryId}`).get()).val();
+      const settledEntry=(await R(`entries/${settlementEntryId}`).get()).val();
       add('伝票の精算済み連携',settledEntry?.settleState==='settled'&&settledEntry?.settlementId===settlementId?'ok':'fail',settledEntry?.settleState||'取得不可');
       add('診断精算の本番採番分離',String(st?.no||'').startsWith('TEST-精-')?'ok':'fail',st?.no||'取得不可');
 
-      // 精算は後続の診断に影響しないよう取り消し相当の後処理を行う。
-      await R(`entries/${entryId}/settleState`).set('pending');
-      await R(`entries/${entryId}/settlementId`).set(null);
       await R(`settlements/${settlementId}`).remove();
-      const stGone=await R(`settlements/${settlementId}`).get();
-      add('精算テストデータの撤去',!stGone.exists()?'ok':'fail',!stGone.exists()?'撤去済み':'残存');
-      settlementId=null; uiAutoTestContext.savedSettlementId=null;
+      await R(`entries/${settlementEntryId}`).remove();
+      delete fyMap[settlementEntryId];
+      const [stGone,seGone]=await Promise.all([R(`settlements/${settlementId}`).get(),R(`entries/${settlementEntryId}`).get()]);
+      add('精算テストデータの撤去',!stGone.exists()&&!seGone.exists()?'ok':'fail',!stGone.exists()&&!seGone.exists()?'撤去済み':'残存');
+      settlementId=null; settlementEntryId=null; uiAutoTestContext.savedSettlementId=null;
 
       // ---- 収入登録：会計役割で実際の登録フォーム→収入切替→入力→保存 ----
       testProfile='treasurer'; applyEffectiveProfile(); renderAll();
@@ -3760,22 +3775,24 @@ async function renderAdmin(){
     }catch(e){add('実画面操作テスト','fail',e?.message||String(e));}
     finally{
       try{
-        if(settlementId){
-          if(entryId){await R(`entries/${entryId}/settleState`).set('pending');await R(`entries/${entryId}/settlementId`).set(null);}
-          await R(`settlements/${settlementId}`).remove();
-        }
+        if(settlementId) await R(`settlements/${settlementId}`).remove();
+        if(settlementEntryId){await R(`entries/${settlementEntryId}`).remove();await R(`photos/${settlementEntryId}`).remove();}
         if(incomeEntryId){await R(`entries/${incomeEntryId}`).remove();await R(`photos/${incomeEntryId}`).remove();}
         if(entryId){await R(`entries/${entryId}`).remove();await R(`photos/${entryId}`).remove();}
-        add('テスト伝票の撤去','ok',(entryId||incomeEntryId||settlementId)?'診断データを削除':'作成済みデータなし');
+        add('テスト伝票の撤去','ok',(entryId||incomeEntryId||settlementEntryId||settlementId)?'診断データを削除':'作成済みデータなし');
       }catch(e){add('テスト伝票の撤去','fail',e?.message||String(e));}
       try{if(testPayerId&&!testPayerExisted){const ps=await R(`payers/${testPayerId}`).get();if(ps.exists()&&ps.val()?.testMode)await R(`payers/${testPayerId}`).remove();}}catch(_){}
       try{
         // 横断クエリを使わず、今回作成した entryId を直接確認する。
         // これにより Firebase Rules への diagnosticRunId .indexOn 追加を不要にする。
         let residueCount=0;
-        if(entryId){
-          const residue=await R(`entries/${entryId}`).get();
-          if(residue.exists() && residue.val()?.diagnosticRunId===runId) residueCount=1;
+        for(const rid of [entryId,incomeEntryId,settlementEntryId].filter(Boolean)){
+          const residue=await R(`entries/${rid}`).get();
+          if(residue.exists() && residue.val()?.diagnosticRunId===runId) residueCount++;
+        }
+        if(settlementId){
+          const residue=await R(`settlements/${settlementId}`).get();
+          if(residue.exists()) residueCount++;
         }
         if(residueCount) add('テストデータ残存確認','fail',`${residueCount}件の診断伝票が残っています`);
         else add('テストデータ残存確認','ok','診断伝票の残存なし');
