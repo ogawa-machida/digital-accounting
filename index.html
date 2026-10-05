@@ -655,7 +655,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.05-101';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.05-102';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -3284,39 +3284,22 @@ async function renderAdmin(){
     <div class="admin-group" id="adminGroupDiagnostics">
       <button class="btn btn-ghost sm admin-back">← 管理メニューに戻る</button>
       <h2 class="section-title">システム診断</h2>
-      <div class="form-card">
-        <div style="font-weight:700;font-size:15px">本番データを変更しない安全診断</div>
-        <p class="hint">Firebaseの読取権限、個人情報保護設定、AI修正履歴、保存・削除条件を点検します。伝票・領収書類・利用者・バックアップの作成、変更、削除は行いません。</p>
-        <button class="btn btn-primary full" id="diagRun">診断を実行</button>
-        <button class="btn btn-navy full" id="diagE2E" style="margin-top:8px">総合自動テストを実行</button>
-        <p class="hint">総合自動テストは、診断専用領域にテストデータを実際に作成→読取→更新→削除し、さらにテスト伝票を作成→状態更新→削除します。通常の会計データには触れず、最後にテストデータが残っていないことまで確認します。</p>
-        <div id="diagE2EResult" style="margin-top:10px"></div>
+      <div class="form-card"><div style="font-weight:700;font-size:16px">① 日常の自動診断</div>
+        <p class="hint">本番データを変更せず、Firebaseの読取権限、個人情報保護、AI修正履歴、保存・削除ポリシーなどを点検します。普段「何かおかしい」と感じたときはこちらです。</p>
+        <button class="btn btn-primary full" id="diagRun">診断を実行</button><div id="diagResult" style="margin-top:12px"></div>
+      </div>
+      <div class="form-card" style="margin-top:12px;background:var(--tint)"><div style="font-weight:700;font-size:16px">② 総合実画面テスト</div>
+        <p class="hint">アプリ更新後はこちらです。主要業務を実際の画面イベントで一括確認し、診断データは最後に自動撤去します。</p>
+        <button class="btn btn-navy full" id="diagUIRun">総合実画面テストを実行</button>
         <div id="diagSessionStatus" class="hint" style="margin-top:12px"></div>
-        <button class="btn btn-ghost full" id="diagCleanup" style="margin-top:8px">前回中断テストを確認・清掃</button>
-        <div id="diagCleanupResult" style="margin-top:8px"></div>
-        <div class="form-card" style="margin-top:14px;background:var(--tint)">
-          <div style="font-weight:700">実画面操作テスト</div>
-          <p class="hint">主要な画面操作・入力検証・Firebase保存・画面遷移・異常系・診断データ撤去を一度に確認します。実際のDOMイベントを通し、本番伝票番号や通知メールは動かしません。</p>
-          <button class="btn btn-navy full" id="diagUIRun">実画面操作テストを実行</button>
-        </div>
-        <p class="hint">結果は「画面・入力」「保存・遷移」「異常系」「安全・後処理」に分類して表示します。今後、収入・承認・監査・AI・精算・会員向け報告・年度処理の実画面シナリオもこの1本へ追加していきます。</p>
-        <details style="margin-top:12px"><summary>実画面テストの対象範囲</summary>
-          <div class="hint" style="margin-top:8px">
-            <b>現在自動操作：</b>支出申請、収入登録、会計承認、監査、AI読取後修正履歴、精算、入力検証、Firebase保存、詳細遷移、異常系、診断データ撤去。<br>
-            <b>次期拡張：</b>会員向け報告、年度処理。<br>
-            未実装のシナリオをPASS件数には含めません。
-          </div>
-        </details>
-        <div id="diagUIResult" style="margin-top:10px">${lastUiTestResultHtml||''}</div>
-        <div id="diagResult" style="margin-top:12px"></div>
+        <button class="btn btn-ghost full" id="diagCleanup" style="margin-top:8px">中断したテストを確認・清掃</button><div id="diagCleanupResult" style="margin-top:8px"></div>
+        <details style="margin-top:12px"><summary>総合実画面テストの対象範囲</summary><div class="hint" style="margin-top:8px">
+          <b>現在：</b>支出申請、収入登録、会計承認、監査、AI修正履歴、精算、入力検証、Firebase保存・遷移、異常系、診断データ撤去。<br>
+          <b>内部安全確認：</b>Firebase診断領域の作成・読取・更新・削除、物理削除ゲートの模擬確認。<br>
+          <b>次期拡張：</b>会員向け報告、年度処理。未実装項目はPASS件数に含めません。
+        </div></details><div id="diagUIResult" style="margin-top:10px">${lastUiTestResultHtml||''}</div>
       </div>
-      <div class="form-card" style="margin-top:12px">
-        <div style="font-weight:700;font-size:15px">破壊系機能の模擬テスト</div>
-        <p class="hint">実際のFirebaseデータは削除せず、年度原本削除のゲート条件をメモリ上だけで再現します。「保存期限」「年度確定」「匿名統計最新」の3条件が揃わない限り削除不可になることを確認します。</p>
-        <button class="btn btn-ghost full" id="diagDestructive">模擬テストを実行</button>
-        <div id="diagDestructiveResult" style="margin-top:10px"></div>
-      </div>
-      <div class="form-card" style="margin-top:12px">
+    <div class="form-card" style="margin-top:12px">
         <div style="font-weight:700;font-size:15px">診断の範囲</div>
         <p class="hint">現在ログイン中の管理者権限で実際のFirebase Rulesを確認します。他の役割への成り代わりは行わないため、支払者・監査・会員等の権限は「設計確認」として表示します。役割別の完全な実通信テストは各テスト役割での操作確認が必要です。</p>
       </div>
@@ -3561,7 +3544,7 @@ async function renderAdmin(){
     let out=$('diagUIResult'); if(!out)return;
     if(!isRealAdmin()){out.innerHTML=diagRow('実画面操作テスト','fail','実管理者で実行してください');return;}
     const modeName='総合';
-    if(!confirm(`実画面操作テストを実行します。\n\n主要経路と異常系を実際の画面イベントで自動操作します。作成する診断専用伝票は終了時に削除し、通知メールと本番の伝票番号採番は行いません。`))return;
+    if(!confirm(`総合実画面テストを実行します。\n\n主要経路と異常系を実際の画面イベントで自動操作します。作成する診断専用伝票は終了時に削除し、通知メールと本番の伝票番号採番は行いません。`))return;
     const rows=[], runId=`ui_full_${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
     const add=(n,s,d)=>rows.push([n,s,d]);
     const sleep=ms=>new Promise(r=>setTimeout(r,ms));
@@ -3570,6 +3553,15 @@ async function renderAdmin(){
     let entryId=null, incomeEntryId=null, settlementEntryId=null, settlementId=null, testPayerId=null, testPayerExisted=false;
     try{
       uiAutoTestContext={runId,savedEntryId:null,startedOnline:navigator.onLine,networkRecoveredAt:null};
+      const sandbox=`diagnosticTests/${auth.currentUser.uid}/${runId}`; let sandboxCreated=false;
+      try{
+        await R(sandbox).set({runId,uid:auth.currentUser.uid,version:APP_VERSION,stage:'created',createdAt:Date.now(),testOnly:true}); sandboxCreated=true;
+        let ds=await R(sandbox).get(); add('Firebase診断領域の作成・読取',ds.exists()&&ds.val()?.runId===runId?'ok':'fail','診断専用領域で実通信');
+        await R(sandbox).update({stage:'updated',updatedAt:Date.now()}); ds=await R(`${sandbox}/stage`).get();
+        add('Firebase診断領域の更新',ds.val()==='updated'?'ok':'fail','更新→再読取');
+        const gate=(expired,closed,statsOk)=>!!(expired&&closed&&statsOk);
+        add('物理削除ゲートの模擬確認',(!gate(false,true,true)&&!gate(true,false,true)&&!gate(true,true,false)&&gate(true,true,true))?'ok':'fail','保存期限・年度確定・匿名統計の3条件');
+      }catch(e){add('Firebase診断領域','fail',e?.message||String(e));}
       uiTestNetworkInterrupted=false;
       await R(uiTestSessionPath(auth.currentUser.uid)).set({
         runId,status:'running',startedAt:firebase.database.ServerValue.TIMESTAMP,
@@ -3783,6 +3775,11 @@ async function renderAdmin(){
       }catch(e){add('テスト伝票の撤去','fail',e?.message||String(e));}
       try{if(testPayerId&&!testPayerExisted){const ps=await R(`payers/${testPayerId}`).get();if(ps.exists()&&ps.val()?.testMode)await R(`payers/${testPayerId}`).remove();}}catch(_){}
       try{
+        if(sandboxCreated) await R(sandbox).remove();
+        const ds=await R(sandbox).get();
+        add('Firebase診断領域の撤去',!ds.exists()?'ok':'fail',!ds.exists()?'撤去済み':'残存');
+      }catch(e){add('Firebase診断領域の撤去','fail',e?.message||String(e));}
+      try{
         // 横断クエリを使わず、今回作成した entryId を直接確認する。
         // これにより Firebase Rules への diagnosticRunId .indexOn 追加を不要にする。
         let residueCount=0;
@@ -3809,6 +3806,7 @@ async function renderAdmin(){
     // 結果をDOMだけでなく状態として保持する。Firebaseの遅延onValueで管理画面が
     // 再描画されても、renderAdmin() が診断グループとこの結果を復元する。
     const categoryOf=(name)=>{
+      if(/Firebase診断|物理削除ゲート/.test(name))return '安全・後処理';
       if(/AI/.test(name))return 'AI修正履歴';
       if(/精算/.test(name))return '精算';
       if(/収入/.test(name))return '収入登録';
@@ -3824,7 +3822,7 @@ async function renderAdmin(){
       const rr=rows.filter(x=>categoryOf(x[0])===c), ng=rr.filter(x=>x[1]==='fail').length;
       return `<div class="total-check"><span>${c}</span><b>${ng?`${ng} FAIL`:`${rr.length}/${rr.length} PASS`}</b></div>`;
     }).join('');
-    lastUiTestResultHtml=`<div class="total-check"><span>実画面操作テスト 総合</span><b>${uiTestNetworkInterrupted?'通信中断':(fails?`${fails}件の異常`:`${rows.length}/${rows.length} PASS`)}</b></div>${catHtml}${rows.map(x=>diagRow(...x)).join('')}<p class="hint">実行ID：${esc(runId)}。支出申請→会計承認→監査→AI修正履歴→精算→収入登録→異常系→Firebase保存→撤去まで一括確認しました。</p>`;
+    lastUiTestResultHtml=`<div class="total-check"><span>総合実画面テスト</span><b>${uiTestNetworkInterrupted?'通信中断':(fails?`${fails}件の異常`:`${rows.length}/${rows.length} PASS`)}</b></div>${catHtml}${rows.map(x=>diagRow(...x)).join('')}<p class="hint">実行ID：${esc(runId)}。支出申請→会計承認→監査→AI修正履歴→精算→収入登録→異常系→Firebase保存→撤去まで一括確認しました。</p>`;
     adminActiveGroup='diagnostics';
     // テスト中は実際の伝票詳細画面まで遷移するため、終了時に必ず管理画面へ戻す。
     // adminGroupDiagnostics を開くだけでは currentScreen が detailScreen のままなので、
@@ -3846,9 +3844,7 @@ async function renderAdmin(){
     }
   }
   if($('diagRun'))$('diagRun').onclick=runSystemDiagnostics;
-  if($('diagE2E'))$('diagE2E').onclick=runE2EDiagnostics;
   if($('diagUIRun'))$('diagUIRun').onclick=()=>runUIScreenTest();
-  if($('diagDestructive'))$('diagDestructive').onclick=runDestructiveSimulation;
 
   // v84: データ保存期間・退任・匿名統計
   const retentionPolicy=()=>({
