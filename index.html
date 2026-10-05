@@ -655,7 +655,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.05-98';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.05-99';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -3293,8 +3293,8 @@ async function renderAdmin(){
         <p class="hint">結果は「画面・入力」「保存・遷移」「異常系」「安全・後処理」に分類して表示します。今後、収入・承認・監査・AI・精算・会員向け報告・年度処理の実画面シナリオもこの1本へ追加していきます。</p>
         <details style="margin-top:12px"><summary>実画面テストの対象範囲</summary>
           <div class="hint" style="margin-top:8px">
-            <b>現在自動操作：</b>支出申請、入力検証、Firebase保存、詳細遷移、異常系、診断データ撤去。<br>
-            <b>次期拡張：</b>収入登録、承認、監査、AI修正、精算、会員向け報告、年度処理。<br>
+            <b>現在自動操作：</b>支出申請、収入登録、会計承認、監査、入力検証、Firebase保存、詳細遷移、異常系、診断データ撤去。<br>
+            <b>次期拡張：</b>AI修正、精算、会員向け報告、年度処理。<br>
             未実装のシナリオをPASS件数には含めません。
           </div>
         </details>
@@ -3558,7 +3558,7 @@ async function renderAdmin(){
     const sleep=ms=>new Promise(r=>setTimeout(r,ms));
     const waitFor=async(fn,ms=5000)=>{const end=Date.now()+ms;while(Date.now()<end){try{const v=fn();if(v)return v;}catch(_){}await sleep(80);}throw new Error('画面の応答がタイムアウトしました');};
     const oldProfile=testProfile, oldMe=me, oldFY=curFY;
-    let entryId=null, testPayerId=null, testPayerExisted=false;
+    let entryId=null, incomeEntryId=null, testPayerId=null, testPayerExisted=false;
     try{
       uiAutoTestContext={runId,savedEntryId:null,startedOnline:navigator.onLine,networkRecoveredAt:null};
       uiTestNetworkInterrupted=false;
@@ -3635,9 +3635,70 @@ async function renderAdmin(){
       // UIから作られた伝票であることを追加確認。
       if(e.diagnosticRunId!==runId||!e.testMode)throw new Error('診断専用フラグが保存されていません');
       add('診断データ分離','ok','testMode・diagnosticRunIdを確認');
+
+      // ---- 会計承認：支払者が実画面で作成したsubmitted伝票を、会計役割の実ボタンで承認 ----
+      testProfile='treasurer'; applyEffectiveProfile(); renderAll();
+      openDetail(entryId); await waitFor(()=>$('detailScreen')?.classList.contains('active') && $('dApprove'),5000);
+      add('会計承認画面を開く','ok','会計テスト役割で承認ボタンを表示');
+      $('dApprove').click();
+      await waitFor(async()=>{const x=await R(`entries/${entryId}/status`).get();return x.val()==='approved';},8000);
+      const approvedSnap=await R(`entries/${entryId}`).get(), approved=approvedSnap.val();
+      add('会計承認ボタン','ok','実ボタンのclickイベントで承認');
+      add('承認状態→Firebase',approved?.status==='approved'?'ok':'fail',approved?.status||'取得不可');
+      add('承認者記録',!!approved?.approvedByName?'ok':'fail',approved?.approvedByName||'未記録');
+
+      // ---- 監査：承認済み伝票を監査役割の実ボタンで「問題なし」にする ----
+      testProfile='auditor'; applyEffectiveProfile(); renderAll();
+      openDetail(entryId); await waitFor(()=>$('detailScreen')?.classList.contains('active') && $('aOk'),5000);
+      add('監査画面を開く','ok','監査テスト役割で監査ボタンを表示');
+      $('aOk').click();
+      await waitFor(async()=>{const x=await R(`entries/${entryId}/audit/result`).get();return x.val()==='ok';},8000);
+      const auditSnap=await R(`entries/${entryId}/audit`).get(), audit=auditSnap.val();
+      add('監査「問題なし」ボタン','ok','実ボタンのclickイベントで監査');
+      add('監査結果→Firebase',audit?.result==='ok'?'ok':'fail',audit?.result||'取得不可');
+      add('監査者記録',!!audit?.byName?'ok':'fail',audit?.byName||'未記録');
+
+      // ---- 収入登録：会計役割で実際の登録フォーム→収入切替→入力→保存 ----
+      testProfile='treasurer'; applyEffectiveProfile(); renderAll();
+      $('fabAdd').click(); await waitFor(()=>$('formScreen')?.classList.contains('active'),5000);
+      const incomeTypeBtn=[...$('fTypeSeg').querySelectorAll('button')].find(b=>b.dataset.type==='income');
+      if(!incomeTypeBtn)throw new Error('収入切替ボタンがありません');
+      incomeTypeBtn.click(); await sleep(80);
+      add('収入へ切替','ok','収入ボタンのclickイベントでフォーム切替');
+      if(formType!=='income')throw new Error('収入フォームへ切り替わりません');
+      setVal('fDate',localDate()); setVal('fAmount','654'); setVal('fPayee','実画面操作テスト入金元'); setVal('fPurpose',`自動UI収入テスト ${runId}`);
+      const incomeAccBtn=[...$('fAccountPicker').querySelectorAll('button')][0];
+      if(!incomeAccBtn)throw new Error('選択可能な収入科目がありません');
+      incomeAccBtn.click();
+      const incomeMethodBtn=[...$('fMethodPicker').querySelectorAll('button')][0];
+      if(!incomeMethodBtn)throw new Error('選択可能な受取方法がありません');
+      incomeMethodBtn.click();
+      add('収入入力・選択','ok','日付・金額・入金元・用途・科目・受取方法を実画面で操作');
+      uiAutoTestContext.savedEntryId=null;
+      $('formSaveBtn').click();
+      await waitFor(()=>uiAutoTestContext?.savedEntryId,8000); incomeEntryId=uiAutoTestContext.savedEntryId;
+      await R(uiTestSessionPath(auth.currentUser.uid)).update({entryId:incomeEntryId});
+      const incomeSnap=await R(`entries/${incomeEntryId}`).get();
+      if(!incomeSnap.exists())throw new Error('収入診断伝票がFirebaseにありません');
+      const income=incomeSnap.val();
+      add('収入保存→Firebase',income.type==='income'&&Number(income.amount)===654?'ok':'fail',`${income.type||''} ${income.amount||''}`);
+      add('収入の自動承認',income.status==='approved'?'ok':'fail',income.status||'');
+      await waitFor(()=>$('detailScreen')?.classList.contains('active'),5000);
+      add('収入保存後の詳細遷移','ok','収入伝票の詳細画面へ自動遷移');
+
+      // 収入診断伝票はここで即時撤去し、セッション監視対象を元の支出伝票へ戻す。
+      await R(`entries/${incomeEntryId}`).remove(); await R(`photos/${incomeEntryId}`).remove();
+      const incomeGone=await R(`entries/${incomeEntryId}`).get();
+      add('収入テスト伝票の撤去',!incomeGone.exists()?'ok':'fail',!incomeGone.exists()?'撤去済み':'残存');
+      incomeEntryId=null;
+      await R(uiTestSessionPath(auth.currentUser.uid)).update({entryId});
     }catch(e){add('実画面操作テスト','fail',e?.message||String(e));}
     finally{
-      try{if(entryId){await R(`entries/${entryId}`).remove();await R(`photos/${entryId}`).remove();}add('テスト伝票の撤去','ok',entryId?'診断伝票を削除':'作成済み伝票なし');}catch(e){add('テスト伝票の撤去','fail',e?.message||String(e));}
+      try{
+        if(incomeEntryId){await R(`entries/${incomeEntryId}`).remove();await R(`photos/${incomeEntryId}`).remove();}
+        if(entryId){await R(`entries/${entryId}`).remove();await R(`photos/${entryId}`).remove();}
+        add('テスト伝票の撤去','ok',(entryId||incomeEntryId)?'診断伝票を削除':'作成済み伝票なし');
+      }catch(e){add('テスト伝票の撤去','fail',e?.message||String(e));}
       try{if(testPayerId&&!testPayerExisted){const ps=await R(`payers/${testPayerId}`).get();if(ps.exists()&&ps.val()?.testMode)await R(`payers/${testPayerId}`).remove();}}catch(_){}
       try{
         // 横断クエリを使わず、今回作成した entryId を直接確認する。
@@ -3662,17 +3723,20 @@ async function renderAdmin(){
     // 結果をDOMだけでなく状態として保持する。Firebaseの遅延onValueで管理画面が
     // 再描画されても、renderAdmin() が診断グループとこの結果を復元する。
     const categoryOf=(name)=>{
+      if(/収入/.test(name))return '収入登録';
+      if(/承認/.test(name))return '会計承認';
+      if(/監査/.test(name))return '監査';
       if(/日付なし|金額0|理由未入力/.test(name))return '異常系';
       if(/通信|セッション|残存|撤去|分離/.test(name))return '安全・後処理';
       if(/Firebase|保存|画面遷移/.test(name))return '保存・遷移';
-      return '画面・入力';
+      return '支出・入力';
     };
-    const cats=['画面・入力','保存・遷移','異常系','安全・後処理'];
+    const cats=['支出・入力','収入登録','会計承認','監査','保存・遷移','異常系','安全・後処理'];
     const catHtml=cats.map(c=>{
       const rr=rows.filter(x=>categoryOf(x[0])===c), ng=rr.filter(x=>x[1]==='fail').length;
       return `<div class="total-check"><span>${c}</span><b>${ng?`${ng} FAIL`:`${rr.length}/${rr.length} PASS`}</b></div>`;
     }).join('');
-    lastUiTestResultHtml=`<div class="total-check"><span>実画面操作テスト 総合</span><b>${uiTestNetworkInterrupted?'通信中断':(fails?`${fails}件の異常`:`${rows.length}/${rows.length} PASS`)}</b></div>${catHtml}${rows.map(x=>diagRow(...x)).join('')}<p class="hint">実行ID：${esc(runId)}。主要な画面入力→異常系→保存→Firebase→画面遷移→撤去まで一括確認しました。</p>`;
+    lastUiTestResultHtml=`<div class="total-check"><span>実画面操作テスト 総合</span><b>${uiTestNetworkInterrupted?'通信中断':(fails?`${fails}件の異常`:`${rows.length}/${rows.length} PASS`)}</b></div>${catHtml}${rows.map(x=>diagRow(...x)).join('')}<p class="hint">実行ID：${esc(runId)}。支出申請→会計承認→監査→収入登録→異常系→Firebase保存→撤去まで一括確認しました。</p>`;
     adminActiveGroup='diagnostics';
     // テスト中は実際の伝票詳細画面まで遷移するため、終了時に必ず管理画面へ戻す。
     // adminGroupDiagnostics を開くだけでは currentScreen が detailScreen のままなので、
