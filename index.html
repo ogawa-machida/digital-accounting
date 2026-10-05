@@ -1940,7 +1940,7 @@ let formPhotos = [];      // dataURLの配列
 let photosChanged = false;
 let formAccount = '', formMethod = '', formAddressee = '';
 let formAiReceiptOriginal = null;
-// v91: 実画面操作自動テスト中だけ使用。通常操作には影響しない。
+// v92: 実画面操作自動テスト中だけ使用。通常操作には影響しない。
 let uiAutoTestContext = null;
 
 async function openForm(e){
@@ -3513,12 +3513,20 @@ async function renderAdmin(){
     // adminGroupDiagnostics を開くだけでは currentScreen が detailScreen のままなので、
     // showScreen('adminScreen') を明示的に通してから診断グループを再表示する。
     showScreen('adminScreen');
-    const diagnosticsGroup=$('adminGroupDiagnostics'), adminMenuNow=$('adminMenu');
+    // showScreen() → renderCurrent() により管理画面DOMは再生成される。
+    // したがって renderAdmin() 内で保持していた adminGroups の参照は古いDOMを指す。
+    // 必ず再生成後のDOMを document から取り直して結果を表示する。
+    const adminMenuNow=document.getElementById('adminMenu');
+    const freshGroups=Array.from(document.querySelectorAll('#adminScreen .admin-group'));
+    const diagnosticsGroup=document.getElementById('adminGroupDiagnostics');
     if(adminMenuNow)adminMenuNow.style.display='none';
-    Object.values(adminGroups).forEach(x=>x&&x.classList.remove('open'));
+    freshGroups.forEach(x=>x.classList.remove('open'));
     if(diagnosticsGroup)diagnosticsGroup.classList.add('open');
-    out=$('diagUIResult');
-    if(out)out.innerHTML=`<div class="total-check"><span>実画面操作テスト</span><b>${fails?`${fails}件の異常`:`${rows.length}/${rows.length} PASS`}</b></div>${rows.map(x=>diagRow(...x)).join('')}<p class="hint">実行ID：${esc(runId)}。入力→選択→保存→Firebase→画面遷移まで実際の画面イベント経路を確認しました。</p>`;
+    out=document.getElementById('diagUIResult');
+    if(out){
+      out.innerHTML=`<div class="total-check"><span>実画面操作テスト</span><b>${fails?`${fails}件の異常`:`${rows.length}/${rows.length} PASS`}</b></div>${rows.map(x=>diagRow(...x)).join('')}<p class="hint">実行ID：${esc(runId)}。入力→選択→保存→Firebase→画面遷移まで実際の画面イベント経路を確認しました。</p>`;
+      out.scrollIntoView({behavior:'smooth',block:'start'});
+    }
   }
   if($('diagRun'))$('diagRun').onclick=runSystemDiagnostics;
   if($('diagE2E'))$('diagE2E').onclick=runE2EDiagnostics;
