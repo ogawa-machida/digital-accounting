@@ -655,7 +655,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.05-95';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.05-97';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -3285,8 +3285,14 @@ async function renderAdmin(){
         <div id="diagSessionStatus" class="hint" style="margin-top:12px"></div>
         <button class="btn btn-ghost full" id="diagCleanup" style="margin-top:8px">前回中断テストを確認・清掃</button>
         <div id="diagCleanupResult" style="margin-top:8px"></div>
-        <button class="btn btn-ghost full" id="diagUI" style="margin-top:14px">実画面操作テストを実行</button>
-        <p class="hint">実際の支出登録画面を開き、入力欄への入力・科目/支払方法の選択・領収書類なし設定・保存ボタン押下・詳細画面への遷移まで、ユーザー操作と同じDOMイベント経路で自動実行します。診断専用伝票は終了時に削除し、本番の伝票番号カウンタや通知メールは動かしません。</p>
+        <div class="form-card" style="margin-top:14px;background:var(--tint)">
+          <div style="font-weight:700">実画面操作テスト</div>
+          <p class="hint">目的に応じてテスト範囲を選べます。いずれも実際のDOMイベントを通し、診断専用データは終了時に撤去します。</p>
+          <button class="btn btn-ghost full" id="diagUIQuick">簡易テスト（主要経路）</button>
+          <button class="btn btn-navy full" id="diagUIStandard" style="margin-top:8px">標準テスト（30項目）</button>
+          <button class="btn btn-ghost full" id="diagUIFull" style="margin-top:8px">完全テスト（標準＋異常系）</button>
+        </div>
+        <p class="hint">標準テストは画面遷移・入力イベント・選択UI・入力検証・Firebase保存・詳細遷移・診断データ分離・撤去まで30項目を確認します。完全テストでは未入力など「保存されてはいけない操作」も追加確認します。</p>
         <div id="diagUIResult" style="margin-top:10px">${lastUiTestResultHtml||''}</div>
         <div id="diagResult" style="margin-top:12px"></div>
       </div>
@@ -3504,12 +3510,16 @@ async function renderAdmin(){
         if(out&&!auto)out.innerHTML=diagRow('中断テスト確認','ok','未完了のテストセッションはありません');
         return;
       }
-      const ids=[];
-      if(session.entryId)ids.push(session.entryId);
-      const es=await R('entries').orderByChild('diagnosticRunId').equalTo(session.runId).get();
-      es.forEach(c=>ids.push(c.key));
-      const unique=[...new Set(ids)];
-      for(const id of unique){await R(`entries/${id}`).remove();await R(`photos/${id}`).remove();}
+      // diagnosticRunId の横断検索は Firebase Rules の .indexOn を必要とするため行わない。
+      // テストセッションに保存した entryId を正として直接確認・撤去する。
+      const unique=session.entryId?[session.entryId]:[];
+      for(const id of unique){
+        const es=await R(`entries/${id}`).get();
+        if(es.exists() && es.val()?.diagnosticRunId===session.runId){
+          await R(`entries/${id}`).remove();
+          await R(`photos/${id}`).remove();
+        }
+      }
       if(session.payerId && session.payerCreated){
         const ps=await R(`payers/${session.payerId}`).get();
         if(ps.exists()&&ps.val()?.testMode)await R(`payers/${session.payerId}`).remove();
@@ -3533,11 +3543,12 @@ async function renderAdmin(){
   refreshUiSessionStatus();
   if($('diagCleanup'))$('diagCleanup').onclick=async()=>{await inspectAndCleanupInterruptedUiTest(false);await refreshUiSessionStatus();};
 
-  async function runUIScreenTest(){
+  async function runUIScreenTest(mode='quick'){
     let out=$('diagUIResult'); if(!out)return;
     if(!isRealAdmin()){out.innerHTML=diagRow('実画面操作テスト','fail','実管理者で実行してください');return;}
-    if(!confirm('実画面操作テストを実行します。\n\n支出登録画面を実際に開き、入力・選択・保存ボタン押下・画面遷移を自動操作します。作成する診断専用伝票は終了時に削除し、通知メールと本番の伝票番号採番は行いません。'))return;
-    const rows=[], runId=`ui_${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
+    const modeName=mode==='quick'?'簡易':mode==='standard'?'標準30項目':'完全';
+    if(!confirm(`${modeName}実画面操作テストを実行します。\n\n実際の画面イベントを自動操作します。作成する診断専用伝票は終了時に削除し、通知メールと本番の伝票番号採番は行いません。`))return;
+    const rows=[], runId=`ui_${mode}_${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
     const add=(n,s,d)=>rows.push([n,s,d]);
     const sleep=ms=>new Promise(r=>setTimeout(r,ms));
     const waitFor=async(fn,ms=5000)=>{const end=Date.now()+ms;while(Date.now()<end){try{const v=fn();if(v)return v;}catch(_){}await sleep(80);}throw new Error('画面の応答がタイムアウトしました');};
@@ -3557,14 +3568,48 @@ async function renderAdmin(){
       // 実際の＋ボタンをクリックしてフォームを開く。
       $('fabAdd').click(); await waitFor(()=>$('formScreen')?.classList.contains('active'));
       add('支出登録画面を開く','ok','＋ボタンのclickイベントで画面遷移');
+      if(mode!=='quick'){
+        const must=(id,label)=>{const el=$(id);add(label,el?'ok':'fail',el?'画面要素を確認':`${id}がありません`);return el;};
+        must('fDate','日付入力欄'); must('fAmount','金額入力欄'); must('fPayee','支払先入力欄');
+        must('fPurpose','用途入力欄'); must('fAccountPicker','科目選択UI'); must('fMethodPicker','支払方法選択UI');
+        must('fPayer','支払者選択'); must('fStorage','原本保管場所'); must('fMemo','内部メモ');
+        must('fExclude','会員向け匿名表示'); must('fNoReceipt','領収書類なし'); must('fNoReceiptReason','領収書類なし理由');
+        must('formCancelBtn','キャンセルボタン'); must('formSaveBtn','保存ボタン');
+        add('支出フォーム種別',formType==='expense'?'ok':'fail',`formType=${formType}`);
+        add('保存ボタン初期状態',!$('formSaveBtn')?.disabled?'ok':'fail','操作可能状態を確認');
+      }
       const setVal=(id,val)=>{const e=$(id);if(!e)throw new Error(`${id}が見つかりません`);e.value=val;e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));};
       setVal('fDate',localDate()); setVal('fAmount','321'); setVal('fPayee','実画面操作テスト'); setVal('fPurpose',`自動UIテスト ${runId}`);
       $('fNoReceipt').click(); setVal('fNoReceiptReason','システム診断のため');
       add('入力欄の操作','ok','日付・金額・支払先・用途・領収書類なしをDOMイベントで入力');
+      if(mode!=='quick'){
+        add('日付入力イベント',$('fDate').value===localDate()?'ok':'fail',$('fDate').value);
+        add('金額入力イベント',$('fAmount').value==='321'?'ok':'fail',$('fAmount').value);
+        add('支払先入力イベント',$('fPayee').value==='実画面操作テスト'?'ok':'fail',$('fPayee').value);
+        add('用途入力イベント',$('fPurpose').value===`自動UIテスト ${runId}`?'ok':'fail','入力値を保持');
+        add('領収書類なし操作',$('fNoReceipt').checked?'ok':'fail','checkbox clickを確認');
+        add('理由入力イベント',$('fNoReceiptReason').value==='システム診断のため'?'ok':'fail','入力値を保持');
+      }
       const accBtn=[...$('fAccountPicker').querySelectorAll('button')][0]; if(!accBtn)throw new Error('選択可能な支出科目がありません'); accBtn.click();
       const methodBtns=[...$('fMethodPicker').querySelectorAll('button')]; const methodBtn=methodBtns.find(b=>!b.querySelector('.flag'))||methodBtns[0]; if(!methodBtn)throw new Error('選択可能な支払方法がありません'); methodBtn.click();
       if(!formAccount||!formMethod)throw new Error('科目または支払方法の選択イベントが反映されません');
       add('選択UIの操作','ok',`科目・支払方法を実ボタンのclickイベントで選択`);
+      if(mode!=='quick'){
+        add('科目選択状態',!!formAccount?'ok':'fail',formAccount||'未選択');
+        add('支払方法選択状態',!!formMethod?'ok':'fail',formMethod||'未選択');
+      }
+      if(mode==='full'){
+        // 異常系：保存されてはいけない操作を実際の保存ボタンで確認する。
+        const savedBefore=uiAutoTestContext.savedEntryId;
+        const keepDate=$('fDate').value, keepAmount=$('fAmount').value, keepReason=$('fNoReceiptReason').value;
+        $('fDate').value=''; $('formSaveBtn').click(); await sleep(180);
+        add('異常系：日付なし',uiAutoTestContext.savedEntryId===savedBefore?'ok':'fail','保存されないこと');
+        $('fDate').value=keepDate; $('fAmount').value='0'; $('formSaveBtn').click(); await sleep(180);
+        add('異常系：金額0',uiAutoTestContext.savedEntryId===savedBefore?'ok':'fail','保存されないこと');
+        $('fAmount').value=keepAmount; $('fNoReceiptReason').value=''; $('formSaveBtn').click(); await sleep(180);
+        add('異常系：領収書類なし理由未入力',uiAutoTestContext.savedEntryId===savedBefore?'ok':'fail','保存されないこと');
+        $('fNoReceiptReason').value=keepReason;
+      }
       $('formSaveBtn').click();
       await waitFor(()=>uiAutoTestContext?.savedEntryId,8000); entryId=uiAutoTestContext.savedEntryId;
       await R(uiTestSessionPath(auth.currentUser.uid)).update({entryId});
@@ -3572,6 +3617,13 @@ async function renderAdmin(){
       const snap=await R(`entries/${entryId}`).get(); if(!snap.exists())throw new Error('保存後の診断伝票がFirebaseにありません');
       const e=snap.val(); if(Number(e.amount)!==321||e.purpose!==`自動UIテスト ${runId}`||e.status!=='submitted')throw new Error('画面入力値または申請状態が保存値と一致しません');
       add('保存ボタン→Firebase','ok','実ボタン押下からsubmitted伝票の保存まで確認');
+      if(mode!=='quick'){
+        add('保存金額',Number(e.amount)===321?'ok':'fail',String(e.amount));
+        add('保存支払先',e.payee==='実画面操作テスト'?'ok':'fail',e.payee||'');
+        add('保存用途',e.purpose===`自動UIテスト ${runId}`?'ok':'fail','画面入力と一致');
+        add('保存ステータス',e.status==='submitted'?'ok':'fail',e.status||'');
+        add('領収書類なし保存',e.noReceipt===true?'ok':'fail',String(e.noReceipt));
+      }
       await waitFor(()=>$('detailScreen')?.classList.contains('active'),5000);
       add('保存後の画面遷移','ok','詳細画面まで自動遷移');
       await sleep(250); // 実画面遷移を描画してから後処理へ進む
@@ -3583,13 +3635,19 @@ async function renderAdmin(){
       try{if(entryId){await R(`entries/${entryId}`).remove();await R(`photos/${entryId}`).remove();}add('テスト伝票の撤去','ok',entryId?'診断伝票を削除':'作成済み伝票なし');}catch(e){add('テスト伝票の撤去','fail',e?.message||String(e));}
       try{if(testPayerId&&!testPayerExisted){const ps=await R(`payers/${testPayerId}`).get();if(ps.exists()&&ps.val()?.testMode)await R(`payers/${testPayerId}`).remove();}}catch(_){}
       try{
-        const residue=await R('entries').orderByChild('diagnosticRunId').equalTo(runId).get();
-        if(residue.exists()) add('テストデータ残存確認','fail',`${residue.numChildren()}件の診断伝票が残っています`);
+        // 横断クエリを使わず、今回作成した entryId を直接確認する。
+        // これにより Firebase Rules への diagnosticRunId .indexOn 追加を不要にする。
+        let residueCount=0;
+        if(entryId){
+          const residue=await R(`entries/${entryId}`).get();
+          if(residue.exists() && residue.val()?.diagnosticRunId===runId) residueCount=1;
+        }
+        if(residueCount) add('テストデータ残存確認','fail',`${residueCount}件の診断伝票が残っています`);
         else add('テストデータ残存確認','ok','診断伝票の残存なし');
         await R(uiTestSessionPath(auth.currentUser.uid)).update({
           status:uiTestNetworkInterrupted?'interrupted':'completed',
           finishedAt:firebase.database.ServerValue.TIMESTAMP,
-          residueCount:residue.numChildren()
+          residueCount
         });
       }catch(e){add('テストセッション終了処理','fail',e?.message||String(e));}
       uiAutoTestContext=null; testProfile=oldProfile; me=oldMe; curFY=oldFY; applyEffectiveProfile();
@@ -3598,7 +3656,7 @@ async function renderAdmin(){
     const fails=rows.filter(x=>x[1]==='fail').length;
     // 結果をDOMだけでなく状態として保持する。Firebaseの遅延onValueで管理画面が
     // 再描画されても、renderAdmin() が診断グループとこの結果を復元する。
-    lastUiTestResultHtml=`<div class="total-check"><span>実画面操作テスト</span><b>${uiTestNetworkInterrupted?'通信中断':(fails?`${fails}件の異常`:`${rows.length}/${rows.length} PASS`)}</b></div>${rows.map(x=>diagRow(...x)).join('')}<p class="hint">実行ID：${esc(runId)}。入力→選択→保存→Firebase→画面遷移まで実際の画面イベント経路を確認しました。</p>`;
+    lastUiTestResultHtml=`<div class="total-check"><span>${modeName}実画面操作テスト</span><b>${uiTestNetworkInterrupted?'通信中断':(fails?`${fails}件の異常`:`${rows.length}/${rows.length} PASS`)}</b></div>${rows.map(x=>diagRow(...x)).join('')}<p class="hint">実行ID：${esc(runId)}。入力→選択→保存→Firebase→画面遷移まで実際の画面イベント経路を確認しました。</p>`;
     adminActiveGroup='diagnostics';
     // テスト中は実際の伝票詳細画面まで遷移するため、終了時に必ず管理画面へ戻す。
     // adminGroupDiagnostics を開くだけでは currentScreen が detailScreen のままなので、
@@ -3621,7 +3679,9 @@ async function renderAdmin(){
   }
   if($('diagRun'))$('diagRun').onclick=runSystemDiagnostics;
   if($('diagE2E'))$('diagE2E').onclick=runE2EDiagnostics;
-  if($('diagUI'))$('diagUI').onclick=runUIScreenTest;
+  if($('diagUIQuick'))$('diagUIQuick').onclick=()=>runUIScreenTest('quick');
+  if($('diagUIStandard'))$('diagUIStandard').onclick=()=>runUIScreenTest('standard');
+  if($('diagUIFull'))$('diagUIFull').onclick=()=>runUIScreenTest('full');
   if($('diagDestructive'))$('diagDestructive').onclick=runDestructiveSimulation;
 
   // v84: データ保存期間・退任・匿名統計
