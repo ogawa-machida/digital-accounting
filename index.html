@@ -375,6 +375,30 @@ p,.hint,.notice,.slip-title,.slip-memo,.person-row,.cat-row,.settings-task-btn,
 .ai-compare-head{font-size:10px;color:var(--muted);margin-bottom:4px}.ai-compare-val{font-size:12px;font-weight:700;word-break:break-word}
 .ai-compare-cell.changed{border-color:var(--amber)}
 @media(max-width:520px){.ai-compare-grid{grid-template-columns:1fr}.ai-compare-cell{display:grid;grid-template-columns:92px 1fr;gap:8px}.ai-compare-head{margin:0}}
+
+/* 監査画面：PC向け文字サイズ切替
+   現行サイズを「小」とし、中をデフォルトにする。 */
+#auditScreen.audit-font-small{font-size:1rem}
+#auditScreen.audit-font-medium{font-size:1.18rem}
+#auditScreen.audit-font-large{font-size:1.38rem}
+#auditScreen.audit-font-xlarge{font-size:1.62rem}
+#auditScreen.audit-font-medium .hint,#auditScreen.audit-font-medium small{font-size:.98em}
+#auditScreen.audit-font-large .hint,#auditScreen.audit-font-large small{font-size:.98em}
+#auditScreen.audit-font-xlarge .hint,#auditScreen.audit-font-xlarge small{font-size:.98em}
+#auditScreen.audit-font-medium .slip-sub,#auditScreen.audit-font-large .slip-sub,#auditScreen.audit-font-xlarge .slip-sub{font-size:.9em}
+#auditScreen.audit-font-medium .slip-title,#auditScreen.audit-font-large .slip-title,#auditScreen.audit-font-xlarge .slip-title{font-size:1.05em}
+#auditScreen.audit-font-medium .slip-amount,#auditScreen.audit-font-large .slip-amount,#auditScreen.audit-font-xlarge .slip-amount{font-size:1.1em}
+#auditScreen.audit-font-medium button,#auditScreen.audit-font-medium input,#auditScreen.audit-font-medium select,#auditScreen.audit-font-medium textarea{font-size:1em}
+#auditScreen.audit-font-large button,#auditScreen.audit-font-large input,#auditScreen.audit-font-large select,#auditScreen.audit-font-large textarea{font-size:1em}
+#auditScreen.audit-font-xlarge button,#auditScreen.audit-font-xlarge input,#auditScreen.audit-font-xlarge select,#auditScreen.audit-font-xlarge textarea{font-size:1em}
+.audit-font-picker{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:0 0 12px}
+.audit-font-picker .audit-size-btn{min-width:54px;padding:9px 12px}
+.audit-font-picker .audit-size-btn.active{background:var(--stamp-navy);color:#fff;border-color:var(--stamp-navy)}
+@media (min-width:900px){
+  #auditScreen.audit-font-large .panel,#auditScreen.audit-font-xlarge .panel{padding:18px}
+  #auditScreen.audit-font-xlarge .summary-strip{gap:10px}
+}
+
 </style>
 <style>
 #newMSettle{width:24px;height:24px;flex:0 0 auto;margin:0 12px 0 0;vertical-align:middle}
@@ -671,7 +695,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.06-115';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.06-117';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1008,10 +1032,13 @@ function actionableBookStatus(){
 
 /* 操作履歴（追記のみ。ルールで書き換え・削除できないようにしている） */
 function writeLog(action, e, detail){
+  // 自動試験・テスト役割の操作は監査用の本番操作履歴へ残さない。
+  // 試験結果はシステム診断画面だけで確認する。
+  if(isTestMode() || uiAutoTestContext || e?.testMode || e?.diagnosticRunId) return Promise.resolve({skipped:true,testMode:true});
   return R('log').push().set({
     at:TS(), uid:me.uid, name:me.name, action,
     voucherNo: e ? (e.voucherNo||'') : '', amount: e ? (Number(e.amount)||0) : 0,
-    detail: detail||'', ...(isTestMode()?{testMode:true,testRole:testProfile,testOwnerUid:auth.currentUser?.uid||''}:{})
+    detail: detail||''
   }).catch(()=>{});
 }
 
@@ -2977,8 +3004,38 @@ function autoChecks(ap){
   return out;
 }
 
+const AUDIT_FONT_SIZES=['small','medium','large','xlarge'];
+function getAuditFontSize(){
+  const v=localStorage.getItem('auditFontSize')||'medium';
+  return AUDIT_FONT_SIZES.includes(v)?v:'medium';
+}
+function setAuditFontSize(size){
+  const v=AUDIT_FONT_SIZES.includes(size)?size:'medium';
+  localStorage.setItem('auditFontSize',v);
+  const el=$('auditScreen');
+  if(el){
+    el.classList.remove(...AUDIT_FONT_SIZES.map(x=>'audit-font-'+x));
+    el.classList.add('audit-font-'+v);
+  }
+}
+function auditFontPickerHtml(){
+  const cur=getAuditFontSize();
+  const items=[['xlarge','特大'],['large','大'],['medium','中'],['small','小']];
+  return `<div class="panel audit-font-picker" aria-label="監査画面の文字サイズ">
+    <b style="margin-right:4px">文字サイズ</b>
+    ${items.map(([k,l])=>`<button type="button" class="btn btn-ghost audit-size-btn ${cur===k?'active':''}" data-audit-font="${k}" aria-pressed="${cur===k?'true':'false'}">${l}</button>`).join('')}
+    <span class="hint" style="margin:0">この端末に保存されます</span>
+  </div>`;
+}
+function bindAuditFontPicker(el){
+  el.querySelectorAll('[data-audit-font]').forEach(b=>b.onclick=()=>{
+    setAuditFontSize(b.dataset.auditFont);
+    renderAudit();
+  });
+}
 function renderAudit(){
   const el = $('auditScreen');
+  setAuditFontSize(getAuditFontSize());
   if (!isStaff()) { el.innerHTML=''; return; }
   const ap = approvedFY().sort((a,b)=>(a.voucherNo||'')<(b.voucherNo||'')?-1:1);
   const ok = ap.filter(e=>e.audit && !e.auditStale && e.audit.result==='ok');
@@ -3006,7 +3063,7 @@ function renderAudit(){
     <div style="font-family:'Shippori Mincho',serif;font-size:21px;font-weight:700;line-height:1.25;color:${okFlag===false?'var(--stamp-red)':okFlag===true?'var(--moss)':'var(--ink)'}">${value}</div>
     ${sub?`<div class="hint" style="margin:5px 0 0">${sub}</div>`:''}</div>`;
 
-  let html=`<div class="panel"><h3 style="margin-bottom:10px">${curFY}年度 監査ダッシュボード <small>紙を使わず、この画面で確認できます</small></h3>
+  let html=auditFontPickerHtml()+`<div class="panel"><h3 style="margin-bottom:10px">${curFY}年度 監査ダッシュボード <small>紙を使わず、この画面で確認できます</small></h3>
     <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px">
       ${card('帳簿残高',yen(book),`期首 ${yen(opening)} ＋ 収入 ${yen(inc)} − 支出 ${yen(exp)}`,null)}
       ${card('現預金照合',latestRecon?(moneyOK?'差額 0円':'差額 '+yen(Number(latestRecon.diff)||0)):'未確認',
@@ -3057,10 +3114,12 @@ function renderAudit(){
     <div class="btn-row" style="flex-wrap:wrap;margin-top:10px"><button class="btn btn-ghost sm" id="outCsv">出納帳CSV</button><button class="btn btn-ghost sm" id="outVouchers">領収書類台帳を印刷</button><button class="btn btn-ghost sm" id="outReport">総会報告書類を印刷・PDF保存</button></div>
     <p class="hint">通常の監査は画面上で完結できます。総会提出時は「総会報告用決算書類」を開き、端末の印刷画面から印刷またはPDF保存できます。</p></details>`;
 
-  html+=`<details class="panel" style="margin-top:12px"><summary style="font-family:'Shippori Mincho',serif;font-weight:700;cursor:pointer">操作履歴（直近${Math.min(logs.length,300)}件）</summary>
-    <p class="hint">登録・修正・承認・精算・監査の履歴を確認できます。</p><div class="history" style="margin-top:8px">${logs.map(l=>`<div style="border-bottom:1px dashed var(--line);padding:4px 0">${fmtTs(l.at)}　<b style="color:var(--ink)">${esc(l.action)}</b>　${esc(l.name)}　${esc(l.voucherNo||'')} ${l.amount?yen(l.amount):''}<br>${esc(l.detail||'')}</div>`).join('')||'まだありません'}</div></details>`;
+  const operationLogs=logs.filter(l=>!l.testMode && !l.diagnosticRunId && l.testRole!=='ui-auto' && !/^TEST[-・_]/i.test(String(l.voucherNo||'')) && !/自動(?:UI)?テスト|システム診断用/.test(String(l.detail||'')));
+  html+=`<details class="panel" style="margin-top:12px"><summary style="font-family:'Shippori Mincho',serif;font-weight:700;cursor:pointer">操作履歴（直近${Math.min(operationLogs.length,300)}件）</summary>
+    <p class="hint">登録・修正・承認・精算・監査など、本番の会計操作だけを表示します。自動試験・システム診断は含みません。</p><div class="history" style="margin-top:8px">${operationLogs.slice(0,300).map(l=>`<div style="border-bottom:1px dashed var(--line);padding:4px 0">${fmtTs(l.at)}　<b style="color:var(--ink)">${esc(l.action)}</b>　${esc(l.name)}　${esc(l.voucherNo||'')} ${l.amount?yen(l.amount):''}<br>${esc(l.detail||'')}</div>`).join('')||'まだありません'}</div></details>`;
 
   el.innerHTML=html;
+  bindAuditFontPicker(el);
   bindSlips(el);
   el.querySelectorAll('[data-f]').forEach(c=>c.onclick=()=>{auditFilter=c.dataset.f;renderAudit();});
   if($('outCsv')) $('outCsv').onclick=exportCsv;
@@ -3629,6 +3688,32 @@ async function renderAdmin(){
       try{const [a,b]=await Promise.all([R(`entries/${entryId}`).get(),R(sandbox).get()]);add('テストデータ残存確認',(!a.exists()&&!b.exists())?'ok':'fail',(!a.exists()&&!b.exists())?'残存データなし':'テストデータが残っています');}catch(e){add('テストデータ残存確認','fail',e?.code||e?.message||String(e));}
     }
     try{
+      const savedAuditFont=localStorage.getItem('auditFontSize');
+      localStorage.removeItem('auditFontSize');
+      add('監査文字サイズ：デフォルト中',getAuditFontSize()==='medium'?'ok':'fail','未設定時は「中」');
+      setAuditFontSize('xlarge');
+      add('監査文字サイズ：特大',getAuditFontSize()==='xlarge'&&$('auditScreen').classList.contains('audit-font-xlarge')?'ok':'fail','特大を選択・保存');
+      setAuditFontSize('large');
+      add('監査文字サイズ：大',getAuditFontSize()==='large'&&$('auditScreen').classList.contains('audit-font-large')?'ok':'fail','大を選択・保存');
+      setAuditFontSize('small');
+      add('監査文字サイズ：小',getAuditFontSize()==='small'&&$('auditScreen').classList.contains('audit-font-small')?'ok':'fail','従来サイズを「小」として選択');
+      if(savedAuditFont===null)localStorage.removeItem('auditFontSize');else localStorage.setItem('auditFontSize',savedAuditFont);
+      setAuditFontSize(getAuditFontSize());
+    }catch(e){ add('監査文字サイズ切替','fail',e?.message||String(e)); }
+
+    try{
+      const testLogBefore=logs.length;
+      const savedCtx=uiAutoTestContext;
+      uiAutoTestContext={runId:'log-suppression-selftest'};
+      const wr=await writeLog('自動試験ログ抑止テスト',{testMode:true,diagnosticRunId:'log-suppression-selftest'},'自動UIテスト');
+      uiAutoTestContext=savedCtx;
+      add('自動試験の操作履歴抑止',wr?.skipped===true?'ok':'fail','自動試験は本番操作履歴へ書き込まない');
+      const visibleLogTest=[{testMode:true,action:'テスト'},{diagnosticRunId:'x',action:'診断'},{voucherNo:'TEST-001',action:'試験'},{action:'本番'}]
+        .filter(l=>!l.testMode&&!l.diagnosticRunId&&l.testRole!=='ui-auto'&&!/^TEST[-・_]/i.test(String(l.voucherNo||''))&&!/自動(?:UI)?テスト|システム診断用/.test(String(l.detail||'')));
+      add('過去の試験ログ非表示',visibleLogTest.length===1&&visibleLogTest[0].action==='本番'?'ok':'fail','識別可能な既存試験ログも操作履歴から除外');
+    }catch(e){ add('自動試験ログの分離','fail',e?.message||String(e)); }
+
+    try{
       const vi=homeVersionInfo();
       add('ホーム画面のバージョン表示',vi.includes(APP_VERSION)&&/デジタル会計/.test(vi)?'ok':'fail',`Ver.${APP_VERSION} を常時表示`);
     }catch(e){ add('ホーム画面のバージョン表示','fail',e?.message||String(e)); }
@@ -4109,6 +4194,8 @@ async function renderAdmin(){
     // 結果をDOMだけでなく状態として保持する。Firebaseの遅延onValueで管理画面が
     // 再描画されても、renderAdmin() が診断グループとこの結果を復元する。
     const categoryOf=(name)=>{
+      if(/監査文字サイズ/.test(name))return '監査';
+      if(/操作履歴抑止|試験ログ|ログの分離/.test(name))return '安全・後処理';
       if(/バージョン表示/.test(name))return '保存・遷移';
       if(/取込列|インポート/.test(name))return 'データ取込';
       if(/会員向け報告|会員報告/.test(name))return '会員向け報告';
