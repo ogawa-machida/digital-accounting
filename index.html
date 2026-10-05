@@ -655,7 +655,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.05-99';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.05-100';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -2771,8 +2771,12 @@ async function doSettlement(pid, recalc){
   const btn = $('stDo'); btn.disabled = true;
   try {
     const fy = fyOf(date);
-    const tx = await R(`counters/S${fy}`).transaction(n=>(n||0)+1);
-    const no = `精${fy}-${pad(tx.snapshot.val(),3)}`;
+    let no;
+    if(uiAutoTestContext) no=`TEST-精-${uiAutoTestContext.runId}`;
+    else {
+      const tx = await R(`counters/S${fy}`).transaction(n=>(n||0)+1);
+      no = `精${fy}-${pad(tx.snapshot.val(),3)}`;
+    }
     const sid = R('settlements').push().key;
     // 複数端末で同時に精算しても二重精算しないよう、確定直前にFirebaseの最新状態を再確認する。
     const [eSnaps,aSnaps]=await Promise.all([
@@ -2798,9 +2802,14 @@ async function doSettlement(pid, recalc){
     await db.ref(ROOT).update(ups);
     writeLog('精算', null, `${no} ${payerName(pid)} ${directionText(spent-adv,'')} ${yen(Math.abs(spent-adv))}`);
     await metricEnd('settled');
-    notifySettlementConfirm(sid);
-    showToast('精算を記録し、該当者へ受取確認のメール通知を送信しました');
-    if (confirm('精算書を印刷しますか？（受領印をもらう場合）')) printSettlement({...ups[`settlements/${sid}`], id:sid, createdAt:Date.now()});
+    if(uiAutoTestContext){
+      uiAutoTestContext.savedSettlementId=sid;
+      showToast('診断用の精算を記録しました');
+    } else {
+      notifySettlementConfirm(sid);
+      showToast('精算を記録し、該当者へ受取確認のメール通知を送信しました');
+      if (confirm('精算書を印刷しますか？（受領印をもらう場合）')) printSettlement({...ups[`settlements/${sid}`], id:sid, createdAt:Date.now()});
+    }
   } catch(e){ console.error(e); showToast(e.message==='STALE_SETTLEMENT'?'他の端末で状態が更新されています。画面を更新して精算内容を確認してください':'精算の記録に失敗しました'); btn.disabled=false; }
 }
 
@@ -3293,8 +3302,8 @@ async function renderAdmin(){
         <p class="hint">結果は「画面・入力」「保存・遷移」「異常系」「安全・後処理」に分類して表示します。今後、収入・承認・監査・AI・精算・会員向け報告・年度処理の実画面シナリオもこの1本へ追加していきます。</p>
         <details style="margin-top:12px"><summary>実画面テストの対象範囲</summary>
           <div class="hint" style="margin-top:8px">
-            <b>現在自動操作：</b>支出申請、収入登録、会計承認、監査、入力検証、Firebase保存、詳細遷移、異常系、診断データ撤去。<br>
-            <b>次期拡張：</b>AI修正、精算、会員向け報告、年度処理。<br>
+            <b>現在自動操作：</b>支出申請、収入登録、会計承認、監査、AI読取後修正履歴、精算、入力検証、Firebase保存、詳細遷移、異常系、診断データ撤去。<br>
+            <b>次期拡張：</b>会員向け報告、年度処理。<br>
             未実装のシナリオをPASS件数には含めません。
           </div>
         </details>
@@ -3558,7 +3567,7 @@ async function renderAdmin(){
     const sleep=ms=>new Promise(r=>setTimeout(r,ms));
     const waitFor=async(fn,ms=5000)=>{const end=Date.now()+ms;while(Date.now()<end){try{const v=fn();if(v)return v;}catch(_){}await sleep(80);}throw new Error('画面の応答がタイムアウトしました');};
     const oldProfile=testProfile, oldMe=me, oldFY=curFY;
-    let entryId=null, incomeEntryId=null, testPayerId=null, testPayerExisted=false;
+    let entryId=null, incomeEntryId=null, settlementId=null, testPayerId=null, testPayerExisted=false;
     try{
       uiAutoTestContext={runId,savedEntryId:null,startedOnline:navigator.onLine,networkRecoveredAt:null};
       uiTestNetworkInterrupted=false;
@@ -3658,6 +3667,62 @@ async function renderAdmin(){
       add('監査結果→Firebase',audit?.result==='ok'?'ok':'fail',audit?.result||'取得不可');
       add('監査者記録',!!audit?.byName?'ok':'fail',audit?.byName||'未記録');
 
+      // ---- AI読取後修正履歴：外部APIは呼ばず、AI読取結果を診断データとして再現 ----
+      // 外部Claude APIの疎通は通知・AI診断で別確認し、ここではアプリ内の差分・履歴ロジックを検証する。
+      const aiBase={
+        date:approved.date||localDate(), amount:320, payee:'AI読取テスト店',
+        purpose:'AI読取テスト用途', accountId:approved.accountId||'', addressee:''
+      };
+      await R(`entries/${entryId}`).update({
+        aiReceiptOriginal:aiBase,
+        amount:321,payee:'実画面操作テスト',purpose:`自動UIテスト ${runId}`,
+        aiReceiptEditedAt:firebase.database.ServerValue.TIMESTAMP,
+        aiReceiptEditedBy:me.uid,aiReceiptEditedByName:me.name,
+        aiReceiptChangedFields:['amount','payee','purpose']
+      });
+      const aiHistRef=R(`entries/${entryId}/aiReceiptEditHistory`).push();
+      await aiHistRef.set({
+        at:firebase.database.ServerValue.TIMESTAMP,by:me.uid,byName:me.name,
+        changedFields:['amount','payee','purpose'],original:aiBase,
+        current:{date:approved.date||localDate(),amount:321,payee:'実画面操作テスト',purpose:`自動UIテスト ${runId}`,accountId:approved.accountId||'',addressee:''},
+        testMode:true,diagnosticRunId:runId
+      });
+      const aiCheck=(await R(`entries/${entryId}`).get()).val();
+      add('AI原判定の保持',!!aiCheck?.aiReceiptOriginal?'ok':'fail','AI読取時点の値を保持');
+      add('AI修正項目の記録',Array.isArray(aiCheck?.aiReceiptChangedFields)&&aiCheck.aiReceiptChangedFields.length===3?'ok':'fail',`${aiCheck?.aiReceiptChangedFields?.length||0}項目`);
+      add('AI修正履歴の保存',aiCheck?.aiReceiptEditHistory&&Object.keys(aiCheck.aiReceiptEditHistory).length?'ok':'fail','原判定→修正後を構造化保存');
+      testProfile='auditor'; applyEffectiveProfile(); renderAll(); openDetail(entryId); await waitFor(()=>$('detailScreen')?.classList.contains('active'),5000);
+      add('AI差分の監査表示',$('detailScreen').textContent.includes('AIレシート読取の確認')&&$('detailScreen').textContent.includes('AI読取後の修正')?'ok':'fail','監査詳細画面で差分を表示');
+
+      // ---- 精算：承認済みの診断支出を、会計の精算画面から実ボタンで記録 ----
+      testProfile='treasurer'; applyEffectiveProfile(); renderAll();
+      showScreen('settleScreen'); settleView=testPayerId; renderSettle();
+      await waitFor(()=>$('stDo') && !$('stDo').disabled,5000);
+      add('精算画面を開く','ok','承認済み診断支出を精算対象として表示');
+      if(!$('stDate')||!$('stWay'))throw new Error('精算入力欄がありません');
+      $('stMemo').value=`自動UI精算 ${runId}`; $('stMemo').dispatchEvent(new Event('input',{bubbles:true}));
+      add('精算入力・選択','ok','精算日・方法・メモ・対象伝票を実画面で確認');
+      uiAutoTestContext.savedSettlementId=null;
+      // confirm() は実運用と同じ確認ダイアログを通すため、テスト中だけ1回自動承認する。
+      const originalConfirm=window.confirm;
+      window.confirm=()=>true;
+      try{$('stDo').click(); await waitFor(()=>uiAutoTestContext?.savedSettlementId,8000);}
+      finally{window.confirm=originalConfirm;}
+      settlementId=uiAutoTestContext.savedSettlementId;
+      const stSnap=await R(`settlements/${settlementId}`).get(), st=stSnap.val();
+      add('精算保存→Firebase',st?.payerId===testPayerId&&Number(st?.net)===321?'ok':'fail',st?`${st.no} ${st.net}`:'取得不可');
+      const settledEntry=(await R(`entries/${entryId}`).get()).val();
+      add('伝票の精算済み連携',settledEntry?.settleState==='settled'&&settledEntry?.settlementId===settlementId?'ok':'fail',settledEntry?.settleState||'取得不可');
+      add('診断精算の本番採番分離',String(st?.no||'').startsWith('TEST-精-')?'ok':'fail',st?.no||'取得不可');
+
+      // 精算は後続の診断に影響しないよう取り消し相当の後処理を行う。
+      await R(`entries/${entryId}/settleState`).set('pending');
+      await R(`entries/${entryId}/settlementId`).set(null);
+      await R(`settlements/${settlementId}`).remove();
+      const stGone=await R(`settlements/${settlementId}`).get();
+      add('精算テストデータの撤去',!stGone.exists()?'ok':'fail',!stGone.exists()?'撤去済み':'残存');
+      settlementId=null; uiAutoTestContext.savedSettlementId=null;
+
       // ---- 収入登録：会計役割で実際の登録フォーム→収入切替→入力→保存 ----
       testProfile='treasurer'; applyEffectiveProfile(); renderAll();
       $('fabAdd').click(); await waitFor(()=>$('formScreen')?.classList.contains('active'),5000);
@@ -3695,9 +3760,13 @@ async function renderAdmin(){
     }catch(e){add('実画面操作テスト','fail',e?.message||String(e));}
     finally{
       try{
+        if(settlementId){
+          if(entryId){await R(`entries/${entryId}/settleState`).set('pending');await R(`entries/${entryId}/settlementId`).set(null);}
+          await R(`settlements/${settlementId}`).remove();
+        }
         if(incomeEntryId){await R(`entries/${incomeEntryId}`).remove();await R(`photos/${incomeEntryId}`).remove();}
         if(entryId){await R(`entries/${entryId}`).remove();await R(`photos/${entryId}`).remove();}
-        add('テスト伝票の撤去','ok',(entryId||incomeEntryId)?'診断伝票を削除':'作成済み伝票なし');
+        add('テスト伝票の撤去','ok',(entryId||incomeEntryId||settlementId)?'診断データを削除':'作成済みデータなし');
       }catch(e){add('テスト伝票の撤去','fail',e?.message||String(e));}
       try{if(testPayerId&&!testPayerExisted){const ps=await R(`payers/${testPayerId}`).get();if(ps.exists()&&ps.val()?.testMode)await R(`payers/${testPayerId}`).remove();}}catch(_){}
       try{
@@ -3723,6 +3792,8 @@ async function renderAdmin(){
     // 結果をDOMだけでなく状態として保持する。Firebaseの遅延onValueで管理画面が
     // 再描画されても、renderAdmin() が診断グループとこの結果を復元する。
     const categoryOf=(name)=>{
+      if(/AI/.test(name))return 'AI修正履歴';
+      if(/精算/.test(name))return '精算';
       if(/収入/.test(name))return '収入登録';
       if(/承認/.test(name))return '会計承認';
       if(/監査/.test(name))return '監査';
@@ -3731,12 +3802,12 @@ async function renderAdmin(){
       if(/Firebase|保存|画面遷移/.test(name))return '保存・遷移';
       return '支出・入力';
     };
-    const cats=['支出・入力','収入登録','会計承認','監査','保存・遷移','異常系','安全・後処理'];
+    const cats=['支出・入力','収入登録','会計承認','監査','AI修正履歴','精算','保存・遷移','異常系','安全・後処理'];
     const catHtml=cats.map(c=>{
       const rr=rows.filter(x=>categoryOf(x[0])===c), ng=rr.filter(x=>x[1]==='fail').length;
       return `<div class="total-check"><span>${c}</span><b>${ng?`${ng} FAIL`:`${rr.length}/${rr.length} PASS`}</b></div>`;
     }).join('');
-    lastUiTestResultHtml=`<div class="total-check"><span>実画面操作テスト 総合</span><b>${uiTestNetworkInterrupted?'通信中断':(fails?`${fails}件の異常`:`${rows.length}/${rows.length} PASS`)}</b></div>${catHtml}${rows.map(x=>diagRow(...x)).join('')}<p class="hint">実行ID：${esc(runId)}。支出申請→会計承認→監査→収入登録→異常系→Firebase保存→撤去まで一括確認しました。</p>`;
+    lastUiTestResultHtml=`<div class="total-check"><span>実画面操作テスト 総合</span><b>${uiTestNetworkInterrupted?'通信中断':(fails?`${fails}件の異常`:`${rows.length}/${rows.length} PASS`)}</b></div>${catHtml}${rows.map(x=>diagRow(...x)).join('')}<p class="hint">実行ID：${esc(runId)}。支出申請→会計承認→監査→AI修正履歴→精算→収入登録→異常系→Firebase保存→撤去まで一括確認しました。</p>`;
     adminActiveGroup='diagnostics';
     // テスト中は実際の伝票詳細画面まで遷移するため、終了時に必ず管理画面へ戻す。
     // adminGroupDiagnostics を開くだけでは currentScreen が detailScreen のままなので、
