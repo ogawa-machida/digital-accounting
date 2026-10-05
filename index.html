@@ -272,6 +272,12 @@ table.pub th{font-family:'Shippori Mincho',serif; background:var(--tint);}
 .imp-row.off{opacity:.45;}
 .total-check{display:flex; justify-content:space-between; font-size:12.5px; padding:8px 10px; border-radius:6px; margin-top:8px; background:var(--tint);}
 .total-check.ng{background:#F7E3DD; color:var(--stamp-red);}
+
+.settings-fold{border:0}
+.settings-fold-summary{list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 20px;background:#fff;border:1px solid var(--line);border-radius:14px;font-size:18px;font-weight:800}
+.settings-fold-summary::-webkit-details-marker{display:none}
+.settings-fold-arrow{font-size:28px;line-height:1;color:var(--ink-soft);transition:transform .18s ease}
+.settings-fold[open]>.settings-fold-summary .settings-fold-arrow{transform:rotate(90deg)}
 .diag-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-radius:12px;margin-top:10px;font-weight:700}
 .diag-summary.ok{background:#E8F3EA;color:#245C35;border:1px solid #BFD9C5}
 .diag-summary.warn{background:#FFF3D9;color:#7A5711;border:1px solid #E9D29A}
@@ -665,7 +671,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.05-109';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.05-110';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -4232,7 +4238,7 @@ function renderSettings(){
     const nextBudgetCount=nextBudget.filter(x=>x.to!==0).length;
     const nextOpening=Number((settings.opening||{})[nextFY]);
     const switched=!!settings.fiscalTransitions?.[`${curFY}-${nextFY}`];
-    html += `<h2 class="section-title" style="margin-top:20px">年度切り替え</h2><div class="form-card">
+    html += `<details class="settings-fold" style="margin-top:20px"><summary class="settings-fold-summary"><span>年度切り替え</span><span class="settings-fold-arrow">›</span></summary><div class="form-card" style="margin-top:10px">
       <div class="total-check"><span>現在</span><b>${curFY}年度 → ${nextFY}年度</b></div>
       <p class="hint">${fyRangeLabel(curFY)} の会計を確認し、次年度の前年度繰越金と予算を準備します。過去の伝票・監査・会計報告はそのまま保持します。</p>
       <div class="total-check"><span>${curFY}年度 承認済み</span><b>${fySummary.approved.length}件</b></div>
@@ -4244,7 +4250,7 @@ function renderSettings(){
       ${switched?`<p class="hint" style="color:var(--moss);font-weight:700">✓ ${nextFY}年度の切り替え準備済みです。</p>`:''}
       <button class="btn btn-navy full" id="fySwitchPreview" style="margin-top:10px">${switched?'年度切り替え内容を再確認':'年度切り替えを準備する'}</button>
       <div id="fySwitchBox" style="margin-top:10px"></div>
-    </div>`;
+    </div></details>`;
 
     const cashFeeOpen = cashFeeCollectionOpen();
     const cashFeeInfo = settings.cashFeeCollection || {};
