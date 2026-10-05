@@ -461,6 +461,10 @@ body.audit-detail-mode #detailScreen [style*="font-size:10"],body.audit-detail-m
 .account-menu-pop button{width:100%;text-align:left;justify-content:flex-start}
 .account-menu-pop .logout-action{margin-top:4px}
 
+
+.next-action-card{border:1px solid var(--line);border-left:5px solid var(--stamp-navy);background:var(--paper,#fffdf8);border-radius:12px;padding:16px;margin:0 0 14px}.next-action-card.amber{border-left-color:#b27a18}.next-action-card.moss{border-left-color:var(--moss)}.next-kicker{font-size:12px;font-weight:800;letter-spacing:.08em;color:var(--stamp-red);margin-bottom:4px}.next-action-card h2{font-size:18px;margin:0 0 6px}.next-action-card p{margin:0 0 12px;line-height:1.65;color:var(--muted)}
+.screen-guide{border:1px solid var(--line);border-radius:10px;background:rgba(255,253,248,.72);margin:0 0 12px;overflow:hidden}.screen-guide summary{cursor:pointer;padding:10px 12px;display:flex;align-items:center;gap:10px;list-style:none}.screen-guide summary::-webkit-details-marker{display:none}.screen-guide summary span{font-size:11px;font-weight:800;color:var(--stamp-red);white-space:nowrap}.screen-guide summary b{font-size:14px}.screen-guide-body{padding:0 12px 12px}.screen-guide-body>p{margin:0 0 9px;line-height:1.6}.role-flow{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin:8px 0 10px}.role-flow span{display:inline-flex;align-items:center;gap:5px;background:var(--wash,#f5efe3);border-radius:999px;padding:5px 9px;font-size:12px;font-weight:700}.role-flow i{font-style:normal;display:inline-grid;place-items:center;width:19px;height:19px;border-radius:50%;background:var(--stamp-navy);color:#fff;font-size:11px}.role-flow em{font-style:normal;opacity:.45}@media(max-width:640px){.role-flow em{display:none}.next-action-card .btn{width:100%}.screen-guide summary{align-items:flex-start;flex-direction:column;gap:2px}}
+
 </style>
 <style>
 #newMSettle{width:24px;height:24px;flex:0 0 auto;margin:0 12px 0 0;vertical-align:middle}
@@ -757,7 +761,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.06-122';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.06-123';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1643,13 +1647,39 @@ const ICONS = {
   audit:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/><path d="M8.5 11l2 2 3.5-3.5"/></svg>',
   settings:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>'
 };
+function roleSimpleGuide(){
+  if(isAdmin())return{title:'管理者',one:'会計業務と利用者・権限・システム管理を行います。',flow:['状況を確認','会計処理','必要時に管理']};
+  if(isT())return{title:'会計担当',one:'申請を確認し、承認・精算・帳簿管理を行います。',flow:['申請を確認','承認・差戻し','精算・帳簿']};
+  if(isA())return{title:'監査担当',one:'帳簿・伝票・領収書類を確認し、監査結果を記録します。',flow:['要確認を確認','伝票を確認','監査完了']};
+  if(isP())return{title:isGuest()?'初回申請':'支払者',one:'支払った内容を申請し、会計確認後に精算を確認します。',flow:['申請する','会計が確認','精算を確認']};
+  return{title:'役員',one:'会計状況を見て、自分の承認が必要なものだけ対応します。',flow:['状況を見る','要確認だけ対応','結果を確認']};
+}
+function screenPlainGuide(id){
+  const m={homeScreen:['ホーム','まずここを見れば大丈夫です。今あなたが対応することを上から順に表示します。'],bookScreen:[isP()?'申請一覧':isViewer()?'伝票確認':'伝票・出納帳',isP()?'自分の申請と現在の状態を確認します。':'伝票を確認します。押すと詳しい内容が開きます。'],settleScreen:[isP()||isViewer()?'精算確認':'精算処理',isP()?'会計からの精算結果を確認します。':isViewer()?'自分に関係する精算状況を確認します。':'承認済みの立替・仮払をまとめて精算します。'],auditScreen:['監査','上から順に「要確認事項 → 伝票 → 現預金 → 監査完了」を確認します。'],settingsScreen:['会計設定','年度・口座・科目など、会計全体の設定を行います。'],adminScreen:['管理','利用者・権限、データ、通知・AI、個人情報、診断などを管理します。'],detailScreen:['伝票の詳細',detailReturnScreen==='auditScreen'?'監査対象の伝票です。内容・領収書類・処理履歴を確認します。':'伝票の内容・領収書類・処理状況を確認します。']};
+  return m[id]||[TITLES[id]||'この画面','画面の案内に沿って操作してください。'];
+}
+function roleNextAction(){
+  const fy=fyEntries();
+  if(isA()){const todo=fy.filter(e=>e.status==='approved'&&(!e.audit||e.auditStale));return todo.length?{tone:'navy',title:`監査する伝票が ${todo.length}件あります`,sub:'1件ずつ確認し、問題の有無を記録します。',label:'監査を始める',go:'auditScreen'}:{tone:'moss',title:'未確認の監査伝票はありません',sub:'現預金照合など残りの確認事項を見てください。',label:'監査状況を見る',go:'auditScreen'};}
+  if(isP()){const mine=allEntries(),ret=mine.filter(e=>e.status==='returned'),unc=settlements.filter(x=>x.payerId===me.payerId&&!x.payerConfirm);if(ret.length)return{tone:'amber',title:`差戻しが ${ret.length}件あります`,sub:'会計担当のコメントを見て修正し、再申請してください。',label:'差戻しを確認',go:'bookScreen',filter:'returned'};if(unc.length)return{tone:'navy',title:`精算の受取確認が ${unc.length}件あります`,sub:'会計が記録した金額を確認してください。',label:'精算を確認',go:'settleScreen'};return{tone:'moss',title:'支払いをしたら、ここから申請します',sub:'領収書類があれば撮影して入力できます。',label:'支出を申請する',action:'new'};}
+  if(isViewer()){const a=visibleBookEntries().filter(e=>e.fy===curFY&&entryIsMyApproval(e));return a.length?{tone:'amber',title:`あなたの承認が必要な伝票が ${a.length}件あります`,sub:'内容を確認して承認または差戻しをしてください。',label:'承認する伝票を見る',go:'bookScreen',filter:'submitted'}:{tone:'moss',title:'現在、あなたの承認待ちはありません',sub:'必要なときだけ対応すれば大丈夫です。',label:'会計状況を見る',go:'bookScreen'};}
+  const sub=fy.filter(e=>e.status==='submitted'&&e.selfApprovalRequired!==true),ret=fy.filter(e=>e.status==='returned');
+  if(sub.length)return{tone:'amber',title:`確認待ちの申請が ${sub.length}件あります`,sub:'内容と領収書類を確認し、承認または差戻しをしてください。',label:'確認待ちを処理',go:'bookScreen',filter:'submitted'};
+  if(ret.length)return{tone:'navy',title:`差戻し中の申請が ${ret.length}件あります`,sub:'申請者の修正・再申請を待っています。',label:'差戻し中を見る',go:'bookScreen',filter:'returned'};
+  const ready=settlePeople().filter(p=>p.ready);if(ready.length)return{tone:'navy',title:`精算できる人が ${ready.length}人います`,sub:'承認済みの立替・仮払をまとめて精算できます。',label:'精算処理へ',go:'settleScreen'};
+  return{tone:'moss',title:'現在、急いで対応する会計処理はありません',sub:'新しい申請が届くと、ここに次の操作を表示します。',label:'伝票・出納帳を見る',go:'bookScreen'};
+}
+function nextActionHtml(){const a=roleNextAction();return `<section class="next-action-card ${a.tone||''}"><div class="next-kicker">次にやること</div><h2>${esc(a.title)}</h2><p>${esc(a.sub)}</p><button class="btn btn-primary" id="nextActionBtn">${esc(a.label)}</button></section>`;}
+function bindNextAction(){const b=$('nextActionBtn');if(!b)return;b.onclick=()=>{const a=roleNextAction();if(a.action==='new')return openForm();if(a.filter)bookFilter.status=a.filter;if(a.go)showScreen(a.go);};}
+function screenGuideHtml(id){const [t,d]=screenPlainGuide(id),r=roleSimpleGuide();return `<details class="screen-guide" ${id==='homeScreen'?'open':''}><summary><span>この画面ですること</span><b>${esc(t)}</b></summary><div class="screen-guide-body"><p>${esc(d)}</p><div class="role-flow">${r.flow.map((x,i)=>`<span><i>${i+1}</i>${esc(x)}</span>`).join('<em>→</em>')}</div><p class="hint">あなたの役割：<b>${esc(r.title)}</b>　${esc(r.one)}</p></div></details>`;}
+function injectScreenGuide(id){const el=$(id);if(!el||['cashFeeScreen','batchScreen','budgetImportScreen','importScreen'].includes(id))return;el.querySelectorAll(':scope > .screen-guide').forEach(x=>x.remove());el.insertAdjacentHTML('afterbegin',screenGuideHtml(id));}
+
 function navItems(){
-  if (isAdmin()) return [['homeScreen','home','ホーム'],['bookScreen','book','出納帳'],['settleScreen','settle','精算'],['auditScreen','audit','監査'],['settingsScreen','settings','会計設定'],['adminScreen','settings','管理']];
-  if (isT()) return [['homeScreen','home','ホーム'],['bookScreen','book','出納帳'],['settleScreen','settle','精算'],['settingsScreen','settings','会計設定']];
+  if (isAdmin()) return [['homeScreen','home','ホーム'],['bookScreen','book','伝票・出納帳'],['settleScreen','settle','精算処理'],['auditScreen','audit','監査'],['settingsScreen','settings','会計設定'],['adminScreen','settings','管理']];
+  if (isT()) return [['homeScreen','home','ホーム'],['bookScreen','book','伝票・出納帳'],['settleScreen','settle','精算処理'],['settingsScreen','settings','会計設定']];
   if (isA()) return [['auditScreen','audit','監査']];
-  if (isP()) return [['homeScreen','home','ホーム'],['bookScreen','book','申請一覧'],['settleScreen','settle','精算']];
-  // 役員（viewer）は全件閲覧と会計本人申請の承認に必要な画面だけ表示
-  return [['homeScreen','home','ホーム'],['bookScreen','book','出納帳'],['settleScreen','settle','精算']];
+  if (isP()) return [['homeScreen','home','ホーム'],['bookScreen','book','申請一覧'],['settleScreen','settle','精算確認']];
+  return [['homeScreen','home','ホーム'],['bookScreen','book','伝票確認'],['settleScreen','settle','精算確認']];
 }
 function buildNav(){
   const nav = $('bottomNav'); nav.innerHTML='';
@@ -1709,6 +1739,7 @@ function renderCurrent(){
     case 'settingsScreen': { const a=document.activeElement; const typing = a && $('settingsScreen').contains(a) && ['INPUT','TEXTAREA','SELECT'].includes(a.tagName) && a.type!=='checkbox'; if (!typing) renderSettings(); break; }
     case 'detailScreen': if (detailId) renderDetail(detailId); break;
   }
+  injectScreenGuide(currentScreen);
 }
 function updateBadges(){
   const set = (scr,n) => { const b=document.querySelector(`.nav-btn[data-screen="${scr}"] .dot`); if(!b) return; b.style.display = n ? 'block':'none'; b.textContent = n; };
@@ -1829,7 +1860,7 @@ function renderHome(){
   const audited = ap.filter(e=>e.audit && !e.auditStale).length;
   const report = auditReports[curFY];
 
-  let html = `<div class="summary-strip">
+  let html = nextActionHtml()+`<div class="summary-strip">
     <div><div class="lbl">前年度繰越</div><div class="val">${yen(opening)}</div></div>
     <div><div class="lbl">収入</div><div class="val" style="color:var(--stamp-navy)">${yen(inc)}</div></div>
     <div><div class="lbl">支出</div><div class="val" style="color:var(--stamp-red)">${yen(exp)}</div></div>
@@ -1868,6 +1899,7 @@ function renderHome(){
   html += recent.length ? recent.map(slipHTML).join('') : `<div class="empty"><div class="mark-big">記録<br>なし</div>${isT()?'右下の＋から収入・支出を登録しましょう':'まだ記録がありません'}</div>`;
   html += homeVersionInfo();
   el.innerHTML = html;
+  bindNextAction();
   bindSlips(el);
   if ($('homeBatchBtn')) $('homeBatchBtn').onclick = () => openBatch();
   if ($('cashFeeNewBtn')) $('cashFeeNewBtn').onclick = () => openCashFeeForm('new');
@@ -2023,7 +2055,7 @@ function renderPayerHome(el){
   const returned = mine.filter(e=>e.status==='returned');
   const submitted = mine.filter(e=>e.status==='submitted');
   const unconfirmed = settlements.filter(s=>s.payerId===me.payerId && !s.payerConfirm);
-  let html = guestNote + `<div class="net-box">
+  let html = guestNote + nextActionHtml() + `<div class="net-box">
       <div class="d">${esc(payerLabel(me.payerId))}さんの精算見込み</div>
       <div class="v" style="color:${b.net>=0?'var(--stamp-navy)':'var(--stamp-red)'}">${yen(Math.abs(b.net))}</div>
       <div class="hint" style="margin-top:4px">${b.net>0?'会計から受け取る予定の金額です':b.net<0?'仮払金の残りとして会計へ返す金額です':'現在、精算が必要なものはありません'}${b.waiting.length?`<br>ほかに会計担当の確認待ち ${b.waiting.length}件（${yen(b.waiting.reduce((s,e)=>s+(Number(e.amount)||0),0))}）`:''}</div>
@@ -2037,6 +2069,7 @@ function renderPayerHome(el){
   html += `<h2 class="section-title">最近の申請</h2>` + (recent.length ? recent.map(slipHTML).join('') : `<div class="empty">まだ申請はありません</div>`);
   html += homeVersionInfo();
   el.innerHTML = html;
+  bindNextAction();
   bindSlips(el);
   $('payerNewBtn').onclick = () => openForm(null);
   $('payerBatchBtn').onclick = () => openBatch();
@@ -3833,6 +3866,14 @@ async function renderAdmin(){
     }catch(e){ add('自動試験ログの分離','fail',e?.message||String(e)); }
 
     try{
+      const ni=navItems().map(x=>x[2]).join('／');
+      add('役割別UI：画面目的ガイド',typeof screenPlainGuide==='function'&&typeof injectScreenGuide==='function'?'ok':'fail','主要画面に「この画面ですること」を表示');
+      add('役割別UI：次にやること',typeof roleNextAction==='function'&&typeof nextActionHtml==='function'?'ok':'fail','ホームで役割と状態から次の操作を1つ提示');
+      add('役割別UI：3ステップ案内',roleSimpleGuide().flow.length===3?'ok':'fail','各役割の基本フローを3段階で表示');
+      add('役割別UI：タブ名称',ni.length>0?'ok':'fail',`現在の役割：${ni}`);
+    }catch(e){ add('役割別UIガイド','fail',e?.message||String(e)); }
+
+    try{
       const rs=renderSettings.toString();
       add('ログアウト：会計設定から分離',!rs.includes("auth.signOut()")?'ok':'fail','会計設定・日常診断の末尾にログアウトを置かない');
       add('ログアウト：共通アカウントメニュー',!!$('accountMenuBtn')&&typeof openAccountMenu==='function'?'ok':'fail','ヘッダー右上の利用者表示からログアウト可能');
@@ -4333,6 +4374,7 @@ async function renderAdmin(){
     const categoryOf=(name)=>{
       if(/現預金照合|期首繰越/.test(name))return '年度処理';
       if(/監査明細|監査：|監査画面UI/.test(name))return '監査';
+      if(/役割別UI/.test(name))return '保存・遷移';
       if(/ログアウト/.test(name))return '保存・遷移';
       if(/テスト件数/.test(name))return '安全・後処理';
       if(/下部タブ/.test(name))return '保存・遷移';
