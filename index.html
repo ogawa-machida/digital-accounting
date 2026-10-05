@@ -671,7 +671,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.05-113';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.06-114';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -3623,6 +3623,20 @@ async function renderAdmin(){
       try{if(sandboxCreated)await R(sandbox).remove();add('診断領域の撤去','ok','診断データを削除');}catch(e){add('診断領域の撤去','fail',e?.code||e?.message||String(e));}
       try{const [a,b]=await Promise.all([R(`entries/${entryId}`).get(),R(sandbox).get()]);add('テストデータ残存確認',(!a.exists()&&!b.exists())?'ok':'fail',(!a.exists()&&!b.exists())?'残存データなし':'テストデータが残っています');}catch(e){add('テストデータ残存確認','fail',e?.code||e?.message||String(e));}
     }
+    // Excel/CSV列の自動マッピング（自治会金銭出納帳の代表的な表記揺れ）
+    try{
+      const oldImpForMap=imp;
+      imp={table:[['月','日','科目','摘要','収入金額','支払金額','差引残高']],headerRow:0,map:{},accMap:{},methMap:{},payerMap:{}};
+      guessColumns();
+      add('取込列：支払金額の自動判定',Number(imp.map.expense)===5?'ok':'fail',Number(imp.map.expense)===5?'F列「支払金額」→支出の金額':'支出列を自動判定できません');
+      add('取込列：収入金額の自動判定',Number(imp.map.income)===4?'ok':'fail',Number(imp.map.income)===4?'E列「収入金額」→収入の金額':'収入列を自動判定できません');
+      add('取込列：月・日・科目・摘要',imp.map.month===0&&imp.map.day===1&&imp.map.account===2&&imp.map.purpose===3?'ok':'fail','典型的な金銭出納帳の列を自動判定');
+      imp={table:[['月','日','科目','摘要','入金額','支払額']],headerRow:0,map:{},accMap:{},methMap:{},payerMap:{}};
+      guessColumns();
+      add('取込列：表記揺れ対応',imp.map.income===4&&imp.map.expense===5?'ok':'fail','入金額／支払額にも対応');
+      imp=oldImpForMap;
+    }catch(e){ add('取込列の自動判定','fail',e?.message||String(e)); }
+
     const fails=rows.filter(x=>x[1]==='fail').length;
     // entries の作成・更新・削除で Firebase の onData → renderAll() が走るため、
     // 開始時に保持した out は古いDOMになることがある。最新DOMを取り直して結果を表示する。
@@ -4085,6 +4099,7 @@ async function renderAdmin(){
     // 結果をDOMだけでなく状態として保持する。Firebaseの遅延onValueで管理画面が
     // 再描画されても、renderAdmin() が診断グループとこの結果を復元する。
     const categoryOf=(name)=>{
+      if(/取込列|インポート/.test(name))return 'データ取込';
       if(/会員向け報告|会員報告/.test(name))return '会員向け報告';
       if(/決算書類|会計報告様式|年間収支|主な収支明細|監査報告|次年度予算案/.test(name))return '決算書類';
       if(/年度切替|次年度|会計年度締め|締め日前|締め日後/.test(name))return '年度切り替え';
@@ -4100,7 +4115,7 @@ async function renderAdmin(){
       if(/Firebase|保存|画面遷移/.test(name))return '保存・遷移';
       return '支出・入力';
     };
-    const cats=['支出・入力','収入登録','会計承認','監査','AI修正履歴','精算','会員向け報告','年度処理','決算書類','年度切り替え','保存・遷移','異常系','安全・後処理'];
+    const cats=['支出・入力','収入登録','会計承認','監査','AI修正履歴','精算','データ取込','会員向け報告','年度処理','決算書類','年度切り替え','保存・遷移','異常系','安全・後処理'];
     const catHtml=cats.map(c=>{
       const rr=rows.filter(x=>categoryOf(x[0])===c), ng=rr.filter(x=>x[1]==='fail').length;
       return `<div class="total-check"><span>${c}</span><b>${ng?`${ng} FAIL`:`${rr.length}/${rr.length} PASS`}</b></div>`;
@@ -5974,7 +5989,11 @@ const IMPORT_FIELDS = [
 ];
 const IMPORT_GUESS = [
   ['id', /^伝票ID$/], ['voucher', /伝票番号|伝票No|^No\.?$|^番号$/i], ['date', /日付|年月日|支払日|入金日|取引日/], ['month', /^月$/], ['day', /^日$/], ['type', /^区分$|収支|^種別$/],
-  ['income', /^収入$|入金額|^入金$|収入金額/], ['expense', /^支出$|出金額|^出金$|支出金額/], ['amount', /^金額|^額$|税込/],
+  // 自治会の金銭出納帳で使われる表記揺れを吸収する。
+  // 「支払金額」は汎用の「金額」より先に支出列として判定する。
+  ['income', /^(?:収入|入金|受入)(?:の)?(?:金額|額)?$|収入金額|入金金額|受入金額/],
+  ['expense', /^(?:支出|出金|支払|支払い)(?:の)?(?:金額|額)?$|支出金額|出金金額|支払金額|支払い金額/],
+  ['amount', /^金額|^額$|税込/],
   ['account', /科目|費目/], ['method', /支払方法|決済|受取方法|^方法$/], ['payer', /支払った人|支払者|立替者|担当/],
   ['payee', /支払先|入金元|相手先|取引先|店名/], ['purpose', /用途|摘要|内容|行事|件名/], ['settle', /精算状況/],
   ['noReceiptReason', /領収(?:書類|証)なし/], ['addressee', /宛名/], ['storage', /保管/], ['exclude', /公開除外/], ['memo', /メモ|備考/]
@@ -6030,14 +6049,14 @@ function setupTable(){
   const t = imp.table;
   let best = 0, bestScore = -1;
   t.slice(0,20).forEach((r,i)=>{
-    const score = r.filter(c=>IMPORT_GUESS.some(([,re])=>re.test(String(c).trim()))).length;
+    const score = r.filter(c=>{ const h=String(c??'').normalize('NFKC').replace(/[\s　（）()［］\[\]：:]/g,'').trim(); return IMPORT_GUESS.some(([,re])=>re.test(h)); }).length;
     if (score > bestScore) { bestScore = score; best = i; }
   });
   imp.headerRow = best;
   guessColumns();
 }
 function guessColumns(){
-  const head = (imp.table[imp.headerRow]||[]).map(c=>String(c).normalize('NFKC').trim());
+  const head = (imp.table[imp.headerRow]||[]).map(c=>String(c).normalize('NFKC').replace(/[\s　（）()［］\[\]：:]/g,'').trim());
   imp.map = {};
   const used = new Set();
   IMPORT_GUESS.forEach(([k,re])=>{
