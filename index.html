@@ -671,7 +671,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.05-111';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.05-113';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -3049,8 +3049,8 @@ function renderAudit(){
   html+=list.length?list.map(slipHTML).join(''):`<div class="empty" style="padding:24px">該当する伝票はありません</div>`;
 
   html+=`<details class="panel" style="margin-top:16px"><summary style="font-family:'Shippori Mincho',serif;font-weight:700;cursor:pointer">データ出力・印刷（必要な場合のみ）</summary>
-    <div class="btn-row" style="flex-wrap:wrap;margin-top:10px"><button class="btn btn-ghost sm" id="outCsv">出納帳CSV</button><button class="btn btn-ghost sm" id="outVouchers">領収書類台帳を印刷</button><button class="btn btn-ghost sm" id="outReport">収支決算書を印刷</button></div>
-    <p class="hint">通常の監査は画面上で完結できます。紙やExcelが必要な場合だけ使用してください。</p></details>`;
+    <div class="btn-row" style="flex-wrap:wrap;margin-top:10px"><button class="btn btn-ghost sm" id="outCsv">出納帳CSV</button><button class="btn btn-ghost sm" id="outVouchers">領収書類台帳を印刷</button><button class="btn btn-ghost sm" id="outReport">総会報告書類を印刷・PDF保存</button></div>
+    <p class="hint">通常の監査は画面上で完結できます。総会提出時は「総会報告用決算書類」を開き、端末の印刷画面から印刷またはPDF保存できます。</p></details>`;
 
   html+=`<details class="panel" style="margin-top:12px"><summary style="font-family:'Shippori Mincho',serif;font-weight:700;cursor:pointer">操作履歴（直近${Math.min(logs.length,300)}件）</summary>
     <p class="hint">登録・修正・承認・精算・監査の履歴を確認できます。</p><div class="history" style="margin-top:8px">${logs.map(l=>`<div style="border-bottom:1px dashed var(--line);padding:4px 0">${fmtTs(l.at)}　<b style="color:var(--ink)">${esc(l.action)}</b>　${esc(l.name)}　${esc(l.voucherNo||'')} ${l.amount?yen(l.amount):''}<br>${esc(l.detail||'')}</div>`).join('')||'まだありません'}</div></details>`;
@@ -3128,31 +3128,107 @@ async function printVouchers(){
   openPrint(`領収書類台帳 ${curFY}年度`, body);
 }
 
-/* ---------- 収支決算書 ---------- */
-function printReport(){
-  const ap = approvedFY();
-  const opening = Number((settings.opening||{})[curFY])||0;
-  const section = type => {
-    const accs = accounts.filter(a=>a.type===type && (a.active || ap.some(e=>e.accountId===a.id)));
-    let tb=0, ta=0;
-    const rows = accs.map(a=>{ const b=Number((a.budget||{})[curFY])||0; const act=ap.filter(e=>e.accountId===a.id).reduce((s,e)=>s+(Number(e.amount)||0),0); tb+=b; ta+=act;
-      return `<tr><td>${esc(a.name)}</td><td class="r">${yen(b)}</td><td class="r">${yen(act)}</td><td class="r">${yen(b-act)}</td></tr>`; }).join('');
-    return { rows, tb, ta };
+/* ---------- 総会報告用 決算書類 ---------- */
+function settlementDocumentData(fy=curFY){
+  const list=Object.values(fyMap||{}).filter(e=>Number(e.fy)===Number(fy)&&e.status==='approved');
+  const opening=Number((settings.opening||{})[fy])||0;
+  const make=type=>{
+    let budget=0,actual=0;
+    const rows=accounts.filter(a=>a.type===type&&(a.active!==false||list.some(e=>e.accountId===a.id))).map(a=>{
+      const b=Number((a.budget||{})[fy])||0;
+      const act=list.filter(e=>e.accountId===a.id).reduce((n,e)=>n+(Number(e.amount)||0),0);
+      budget+=b;actual+=act;
+      return {id:a.id,name:a.name,budget:b,actual:act,diff:type==='income'?act-b:b-act,
+        rate:b?Math.round(act/b*1000)/10:null,remark:String((a.remarks||{})[fy]||'')};
+    }).filter(x=>x.budget||x.actual);
+    return {rows,budget,actual};
   };
-  const inc = section('income'), exp = section('expense');
-  const report = auditReports[curFY];
-  openPrint(`収支決算書 ${curFY}年度`, `
-    <h1>${curFY}年度　収支決算書</h1><p class="right">${esc(settings.orgName)}<br>${fyRangeLabel(curFY)}</p>
-    <h2>収入の部</h2><table><thead><tr><th>科目</th><th class="r">予算額</th><th class="r">決算額</th><th class="r">差額</th></tr></thead>
-    <tbody><tr><td>前年度繰越金</td><td class="r">${yen(opening)}</td><td class="r">${yen(opening)}</td><td class="r">¥0</td></tr>${inc.rows}</tbody>
-    <tfoot><tr><td>収入合計</td><td class="r">${yen(inc.tb+opening)}</td><td class="r">${yen(inc.ta+opening)}</td><td class="r">${yen(inc.tb-inc.ta)}</td></tr></tfoot></table>
-    <h2>支出の部</h2><table><thead><tr><th>科目</th><th class="r">予算額</th><th class="r">決算額</th><th class="r">差額</th></tr></thead>
-    <tbody>${exp.rows}</tbody><tfoot><tr><td>支出合計</td><td class="r">${yen(exp.tb)}</td><td class="r">${yen(exp.ta)}</td><td class="r">${yen(exp.tb-exp.ta)}</td></tr></tfoot></table>
-    <h2>次年度繰越金</h2><p style="font-size:16px">${yen(opening+inc.ta-exp.ta)}　（収入合計 ${yen(opening+inc.ta)} − 支出合計 ${yen(exp.ta)}）</p>
-    ${report?`<h2>監査報告</h2><p>${esc(report.comment)}</p><p class="right">${fmtDateFull(localDate(new Date(report.at)))}　監査　${esc(report.byName)}</p>`:''}
-    <div class="sign"><div>会計<br><span></span><i>印</i></div><div>監査<br><span>${esc(report?.byName||'')}</span><i>印</i></div></div>
-  `);
+  const income=make('income'),expense=make('expense');
+  return {fy,opening,income,expense,totalIncome:opening+income.actual,totalExpense:expense.actual,
+    carry:opening+income.actual-expense.actual,audit:auditReports[fy]||null,closure:yearClosures[fy]||null,list};
 }
+function majorDetailsHtml(d){
+  const groups=[];
+  [...d.income.rows,...d.expense.rows].forEach(a=>{
+    const map={};
+    d.list.filter(e=>e.accountId===a.id).forEach(e=>{
+      const p=String(e.purpose||'その他').trim()||'その他';
+      map[p]=(map[p]||0)+(Number(e.amount)||0);
+    });
+    const details=Object.entries(map).sort((a,b)=>b[1]-a[1]).slice(0,5);
+    if(details.length) groups.push({name:a.name,type:d.income.rows.some(x=>x.id===a.id)?'income':'expense',details});
+  });
+  const section=(type,title)=>{
+    const gs=groups.filter(g=>g.type===type);
+    if(!gs.length)return '';
+    return `<h2>${title}</h2>${gs.map(g=>`<div class="detail-group"><b>◇ ${esc(g.name)}</b>${g.details.map(([p,v])=>`<div class="detail-line"><span>　${esc(p)}</span><b>${yen(v)}</b></div>`).join('')}</div>`).join('')}`;
+  };
+  return section('income','主な収入の明細')+section('expense','主な支出の明細');
+}
+function settlementDocumentsHtml(fy=curFY){
+  const d=settlementDocumentData(fy);
+  const nextFY=Number(fy)+1, next=settlementDocumentData(nextFY);
+  const currentAccounts=[...d.income.rows,...d.expense.rows];
+  const nextBudgetRows=type=>accounts.filter(a=>a.type===type&&(a.active!==false||currentAccounts.some(x=>x.id===a.id))).map(a=>{
+    const prev=currentAccounts.find(x=>x.id===a.id)||{budget:0,actual:0};
+    return {name:a.name,prevBudget:prev.budget,prevActual:prev.actual,nextBudget:Number((a.budget||{})[nextFY])||0,remark:String((a.remarks||{})[nextFY]||'')};
+  }).filter(x=>x.prevBudget||x.prevActual||x.nextBudget);
+  const decRow=rows=>rows.map(x=>`<tr><td>${esc(x.name)}</td><td class="r">${yen(x.budget)}</td><td class="r">${yen(x.actual)}</td><td class="r">${x.diff>=0?'+':''}${yen(x.diff)}</td><td>${esc(x.remark||'')}</td></tr>`).join('');
+  const budRow=rows=>rows.map(x=>`<tr><td>${esc(x.name)}</td><td class="r">${yen(x.prevBudget)}</td><td class="r">${yen(x.prevActual)}</td><td class="r">${yen(x.nextBudget)}</td><td>${esc(x.remark||'')}</td></tr>`).join('');
+  const audit=d.audit, auditDate=audit?.at?fmtDateFull(localDate(new Date(audit.at))):'－';
+  const nextInc=nextBudgetRows('income'),nextExp=nextBudgetRows('expense');
+  const nextIncBudget=nextInc.reduce((n,x)=>n+x.nextBudget,0),nextExpBudget=nextExp.reduce((n,x)=>n+x.nextBudget,0);
+  const nextOpening=Number((settings.opening||{})[nextFY]);
+  const proposalOpening=Number.isFinite(nextOpening)?nextOpening:d.carry;
+  const proposalCarry=proposalOpening+nextIncBudget-nextExpBudget;
+  return `
+    <h1>${d.fy}年度　会計報告</h1>
+    <p class="right">${fyRangeLabel(d.fy)}<br>${esc(settings.orgName)}</p>
+    <h2>収入の部</h2>
+    <table><thead><tr><th>科目</th><th class="r">予算額</th><th class="r">実績額</th><th class="r">予算対比</th><th>摘要</th></tr></thead>
+    <tbody>${decRow(d.income.rows)}</tbody><tfoot><tr><td>合計</td><td class="r">${yen(d.income.budget)}</td><td class="r">${yen(d.income.actual)}</td><td class="r">${yen(d.income.actual-d.income.budget)}</td><td></td></tr></tfoot></table>
+    <h2>支出の部</h2>
+    <table><thead><tr><th>科目</th><th class="r">予算額</th><th class="r">実績額</th><th class="r">予算対比</th><th>摘要</th></tr></thead>
+    <tbody>${decRow(d.expense.rows)}</tbody><tfoot><tr><td>合計</td><td class="r">${yen(d.expense.budget)}</td><td class="r">${yen(d.expense.actual)}</td><td class="r">${yen(d.expense.budget-d.expense.actual)}</td><td></td></tr></tfoot></table>
+    <h2>年間収支</h2>
+    <table><tbody><tr><td>前期繰越金</td><td class="r">${yen(d.opening)}</td></tr><tr><td>収入合計</td><td class="r">${yen(d.income.actual)}</td></tr>
+    <tr><td>支出合計</td><td class="r">${yen(d.expense.actual)}</td></tr><tr><td><b>差引次期繰越金</b></td><td class="r"><b>${yen(d.carry)}</b></td></tr></tbody></table>
+    ${majorDetailsHtml(d)}
+    <p style="margin-top:30px">上記の通り報告します。</p>
+    <div class="sign"><div>会長<br><span></span><i>印</i></div><div>会計<br><span></span><i>印</i></div></div>
+
+    <div style="page-break-before:always"></div>
+    <h1>${d.fy}年度　監査報告</h1><p class="right">${esc(settings.orgName)}</p>
+    ${audit?`<p style="margin-top:30px;line-height:2">${esc(audit.comment||'会計監査の結果、収支の差異はありません。')}</p>
+      <table><tbody><tr><td>監査対象伝票</td><td>${Number(audit.total)||0}件</td></tr><tr><td>確認済み</td><td>${Number(audit.okCount)||0}件</td></tr>
+      <tr><td>指摘</td><td>${Number(audit.issueCount)||0}件</td></tr><tr><td>現預金照合差額</td><td>${yen(Number(audit.balanceDiff)||0)}</td></tr></tbody></table>
+      <p class="right" style="margin-top:36px">${auditDate}<br>会計監査　${esc(audit.byName||'')}　印</p>`
+      :`<div class="notice" style="margin-top:30px"><b>監査未完了</b><br>監査完了後に総会提出版を出力してください。</div>`}
+
+    <div style="page-break-before:always"></div>
+    <h1>${nextFY}年度　一般会計　予算（案）</h1>
+    <p class="right">${fyRangeLabel(nextFY)}<br>${esc(settings.orgName)}</p>
+    <h2>収入の部</h2>
+    <table><thead><tr><th>科目</th><th class="r">${d.fy}年予算</th><th class="r">${d.fy}年実績</th><th class="r">${nextFY}年予算</th><th>摘要</th></tr></thead>
+    <tbody>${budRow(nextInc)}</tbody><tfoot><tr><td>合計</td><td class="r">${yen(d.income.budget)}</td><td class="r">${yen(d.income.actual)}</td><td class="r">${yen(nextIncBudget)}</td><td></td></tr></tfoot></table>
+    <h2>支出の部</h2>
+    <table><thead><tr><th>科目</th><th class="r">${d.fy}年予算</th><th class="r">${d.fy}年実績</th><th class="r">${nextFY}年予算</th><th>摘要</th></tr></thead>
+    <tbody>${budRow(nextExp)}</tbody><tfoot><tr><td>合計</td><td class="r">${yen(d.expense.budget)}</td><td class="r">${yen(d.expense.actual)}</td><td class="r">${yen(nextExpBudget)}</td><td></td></tr></tfoot></table>
+    <h2>年間収支</h2>
+    <table><tbody><tr><td>前期繰越金</td><td class="r">${yen(proposalOpening)}</td></tr><tr><td>収入合計</td><td class="r">${yen(nextIncBudget)}</td></tr>
+    <tr><td>支出合計</td><td class="r">${yen(nextExpBudget)}</td></tr><tr><td><b>次期繰越金</b></td><td class="r"><b>${yen(proposalCarry)}</b></td></tr></tbody></table>
+    <p style="margin-top:28px">※上記の予算の範囲内での採用を、定期総会で役員会に一任する。</p>
+  `;
+}
+function printSettlementDocuments(fy=curFY){
+  const d=settlementDocumentData(fy);
+  if(!d.income.rows.length&&!d.expense.rows.length&&d.opening===0) return showToast(`${fy}年度の決算データがありません`);
+  if(!d.audit && !confirm(`${fy}年度の監査がまだ完了していません。\n確認用として決算書類を出力しますか？`)) return;
+  openPrint(`総会報告用決算書類 ${fy}年度`,settlementDocumentsHtml(fy));
+}
+
+/* ---------- 収支決算書 ---------- */
+function printReport(){ printSettlementDocuments(curFY); }
 
 
 /* =========================================================
@@ -3905,6 +3981,17 @@ async function renderAdmin(){
       add('年度処理テストデータの撤去',!sg.exists()&&!cg.exists()?'ok':'fail','統計・年度確定を撤去');
 
       // ---- 年度切り替え：計算・ブロック条件・繰越・予算引継・記録・撤去 ----
+      const docData=settlementDocumentData(curFY);
+      const docMathOk=docData.carry===docData.opening+docData.income.actual-docData.expense.actual;
+      add('決算書類の収支計算',docMathOk?'ok':'fail',`収入 ${yen(docData.totalIncome)}／支出 ${yen(docData.totalExpense)}／繰越 ${yen(docData.carry)}`);
+      const docHtml=settlementDocumentsHtml(curFY);
+      add('会計報告様式の生成',/年度　会計報告/.test(docHtml)&&/予算額/.test(docHtml)&&/実績額/.test(docHtml)&&/予算対比/.test(docHtml)&&/摘要/.test(docHtml)?'ok':'fail','現行決算書の主要列を生成');
+      add('年間収支・繰越の生成',/年間収支/.test(docHtml)&&/前期繰越金/.test(docHtml)&&/差引次期繰越金/.test(docHtml)?'ok':'fail','年間収支を生成');
+      add('主な収支明細の生成',/主な収入の明細|主な支出の明細/.test(docHtml)||docData.list.length===0?'ok':'fail','伝票の用途から科目別内訳を自動集計');
+      add('監査報告の生成',/年度　監査報告/.test(docHtml)?'ok':'fail',auditReports[curFY]?'監査結果を反映':'監査未完了表示を生成');
+      add('次年度予算案の生成',/一般会計　予算（案）/.test(docHtml)&&/年予算/.test(docHtml)&&/年実績/.test(docHtml)&&/次期繰越金/.test(docHtml)?'ok':'fail','前年度予算・実績・次年度予算を横並び出力');
+      add('決算書類の個人情報除外',!/支払った人|領収書類画像|内部メモ/.test(docHtml)?'ok':'fail','総会報告には伝票内部情報を含めない');
+
       const transFrom=9996,transTo=9997,transKey=`${transFrom}-${transTo}`;
       const configuredCloseOk=fiscalYearEndDate(2026)===(startMonth()===1?'2026-12-31':`${2027}-${pad(startMonth()-1)}-${pad(new Date(2027,startMonth()-1,0).getDate())}`);
       add('会計年度締めとの連動',configuredCloseOk?'ok':'fail',`${fyRangeLabel(2026)} → 締め日 ${fiscalYearEndDate(2026)}`);
@@ -3999,6 +4086,7 @@ async function renderAdmin(){
     // 再描画されても、renderAdmin() が診断グループとこの結果を復元する。
     const categoryOf=(name)=>{
       if(/会員向け報告|会員報告/.test(name))return '会員向け報告';
+      if(/決算書類|会計報告様式|年間収支|主な収支明細|監査報告|次年度予算案/.test(name))return '決算書類';
       if(/年度切替|次年度|会計年度締め|締め日前|締め日後/.test(name))return '年度切り替え';
       if(/年度集計|匿名統計|年度確定|年度処理/.test(name))return '年度処理';
       if(/Firebase診断|物理削除ゲート/.test(name))return '安全・後処理';
@@ -4012,7 +4100,7 @@ async function renderAdmin(){
       if(/Firebase|保存|画面遷移/.test(name))return '保存・遷移';
       return '支出・入力';
     };
-    const cats=['支出・入力','収入登録','会計承認','監査','AI修正履歴','精算','会員向け報告','年度処理','年度切り替え','保存・遷移','異常系','安全・後処理'];
+    const cats=['支出・入力','収入登録','会計承認','監査','AI修正履歴','精算','会員向け報告','年度処理','決算書類','年度切り替え','保存・遷移','異常系','安全・後処理'];
     const catHtml=cats.map(c=>{
       const rr=rows.filter(x=>categoryOf(x[0])===c), ng=rr.filter(x=>x[1]==='fail').length;
       return `<div class="total-check"><span>${c}</span><b>${ng?`${ng} FAIL`:`${rr.length}/${rr.length} PASS`}</b></div>`;
@@ -4023,7 +4111,7 @@ async function renderAdmin(){
     const stateText=fails?`${fails}件の異常`:(interrupted?'通信中断あり':'すべて正常');
     const failRows=rows.filter(x=>x[1]==='fail');
     const failHtml=failRows.length?`<div class="diag-failbox"><b>異常項目</b>${failRows.map(x=>diagRow(...x)).join('')}</div>`:'';
-    lastUiTestResultHtml=`<div class="diag-summary ${stateClass}"><span>総合実画面テスト<br><small>${stateText}</small></span><span class="diag-score">${passed}/${rows.length} PASS</span></div>${failHtml}<details class="diag-details"><summary>詳細を確認（${rows.length}項目）</summary>${catHtml}${rows.map(x=>diagRow(...x)).join('')}<p class="hint">実行ID：${esc(runId)}。支出申請→会計承認→監査→AI修正履歴→精算→収入登録→会員向け報告→年度処理→年度切り替え→異常系→Firebase保存→撤去まで一括確認しました。</p></details>`;
+    lastUiTestResultHtml=`<div class="diag-summary ${stateClass}"><span>総合実画面テスト<br><small>${stateText}</small></span><span class="diag-score">${passed}/${rows.length} PASS</span></div>${failHtml}<details class="diag-details"><summary>詳細を確認（${rows.length}項目）</summary>${catHtml}${rows.map(x=>diagRow(...x)).join('')}<p class="hint">実行ID：${esc(runId)}。支出申請→会計承認→監査→AI修正履歴→精算→収入登録→会員向け報告→年度処理→決算書類→年度切り替え→異常系→Firebase保存→撤去まで一括確認しました。</p></details>`;
     adminActiveGroup='diagnostics';
     // テスト中は実際の伝票詳細画面まで遷移するため、終了時に必ず管理画面へ戻す。
     // adminGroupDiagnostics を開くだけでは currentScreen が detailScreen のままなので、
@@ -4292,6 +4380,8 @@ function renderSettings(){
       ${fyBudgetActual.length?`<details style="margin-top:10px"><summary>決算サマリー（予算・実績）</summary><div style="margin-top:8px">${fyBudgetActual.map(x=>`<div class="total-check"><span>${esc(x.name)}<small style="display:block">${x.type==='income'?'収入':'支出'}・予算 ${yen(x.budget)}${x.rate===null?'':`・執行率 ${x.rate}%`}</small></span><b>${yen(x.actual)}<small style="display:block;color:${x.diff<0?'var(--stamp-red)':'var(--ink-soft)'}">差額 ${x.diff>=0?'+':''}${yen(x.diff)}</small></b></div>`).join('')}</div></details>`:''}
       ${switched?`<p class="hint" style="color:var(--moss);font-weight:700">✓ ${nextFY}年度の切り替え設定済みです。</p>`:''}
       <button class="btn btn-navy full" id="fySwitchPreview" style="margin-top:10px">${fyClosed?'年度確定内容を確認':'年度決算・切り替えを確認'}</button>
+      <button class="btn btn-ghost full" id="fySettlementDocs" style="margin-top:8px">総会報告用決算書類を出力</button>
+      <p class="hint" style="margin-top:6px">現行の決算書・予算書様式を踏襲し、会計報告＋監査報告＋次年度予算（案）を一括出力します。</p>
       <div id="fySwitchBox" style="margin-top:10px"></div>
     </div></details>`;
 
@@ -4735,6 +4825,7 @@ function bindSettings(){
     writeLog('設定変更', null, `団体名・年度・${curFY}年度繰越金`);
     showToast('保存しました');
   };
+  if($('fySettlementDocs')) $('fySettlementDocs').onclick=()=>printSettlementDocuments(curFY);
   if($('fySwitchPreview')) $('fySwitchPreview').onclick=()=>{
     const fromFY=curFY,toFY=curFY+1, sum=fiscalYearClosingSummary(fromFY), bp=nextYearBudgetPreview(fromFY,toFY);
     const box=$('fySwitchBox');
@@ -4750,9 +4841,18 @@ function bindSettings(){
       <div class="total-check"><span>年度末残高</span><b>${yen(sum.closing)}</b></div>
       <label class="check-line" style="margin-top:10px"><input type="checkbox" id="fyCarryOpening" checked> ${toFY}年度の前年度繰越金に ${yen(sum.closing)} を設定</label>
       <label class="check-line"><input type="checkbox" id="fyCarryBudget" checked> ${fromFY}年度の予算額を${toFY}年度の予算案として引き継ぐ</label>
-      <p class="hint">科目体系、支払方法、関係者・権限は年度をまたいで共通利用するため、そのまま引き継がれます。予算は切り替え後に修正できます。</p>
+      <details style="margin-top:10px"><summary>総会資料用の摘要を設定</summary><div style="margin-top:8px">
+        ${accounts.filter(a=>a.active!==false).map(a=>`<label>${esc(a.name)}<input class="input fy-remark" data-account="${esc(a.id)}" value="${esc(String((a.remarks||{})[toFY]||''))}" placeholder="例：自治会、自主防災、公園管理"></label>`).join('')}
+        <button class="btn btn-ghost full" id="fySaveRemarks" type="button">摘要を保存</button>
+      </div></details>
+      <p class="hint">科目体系、支払方法、関係者・権限は年度をまたいで共通利用します。摘要は総会資料の予算書・決算書に反映します。</p>
       <button class="btn btn-primary full" id="fySwitchRun" ${blockers||alreadyClosed?'disabled':''}>${fromFY}年度を決算確定し、${toFY}年度へ切り替える</button>
     </div>`;
+    if($('fySaveRemarks'))$('fySaveRemarks').onclick=async()=>{
+      const ups={};
+      document.querySelectorAll('.fy-remark').forEach(el=>{ups[`accounts/${el.dataset.account}/remarks/${toFY}`]=el.value.trim();});
+      await db.ref(ROOT).update(ups); showToast(`${toFY}年度の摘要を保存しました`);
+    };
     if($('fySwitchRun'))$('fySwitchRun').onclick=async()=>{
       const carryOpening=$('fyCarryOpening').checked,carryBudget=$('fyCarryBudget').checked;
       if(!confirm(`${fromFY}年度から${toFY}年度への切り替え準備を確定しますか？\n\n過去データは削除しません。次年度の繰越金・予算を準備します。`))return;
