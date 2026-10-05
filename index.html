@@ -671,7 +671,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.06-114';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.06-115';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1690,6 +1690,9 @@ function bindSlips(container){
 /* =========================================================
    ホーム
    ========================================================= */
+function homeVersionInfo(){
+  return `<div class="hint" style="text-align:center;margin:20px 0 6px;padding-top:10px;border-top:1px solid var(--line);font-size:11px;opacity:.8">デジタル会計　Ver.${esc(APP_VERSION)}</div>`;
+}
 function renderHome(){
   const el = $('homeScreen');
   if (isP()) { renderPayerHome(el); return; }
@@ -1747,6 +1750,7 @@ function renderHome(){
   const recent = recentSource.sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0)).slice(0,5);
   html += `<h2 class="section-title" style="margin-top:18px;">最近の登録</h2>`;
   html += recent.length ? recent.map(slipHTML).join('') : `<div class="empty"><div class="mark-big">記録<br>なし</div>${isT()?'右下の＋から収入・支出を登録しましょう':'まだ記録がありません'}</div>`;
+  html += homeVersionInfo();
   el.innerHTML = html;
   bindSlips(el);
   if ($('homeBatchBtn')) $('homeBatchBtn').onclick = () => openBatch();
@@ -1894,7 +1898,7 @@ async function saveCashFeeConfirmation(e){
 }
 function renderPayerHome(el){
   if (!me.payerId) {
-    el.innerHTML = `<div class="empty"><div class="mark-big">準備<br>中</div>会計担当があなたの「立替・仮払」を対象にすると、<br>支出の申請ができるようになります。</div>`;
+    el.innerHTML = `<div class="empty"><div class="mark-big">準備<br>中</div>会計担当があなたの「立替・仮払」を対象にすると、<br>支出の申請ができるようになります。</div>` + homeVersionInfo();
     return;
   }
   const b = payerBalance(me.payerId);
@@ -1915,6 +1919,7 @@ function renderPayerHome(el){
   html += `<div class="btn-row" style="margin:6px 0 16px;"><button class="btn btn-primary" id="payerNewBtn">＋ 1件ずつ申請</button><button class="btn btn-navy" id="payerBatchBtn">📚 まとめて読み込み</button></div>`;
   const recent = mine.sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0)).slice(0,5);
   html += `<h2 class="section-title">最近の申請</h2>` + (recent.length ? recent.map(slipHTML).join('') : `<div class="empty">まだ申請はありません</div>`);
+  html += homeVersionInfo();
   el.innerHTML = html;
   bindSlips(el);
   $('payerNewBtn').onclick = () => openForm(null);
@@ -3623,6 +3628,11 @@ async function renderAdmin(){
       try{if(sandboxCreated)await R(sandbox).remove();add('診断領域の撤去','ok','診断データを削除');}catch(e){add('診断領域の撤去','fail',e?.code||e?.message||String(e));}
       try{const [a,b]=await Promise.all([R(`entries/${entryId}`).get(),R(sandbox).get()]);add('テストデータ残存確認',(!a.exists()&&!b.exists())?'ok':'fail',(!a.exists()&&!b.exists())?'残存データなし':'テストデータが残っています');}catch(e){add('テストデータ残存確認','fail',e?.code||e?.message||String(e));}
     }
+    try{
+      const vi=homeVersionInfo();
+      add('ホーム画面のバージョン表示',vi.includes(APP_VERSION)&&/デジタル会計/.test(vi)?'ok':'fail',`Ver.${APP_VERSION} を常時表示`);
+    }catch(e){ add('ホーム画面のバージョン表示','fail',e?.message||String(e)); }
+
     // Excel/CSV列の自動マッピング（自治会金銭出納帳の代表的な表記揺れ）
     try{
       const oldImpForMap=imp;
@@ -4099,6 +4109,7 @@ async function renderAdmin(){
     // 結果をDOMだけでなく状態として保持する。Firebaseの遅延onValueで管理画面が
     // 再描画されても、renderAdmin() が診断グループとこの結果を復元する。
     const categoryOf=(name)=>{
+      if(/バージョン表示/.test(name))return '保存・遷移';
       if(/取込列|インポート/.test(name))return 'データ取込';
       if(/会員向け報告|会員報告/.test(name))return '会員向け報告';
       if(/決算書類|会計報告様式|年間収支|主な収支明細|監査報告|次年度予算案/.test(name))return '決算書類';
