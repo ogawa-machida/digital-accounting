@@ -665,7 +665,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.05-105';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.05-106';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -3199,7 +3199,7 @@ async function renderAdmin(){
           <div class="admin-menu-icon">📊</div><div class="admin-menu-text"><b>業務分析</b><small>業務時間、自動計測、導入効果の確認</small></div><div class="admin-menu-arrow">›</div>
         </div>
         <div class="admin-menu-card" data-admin-group="diagnostics">
-          <div class="admin-menu-icon">🩺</div><div class="admin-menu-text"><b>システム診断</b><small>権限・個人情報保護・保存削除の安全性を点検</small></div><div class="admin-menu-arrow">›</div>
+          <div class="admin-menu-icon">🧪</div><div class="admin-menu-text"><b>総合実画面テスト</b><small>アプリ更新後や、日常診断で原因が分からないときに主要業務を実操作で確認</small></div><div class="admin-menu-arrow">›</div>
         </div>
       </div>
     </div>
@@ -3293,12 +3293,8 @@ async function renderAdmin(){
 
     <div class="admin-group" id="adminGroupDiagnostics">
       <button class="btn btn-ghost sm admin-back">← 管理メニューに戻る</button>
-      <h2 class="section-title">システム診断</h2>
-      <div class="form-card"><div style="font-weight:700;font-size:16px">① 日常の自動診断</div>
-        <p class="hint">本番データを変更せず、Firebaseの読取権限、個人情報保護、AI修正履歴、保存・削除ポリシーなどを点検します。普段「何かおかしい」と感じたときはこちらです。</p>
-        <button class="btn btn-primary full" id="diagRun">診断を実行</button><div id="diagResult" style="margin-top:12px"></div>
-      </div>
-      <div class="form-card" style="margin-top:12px;background:var(--tint)"><div style="font-weight:700;font-size:16px">② 総合実画面テスト</div>
+      <h2 class="section-title">総合実画面テスト</h2>
+      <div class="form-card" style="margin-top:12px;background:var(--tint)"><div style="font-weight:700;font-size:16px">総合実画面テスト</div>
         <p class="hint">アプリ更新後はこちらです。主要業務を実際の画面イベントで一括確認し、診断データは最後に自動撤去します。</p>
         <button class="btn btn-navy full" id="diagUIRun">総合実画面テストを実行</button>
         <div id="diagSessionStatus" class="hint" style="margin-top:12px"></div>
@@ -4253,6 +4249,13 @@ function renderSettings(){
       <h2 class="section-title" style="margin-top:16px">会員向けの会計報告</h2><div class="form-card"><div class="inline-add" style="margin:0"><input readonly value="${esc(publicUrl())}" id="pubUrl"><button class="btn btn-ghost sm" id="pubCopy">コピー</button></div></div>`;
   }
 
+  html += `<h2 class="section-title" style="margin-top:20px">日常の自動診断</h2><div class="form-card">
+      <div style="font-weight:700;font-size:15px">調子が悪いと感じたとき</div>
+      <p class="hint">普段の利用中に「保存できない・表示がおかしい・動かない」と感じたときに実行してください。本番データは変更しません。異常が見つかった場合は、次に確認する内容も表示します。</p>
+      <button class="btn btn-primary full" id="dailyDiagRun">日常の自動診断を実行</button>
+      <div id="dailyDiagResult" style="margin-top:12px"></div>
+    </div>`;
+
   html += `<button class="btn btn-ghost full" style="margin-top:6px" onclick="if(confirm('ログアウトしますか？'))auth.signOut()">ログアウト</button>
     <p class="hint" style="text-align:center;margin-top:12px">バージョン ${APP_VERSION}</p>`;
   el.innerHTML = html;
@@ -4431,7 +4434,8 @@ function organizeTreasurerSettings(){
   const defs=[
     {id:'people', icon:'👥', title:'関係者・権限', sub:'役割、立替・仮払、支部・班', heads:['関係者・権限管理']},
     {id:'money', icon:'💰', title:'会計の基本設定', sub:'団体情報、会費徴収期間、科目・予算、支払方法', heads:['団体の情報','会費徴収期間','現預金残高の確認',`科目と${curFY}年度の予算`,'支払方法']},
-    {id:'report', icon:'📊', title:'会員向け会計報告', sub:'公開内容の設定・報告の更新', heads:['会員向けの会計報告']}
+    {id:'report', icon:'📊', title:'会員向け会計報告', sub:'公開内容の設定・報告の更新', heads:['会員向けの会計報告']},
+    {id:'diagnostic', icon:'🩺', title:'日常の自動診断', sub:'動かない・おかしいと感じたときの確認', heads:['日常の自動診断']}
   ];
   const heads=[...root.querySelectorAll(':scope > h2.section-title')];
   const groups={};
@@ -4454,8 +4458,36 @@ function organizeTreasurerSettings(){
   if(location.search.includes('screen=settings')) open('people');
 }
 
+async function runDailyDiagnostics(){
+  const out=$('dailyDiagResult'); if(!out)return;
+  out.innerHTML='<p class="hint">診断中...</p>';
+  const rows=[];
+  const add=(name,status,detail,action='')=>rows.push([name,status,detail,action]);
+  const test=async(name,fn,okDetail,action)=>{try{const v=await fn();add(name,'ok',typeof okDetail==='function'?okDetail(v):okDetail,'');return v;}catch(e){add(name,'fail',e?.code||e?.message||String(e),action);return null;}};
+  try{
+    add('通信状態',navigator.onLine?'ok':'fail',navigator.onLine?'端末はオンラインです':'端末がオフラインです','Wi-Fi・4G/5Gなどの通信を確認し、接続後にもう一度実行してください');
+    add('ログイン状態',auth.currentUser&&me?'ok':'fail',auth.currentUser&&me?`${me.name||me.email||'利用者'}／${ROLES[me.role]?.name||me.role}`:'ログイン情報を確認できません','いったんログアウトして、再度ログインしてください');
+    const displayed=($('verLogin')?.textContent||'').replace(/^バージョン\s*/,'').trim();
+    add('アプリのバージョン',(!displayed||displayed===APP_VERSION)?'ok':'fail',displayed?`表示 ${displayed}／内部 ${APP_VERSION}`:`内部 ${APP_VERSION}`, '画面を再読み込みしてください。改善しない場合は管理者へ連絡してください');
+    await test('基本設定の読取',()=>R('settings').get(),'Firebaseから基本設定を読み取れます','通信を確認してください。改善しない場合は管理者にFirebase Rulesの確認を依頼してください');
+    await test('会計伝票の読取',()=>R('entries').limitToFirst(1).get(),'会計伝票を読み取れます','会計権限またはFirebase Rulesを管理者に確認してもらってください');
+    if(auth.currentUser) await test('自分の利用者情報',()=>R(`members/${auth.currentUser.uid}`).get(),s=>s.exists()?'利用者情報を読み取れます':'利用者情報が見つかりません','管理者に利用者登録・権限を確認してもらってください');
+    const rp=settings.retentionPolicy||{};
+    const rpOk=Number(rp.accountingYears)>=1&&Number(rp.logYears)>=1&&Number(rp.deleteBackupDays)>=7;
+    add('保存期間ポリシー',rpOk?'ok':'warn',rpOk?`会計${rp.accountingYears}年／ログ${rp.logYears}年／削除前バックアップ${rp.deleteBackupDays}日`:'未設定または設定値を確認してください','管理者に「個人情報保護・運用」の保存ポリシーを確認してもらってください');
+    const snap=await R('entries').get().catch(()=>null);
+    if(snap){const es=toArr(snap.val()), edited=es.filter(e=>e.aiReceiptOriginal&&(e.aiReceiptChangedFields||[]).length), broken=edited.filter(e=>!e.aiReceiptEditedAt||!e.aiReceiptChangedFields?.length);add('AI修正履歴の整合性',broken.length?'fail':'ok',`AI修正あり ${edited.length}件／不整合 ${broken.length}件`,broken.length?'管理者にAI修正履歴の不整合を確認してもらってください':'');}
+    const fails=rows.filter(x=>x[1]==='fail').length, warns=rows.filter(x=>x[1]==='warn').length, passed=rows.length-fails-warns;
+    const cls=fails?'fail':warns?'warn':'ok', state=fails?`${fails}件の異常`:warns?`${warns}件の要確認`:'すべて正常';
+    const rowHtml=([n,st,d,a])=>{const icon=st==='ok'?'✓':st==='warn'?'△':'✕',label=st==='ok'?'正常':st==='warn'?'要確認':'異常';return `<div class="cat-row"><span class="cname">${icon} ${esc(n)}<small>${esc(d)}${a?`<br><b>次にすること：</b>${esc(a)}`:''}</small></span><b style="white-space:nowrap">${label}</b></div>`};
+    const issues=rows.filter(x=>x[1]!=='ok');
+    out.innerHTML=`<div class="diag-summary ${cls}"><span>日常の自動診断<br><small>${state}</small></span><span class="diag-score">${passed}/${rows.length} PASS</span></div>${issues.length?`<div class="${fails?'diag-failbox':''}" style="margin-top:8px">${issues.map(rowHtml).join('')}</div>`:''}<details class="diag-details"><summary>詳細を確認（${rows.length}項目）</summary>${rows.map(rowHtml).join('')}<p class="hint">この診断は本番データを変更しません。異常がないのに症状が続く場合は、管理者メニューの「総合実画面テスト」を実行してください。</p></details>`;
+  }catch(e){out.innerHTML=`<div class="diag-summary fail"><span>日常の自動診断<br><small>診断を完了できませんでした</small></span><span class="diag-score">異常</span></div><p class="hint"><b>次にすること：</b>通信を確認して再実行してください。改善しない場合は管理者へ連絡してください。<br>${esc(e?.message||String(e))}</p>`;}
+}
+
 function bindSettings(){
   const q = s => $('settingsScreen').querySelectorAll(s);
+  if ($('dailyDiagRun')) $('dailyDiagRun').onclick=runDailyDiagnostics;
   if ($('newPBranch')) fillBranchGroup($('newPBranch'), $('newPGroup'), '', '');
   if ($('pubCopy')) $('pubCopy').onclick = () => { navigator.clipboard?.writeText(publicUrl()).then(()=>showToast('URLをコピーしました')).catch(()=>{ $('pubUrl').select(); }); };
   if (!isT()) return;
