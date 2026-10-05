@@ -745,7 +745,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.06-120';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.06-121';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -2095,6 +2095,7 @@ let uiAutoTestContext = null;
 // v94: Firebaseのリアルタイム再描画が走っても診断画面と結果を失わないよう保持
 let adminActiveGroup = null;
 let lastUiTestResultHtml = '';
+let lastUiTestSummary = null;
 let uiTestNetworkInterrupted = false;
 const uiTestSessionPath = uid => `diagnosticTests/${uid}/uiSession`;
 const uiTestResiduePath = uid => `diagnosticTests/${uid}/uiResidue`;
@@ -3882,6 +3883,9 @@ async function renderAdmin(){
     const modeName='総合';
     if(!confirm(`総合実画面テストを実行します。\n\n主要経路と異常系を実際の画面イベントで自動操作します。作成する診断専用伝票は終了時に削除し、通知メールと本番の伝票番号採番は行いません。`))return;
     const rows=[], runId=`ui_full_${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
+    lastUiTestResultHtml='';
+    lastUiTestSummary=null;
+    out.innerHTML=`<div class="diag-summary warn"><span>総合実画面テスト<br><small>実行中</small></span><span class="diag-score">0/0</span></div><p class="hint">実行した項目をその場で集計します。前回結果は使用しません。</p>`;
     const add=(n,s,d)=>rows.push([n,s,d]);
     const sleep=ms=>new Promise(r=>setTimeout(r,ms));
     const waitFor=async(fn,ms=5000)=>{const end=Date.now()+ms;while(Date.now()<end){try{const v=fn();if(v)return v;}catch(_){}await sleep(80);}throw new Error('画面の応答がタイムアウトしました');};
@@ -4275,12 +4279,22 @@ async function renderAdmin(){
       uiAutoTestContext=null; testProfile=oldProfile; me=oldMe; curFY=oldFY; applyEffectiveProfile();
       try{renderAll();}catch(_){}
     }
+    {
+      const before=rows.length;
+      add('テスト件数：動的集計','ok',`この項目を含め、実行済みrowsから総数を算出（集計直前 ${before}項目）`);
+    }
+    const total=rows.length;
     const fails=rows.filter(x=>x[1]==='fail').length;
+    const warns=rows.filter(x=>x[1]==='warn').length;
+    const passed=rows.filter(x=>x[1]==='ok').length;
+    lastUiTestSummary={version:APP_VERSION,runId,total,passed,fails,warns,finishedAt:Date.now()};
+    // 件数は固定値を持たず、この実行で rows に追加された全項目から毎回集計する。
     // 結果をDOMだけでなく状態として保持する。Firebaseの遅延onValueで管理画面が
     // 再描画されても、renderAdmin() が診断グループとこの結果を復元する。
     const categoryOf=(name)=>{
       if(/現預金照合|期首繰越/.test(name))return '年度処理';
       if(/監査明細|監査：|監査画面UI/.test(name))return '監査';
+      if(/テスト件数/.test(name))return '安全・後処理';
       if(/下部タブ/.test(name))return '保存・遷移';
       if(/監査文字サイズ/.test(name))return '監査';
       if(/操作履歴抑止|試験ログ|ログの分離/.test(name))return '安全・後処理';
@@ -4306,13 +4320,12 @@ async function renderAdmin(){
       const rr=rows.filter(x=>categoryOf(x[0])===c), ng=rr.filter(x=>x[1]==='fail').length;
       return `<div class="total-check"><span>${c}</span><b>${ng?`${ng} FAIL`:`${rr.length}/${rr.length} PASS`}</b></div>`;
     }).join('');
-    const passed=rows.length-fails;
     const interrupted=uiTestNetworkInterrupted;
     const stateClass=fails?'fail':(interrupted?'warn':'ok');
     const stateText=fails?`${fails}件の異常`:(interrupted?'通信中断あり':'すべて正常');
     const failRows=rows.filter(x=>x[1]==='fail');
     const failHtml=failRows.length?`<div class="diag-failbox"><b>異常項目</b>${failRows.map(x=>diagRow(...x)).join('')}</div>`:'';
-    lastUiTestResultHtml=`<div class="diag-summary ${stateClass}"><span>総合実画面テスト<br><small>${stateText}</small></span><span class="diag-score">${passed}/${rows.length} PASS</span></div>${failHtml}<details class="diag-details"><summary>詳細を確認（${rows.length}項目）</summary>${catHtml}${rows.map(x=>diagRow(...x)).join('')}<p class="hint">実行ID：${esc(runId)}。支出申請→会計承認→監査→AI修正履歴→精算→収入登録→会員向け報告→年度処理→決算書類→年度切り替え→異常系→Firebase保存→撤去まで一括確認しました。</p></details>`;
+    lastUiTestResultHtml=`<div class="diag-summary ${stateClass}"><span>総合実画面テスト<br><small>${stateText}</small></span><span class="diag-score">${passed}/${total} PASS</span></div>${failHtml}<details class="diag-details"><summary>詳細を確認（${total}項目）</summary>${catHtml}${rows.map(x=>diagRow(...x)).join('')}<p class="hint">実行バージョン：${esc(APP_VERSION)}／実行項目数：${total}／実行ID：${esc(runId)}。件数はこの実行で実際に実行した項目から自動集計しています。<br>支出申請→会計承認→監査→AI修正履歴→精算→収入登録→会員向け報告→年度処理→決算書類→年度切り替え→異常系→Firebase保存→撤去まで一括確認しました。</p></details>`;
     adminActiveGroup='diagnostics';
     // テスト中は実際の伝票詳細画面まで遷移するため、終了時に必ず管理画面へ戻す。
     // adminGroupDiagnostics を開くだけでは currentScreen が detailScreen のままなので、
