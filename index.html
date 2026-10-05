@@ -665,7 +665,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.05-108';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.05-109';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -827,6 +827,24 @@ function fyRangeLabel(fy){
   return `${fy}年${s}月〜${endY}年${endM}月`;
 }
 function fyMonths(fy){ const s=startMonth(); return Array.from({length:12},(_,i)=>{ const m=((s-1+i)%12)+1; const y = (s-1+i)>=12 ? fy+1 : fy; return {y,m,key:`${y}-${pad(m)}`}; }); }
+function fiscalYearEndDate(fy){
+  const s=startMonth();
+  return s===1 ? `${fy}-12-31` : `${fy+1}-${pad(s-1)}-${pad(new Date(fy+1,s-1,0).getDate())}`;
+}
+function fiscalYearStartDate(fy){ return `${fy}-${pad(startMonth())}-01`; }
+function fiscalYearClosingSummary(fy,list=Object.values(fyMap||{})){
+  const approved=list.filter(e=>Number(e.fy)===Number(fy)&&e.status==='approved');
+  const unresolved=list.filter(e=>Number(e.fy)===Number(fy)&&e.status!=='approved'&&e.status!=='rejected');
+  const pendingSettlement=approved.filter(e=>e.settleState==='pending');
+  const opening=Number((settings.opening||{})[fy])||0;
+  const income=approved.filter(e=>e.type==='income').reduce((n,e)=>n+(Number(e.amount)||0),0);
+  const expense=approved.filter(e=>e.type==='expense').reduce((n,e)=>n+(Number(e.amount)||0),0);
+  return {fy,approved,unresolved,pendingSettlement,opening,income,expense,closing:opening+income-expense};
+}
+function nextYearBudgetPreview(fromFY,toFY){
+  return accounts.map(a=>({id:a.id,name:a.name,type:a.type,active:a.active!==false,from:Number((a.budget||{})[fromFY])||0,to:Number((a.budget||{})[toFY])||0}));
+}
+
 function isStaff(){ return me && ['admin','treasurer','auditor','viewer'].includes(me.role); }
 function isT(){ return me && ['admin','treasurer'].includes(me.role); }
 function isAdmin(){ return me && me.role==='admin'; }
@@ -3300,7 +3318,7 @@ async function renderAdmin(){
         <div id="diagSessionStatus" class="hint" style="margin-top:12px"></div>
         <button class="btn btn-ghost full" id="diagCleanup" style="margin-top:8px">中断したテストを確認・清掃</button><div id="diagCleanupResult" style="margin-top:8px"></div>
         <details style="margin-top:12px"><summary>総合実画面テストの対象範囲</summary><div class="hint" style="margin-top:8px">
-          <b>現在：</b>支出申請、収入登録、会計承認、監査、AI修正履歴、精算、会員向け会計報告、年度処理、入力検証、Firebase保存・遷移、異常系、診断データ撤去。<br>
+          <b>現在：</b>支出申請、収入登録、会計承認、監査、AI修正履歴、精算、会員向け会計報告、年度処理、年度切り替え、入力検証、Firebase保存・遷移、異常系、診断データ撤去。<br>
           <b>内部安全確認：</b>Firebase診断領域の作成・読取・更新・削除、物理削除ゲートの模擬確認。<br>
           実メール受信・実物の領収書類撮影・端末固有動作など、アプリ外部の確認はこのテストには含みません。
         </div></details><div id="diagUIResult" style="margin-top:10px">${lastUiTestResultHtml||''}</div>
@@ -3563,7 +3581,7 @@ async function renderAdmin(){
     const sleep=ms=>new Promise(r=>setTimeout(r,ms));
     const waitFor=async(fn,ms=5000)=>{const end=Date.now()+ms;while(Date.now()<end){try{const v=fn();if(v)return v;}catch(_){}await sleep(80);}throw new Error('画面の応答がタイムアウトしました');};
     const oldProfile=testProfile, oldMe=me, oldFY=curFY;
-    let entryId=null, incomeEntryId=null, settlementEntryId=null, settlementId=null, testPayerId=null, testPayerExisted=false, publicTestFY=9998, publicTestCreated=false, yearTestCreated=false;
+    let entryId=null, incomeEntryId=null, settlementEntryId=null, settlementId=null, testPayerId=null, testPayerExisted=false, publicTestFY=9998, publicTestCreated=false, yearTestCreated=false, transitionTestCreated=false;
     // v103: finally でも参照するため try の外側で宣言する。
     const sandbox=`diagnosticTests/${auth.currentUser.uid}/${runId}`;
     let sandboxCreated=false;
@@ -3851,6 +3869,42 @@ async function renderAdmin(){
       const [sg,cg]=await Promise.all([R(`statistics/${publicTestFY}`).get(),R(`yearClosures/${publicTestFY}`).get()]);
       add('年度処理テストデータの撤去',!sg.exists()&&!cg.exists()?'ok':'fail','統計・年度確定を撤去');
 
+      // ---- 年度切り替え：計算・ブロック条件・繰越・予算引継・記録・撤去 ----
+      const transFrom=9996,transTo=9997,transKey=`${transFrom}-${transTo}`;
+      const transList=[
+        {fy:transFrom,status:'approved',type:'income',amount:1200,settleState:'none'},
+        {fy:transFrom,status:'approved',type:'expense',amount:450,settleState:'none'}
+      ];
+      const transOpening=100;
+      const transIncome=transList.filter(e=>e.type==='income').reduce((n,e)=>n+Number(e.amount||0),0);
+      const transExpense=transList.filter(e=>e.type==='expense').reduce((n,e)=>n+Number(e.amount||0),0);
+      const transClosing=transOpening+transIncome-transExpense;
+      add('年度切替の繰越計算',transClosing===850?'ok':'fail',`100＋1,200－450＝${transClosing}`);
+      const blocked=[...transList,{fy:transFrom,status:'submitted',type:'expense',amount:10}].some(e=>e.status!=='approved'&&e.status!=='rejected');
+      add('年度切替の未完了ブロック',blocked?'ok':'fail','未承認申請がある場合は確定不可');
+      const testAcc=accounts[0];
+      const oldNextBudget=testAcc?((testAcc.budget||{})[transTo]):undefined;
+      const oldNextOpening=(settings.opening||{})[transTo];
+      const ups={};
+      ups[`settings/opening/${transTo}`]=transClosing;
+      if(testAcc)ups[`accounts/${testAcc.id}/budget/${transTo}`]=Number((testAcc.budget||{})[curFY])||0;
+      ups[`settings/fiscalTransitions/${transKey}`]={fromFY:transFrom,toFY:transTo,preparedAt:Date.now(),preparedBy:me.uid,preparedByName:me.name||'',openingCarried:true,budgetCarried:!!testAcc,closingBalance:transClosing,testMode:true,diagnosticRunId:runId,appVersion:APP_VERSION};
+      await db.ref(ROOT).update(ups); transitionTestCreated=true;
+      const [opSnap,trSnap]=await Promise.all([R(`settings/opening/${transTo}`).get(),R(`settings/fiscalTransitions/${transKey}`).get()]);
+      add('次年度繰越金の設定',Number(opSnap.val())===850?'ok':'fail',`${transTo}年度へ ${yen(opSnap.val())}`);
+      add('年度切替履歴の保存',trSnap.exists()&&Number(trSnap.val()?.fromFY)===transFrom?'ok':'fail','切替元・切替先・実行者・バージョンを保存');
+      if(testAcc){
+        const b=await R(`accounts/${testAcc.id}/budget/${transTo}`).get();
+        add('次年度予算の引き継ぎ',Number(b.val())===(Number((testAcc.budget||{})[curFY])||0)?'ok':'fail',`${testAcc.name} の予算を引継`);
+      }else add('次年度予算の引き継ぎ','ok','科目未登録のため対象なし');
+      const restore={};
+      restore[`settings/opening/${transTo}`]=oldNextOpening===undefined?null:oldNextOpening;
+      restore[`settings/fiscalTransitions/${transKey}`]=null;
+      if(testAcc)restore[`accounts/${testAcc.id}/budget/${transTo}`]=oldNextBudget===undefined?null:oldNextBudget;
+      await db.ref(ROOT).update(restore); transitionTestCreated=false;
+      const [opGone,trGone]=await Promise.all([R(`settings/opening/${transTo}`).get(),R(`settings/fiscalTransitions/${transKey}`).get()]);
+      add('年度切替テストデータの撤去',!opGone.exists()&&!trGone.exists()?'ok':'fail','診断用の次年度設定を原状復帰');
+
       // 管理画面へ戻して結果表示へ
       showScreen('adminScreen');
     }catch(e){add('実画面操作テスト','fail',e?.message||String(e));}
@@ -3858,7 +3912,8 @@ async function renderAdmin(){
       try{
         if(publicTestCreated){await R(`public/${publicTestFY}`).remove();await R(`public/index/years/${publicTestFY}`).remove();}
         if(yearTestCreated){await R(`statistics/${publicTestFY}`).remove();await R(`yearClosures/${publicTestFY}`).remove();}
-      }catch(e){add('会員報告・年度処理の後処理','fail',e?.message||String(e));}
+        if(transitionTestCreated){await R('settings/fiscalTransitions/9996-9997').remove();}
+      }catch(e){add('会員報告・年度処理・年度切替の後処理','fail',e?.message||String(e));}
       try{
         if(settlementId) await R(`settlements/${settlementId}`).remove();
         if(settlementEntryId){await R(`entries/${settlementEntryId}`).remove();await R(`photos/${settlementEntryId}`).remove();}
@@ -3904,6 +3959,7 @@ async function renderAdmin(){
     // 再描画されても、renderAdmin() が診断グループとこの結果を復元する。
     const categoryOf=(name)=>{
       if(/会員向け報告|会員報告/.test(name))return '会員向け報告';
+      if(/年度切替|次年度/.test(name))return '年度切り替え';
       if(/年度集計|匿名統計|年度確定|年度処理/.test(name))return '年度処理';
       if(/Firebase診断|物理削除ゲート/.test(name))return '安全・後処理';
       if(/AI/.test(name))return 'AI修正履歴';
@@ -3916,7 +3972,7 @@ async function renderAdmin(){
       if(/Firebase|保存|画面遷移/.test(name))return '保存・遷移';
       return '支出・入力';
     };
-    const cats=['支出・入力','収入登録','会計承認','監査','AI修正履歴','精算','会員向け報告','年度処理','保存・遷移','異常系','安全・後処理'];
+    const cats=['支出・入力','収入登録','会計承認','監査','AI修正履歴','精算','会員向け報告','年度処理','年度切り替え','保存・遷移','異常系','安全・後処理'];
     const catHtml=cats.map(c=>{
       const rr=rows.filter(x=>categoryOf(x[0])===c), ng=rr.filter(x=>x[1]==='fail').length;
       return `<div class="total-check"><span>${c}</span><b>${ng?`${ng} FAIL`:`${rr.length}/${rr.length} PASS`}</b></div>`;
@@ -3927,7 +3983,7 @@ async function renderAdmin(){
     const stateText=fails?`${fails}件の異常`:(interrupted?'通信中断あり':'すべて正常');
     const failRows=rows.filter(x=>x[1]==='fail');
     const failHtml=failRows.length?`<div class="diag-failbox"><b>異常項目</b>${failRows.map(x=>diagRow(...x)).join('')}</div>`:'';
-    lastUiTestResultHtml=`<div class="diag-summary ${stateClass}"><span>総合実画面テスト<br><small>${stateText}</small></span><span class="diag-score">${passed}/${rows.length} PASS</span></div>${failHtml}<details class="diag-details"><summary>詳細を確認（${rows.length}項目）</summary>${catHtml}${rows.map(x=>diagRow(...x)).join('')}<p class="hint">実行ID：${esc(runId)}。支出申請→会計承認→監査→AI修正履歴→精算→収入登録→会員向け報告→年度処理→異常系→Firebase保存→撤去まで一括確認しました。</p></details>`;
+    lastUiTestResultHtml=`<div class="diag-summary ${stateClass}"><span>総合実画面テスト<br><small>${stateText}</small></span><span class="diag-score">${passed}/${rows.length} PASS</span></div>${failHtml}<details class="diag-details"><summary>詳細を確認（${rows.length}項目）</summary>${catHtml}${rows.map(x=>diagRow(...x)).join('')}<p class="hint">実行ID：${esc(runId)}。支出申請→会計承認→監査→AI修正履歴→精算→収入登録→会員向け報告→年度処理→年度切り替え→異常系→Firebase保存→撤去まで一括確認しました。</p></details>`;
     adminActiveGroup='diagnostics';
     // テスト中は実際の伝票詳細画面まで遷移するため、終了時に必ず管理画面へ戻す。
     // adminGroupDiagnostics を開くだけでは currentScreen が detailScreen のままなので、
@@ -4171,6 +4227,24 @@ function renderSettings(){
       <div class="hint">小川自治会は「1月末締め」を選択すると、2026年度は2026/2/1～2027/1/31として扱います。過去データ取込、出納帳、予算・決算、監査で共通して使用します。</div></div>
       <div class="field"><label>${curFY}年度の前年度繰越金</label><input type="number" id="sOpening" class="amount-input" value="${opening}" inputmode="numeric"></div>
       <button class="btn btn-primary full" id="sSaveOrg">保存する</button></div>`;
+
+    const nextFY=curFY+1, fySummary=fiscalYearClosingSummary(curFY), nextBudget=nextYearBudgetPreview(curFY,nextFY);
+    const nextBudgetCount=nextBudget.filter(x=>x.to!==0).length;
+    const nextOpening=Number((settings.opening||{})[nextFY]);
+    const switched=!!settings.fiscalTransitions?.[`${curFY}-${nextFY}`];
+    html += `<h2 class="section-title" style="margin-top:20px">年度切り替え</h2><div class="form-card">
+      <div class="total-check"><span>現在</span><b>${curFY}年度 → ${nextFY}年度</b></div>
+      <p class="hint">${fyRangeLabel(curFY)} の会計を確認し、次年度の前年度繰越金と予算を準備します。過去の伝票・監査・会計報告はそのまま保持します。</p>
+      <div class="total-check"><span>${curFY}年度 承認済み</span><b>${fySummary.approved.length}件</b></div>
+      <div class="total-check"><span>未完了の申請</span><b style="color:${fySummary.unresolved.length?'var(--stamp-red)':'var(--moss)'}">${fySummary.unresolved.length}件</b></div>
+      <div class="total-check"><span>未精算</span><b style="color:${fySummary.pendingSettlement.length?'var(--stamp-red)':'var(--moss)'}">${fySummary.pendingSettlement.length}件</b></div>
+      <div class="total-check"><span>年度末残高（次年度繰越候補）</span><b>${yen(fySummary.closing)}</b></div>
+      <div class="total-check"><span>${nextFY}年度 前年度繰越金</span><b>${Number.isFinite(nextOpening)?yen(nextOpening):'未設定'}</b></div>
+      <div class="total-check"><span>${nextFY}年度 予算</span><b>${nextBudgetCount?`${nextBudgetCount}科目設定済`:'未設定'}</b></div>
+      ${switched?`<p class="hint" style="color:var(--moss);font-weight:700">✓ ${nextFY}年度の切り替え準備済みです。</p>`:''}
+      <button class="btn btn-navy full" id="fySwitchPreview" style="margin-top:10px">${switched?'年度切り替え内容を再確認':'年度切り替えを準備する'}</button>
+      <div id="fySwitchBox" style="margin-top:10px"></div>
+    </div>`;
 
     const cashFeeOpen = cashFeeCollectionOpen();
     const cashFeeInfo = settings.cashFeeCollection || {};
@@ -4611,6 +4685,35 @@ function bindSettings(){
     await R(`settings/opening/${curFY}`).set(Math.round(Number($('sOpening').value)||0));
     writeLog('設定変更', null, `団体名・年度・${curFY}年度繰越金`);
     showToast('保存しました');
+  };
+  if($('fySwitchPreview')) $('fySwitchPreview').onclick=()=>{
+    const fromFY=curFY,toFY=curFY+1, sum=fiscalYearClosingSummary(fromFY), bp=nextYearBudgetPreview(fromFY,toFY);
+    const box=$('fySwitchBox');
+    const blockers=sum.unresolved.length+sum.pendingSettlement.length;
+    box.innerHTML=`<div class="audit-box">
+      <div style="font-weight:800;margin-bottom:8px">${fromFY}年度 → ${toFY}年度</div>
+      ${blockers?`<div class="notice warn"><b>先に確認が必要です</b><br>未完了の申請 ${sum.unresolved.length}件／未精算 ${sum.pendingSettlement.length}件があります。年度切り替えの確定はできません。</div>`:`<div class="notice ok"><b>切り替え可能です</b><br>未完了の申請・未精算はありません。</div>`}
+      <div class="total-check"><span>年度末残高</span><b>${yen(sum.closing)}</b></div>
+      <label class="check-line" style="margin-top:10px"><input type="checkbox" id="fyCarryOpening" checked> ${toFY}年度の前年度繰越金に ${yen(sum.closing)} を設定</label>
+      <label class="check-line"><input type="checkbox" id="fyCarryBudget" checked> ${fromFY}年度の予算額を${toFY}年度の予算案として引き継ぐ</label>
+      <p class="hint">科目体系、支払方法、関係者・権限は年度をまたいで共通利用するため、そのまま引き継がれます。予算は切り替え後に修正できます。</p>
+      <button class="btn btn-primary full" id="fySwitchRun" ${blockers?'disabled':''}>${toFY}年度への切り替えを確定</button>
+    </div>`;
+    if($('fySwitchRun'))$('fySwitchRun').onclick=async()=>{
+      const carryOpening=$('fyCarryOpening').checked,carryBudget=$('fyCarryBudget').checked;
+      if(!confirm(`${fromFY}年度から${toFY}年度への切り替え準備を確定しますか？\n\n過去データは削除しません。次年度の繰越金・予算を準備します。`))return;
+      const fresh=fiscalYearClosingSummary(fromFY);
+      if(fresh.unresolved.length||fresh.pendingSettlement.length)return showToast('未完了の申請または未精算があるため確定できません');
+      const ups={};
+      if(carryOpening)ups[`settings/opening/${toFY}`]=fresh.closing;
+      if(carryBudget)accounts.forEach(a=>{ups[`accounts/${a.id}/budget/${toFY}`]=Number((a.budget||{})[fromFY])||0;});
+      const key=`${fromFY}-${toFY}`;
+      ups[`settings/fiscalTransitions/${key}`]={fromFY,toFY,preparedAt:TS(),preparedBy:me.uid,preparedByName:me.name||'',openingCarried:carryOpening,budgetCarried:carryBudget,closingBalance:fresh.closing,appVersion:APP_VERSION};
+      await db.ref(ROOT).update(ups);
+      writeLog('年度切り替え',null,`${fromFY}年度→${toFY}年度／繰越 ${carryOpening?'あり':'なし'}／予算引継 ${carryBudget?'あり':'なし'}`);
+      showToast(`${toFY}年度の準備が完了しました`);
+      setTimeout(renderSettings,250);
+    };
   };
   if ($('cashFeePeriodBtn')) $('cashFeePeriodBtn').onclick = async () => {
     const open=cashFeeCollectionOpen();
