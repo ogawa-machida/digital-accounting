@@ -399,6 +399,41 @@ p,.hint,.notice,.slip-title,.slip-memo,.person-row,.cat-row,.settings-task-btn,
   #auditScreen.audit-font-xlarge .summary-strip{gap:10px}
 }
 
+
+/* v119: 監査はPC利用を前提に広い作業領域を確保 */
+@media (min-width:900px){
+  body:has(#auditScreen.active) main{max-width:1180px;padding-left:24px;padding-right:24px}
+  body:has(#auditScreen.active) .fy-nav{max-width:1180px}
+  #auditScreen{width:100%;max-width:1180px;margin:0 auto}
+  #auditScreen .panel,#auditScreen .form-card{max-width:none}
+  #auditScreen .summary-strip{grid-template-columns:repeat(4,minmax(0,1fr))}
+}
+/* 監査画面では固定px指定の小さい文字も選択サイズへ追従させる */
+#auditScreen.audit-font-small{--audit-scale:1}
+#auditScreen.audit-font-medium{--audit-scale:1.18}
+#auditScreen.audit-font-large{--audit-scale:1.38}
+#auditScreen.audit-font-xlarge{--audit-scale:1.62}
+#auditScreen[class*="audit-font-"] .hint,
+#auditScreen[class*="audit-font-"] small,
+#auditScreen[class*="audit-font-"] .lbl,
+#auditScreen[class*="audit-font-"] .slip-sub,
+#auditScreen[class*="audit-font-"] .stamp-tag,
+#auditScreen[class*="audit-font-"] summary,
+#auditScreen[class*="audit-font-"] label,
+#auditScreen[class*="audit-font-"] td,
+#auditScreen[class*="audit-font-"] th{font-size:calc(12px * var(--audit-scale))!important;line-height:1.55}
+#auditScreen[class*="audit-font-"] .slip-title,
+#auditScreen[class*="audit-font-"] .section-title,
+#auditScreen[class*="audit-font-"] h3{font-size:calc(15px * var(--audit-scale))!important;line-height:1.45}
+#auditScreen[class*="audit-font-"] .val,
+#auditScreen[class*="audit-font-"] .slip-amount,
+#auditScreen[class*="audit-font-"] .big-amount{font-size:calc(18px * var(--audit-scale))!important}
+#auditScreen[class*="audit-font-"] button,
+#auditScreen[class*="audit-font-"] input,
+#auditScreen[class*="audit-font-"] select,
+#auditScreen[class*="audit-font-"] textarea{font-size:calc(13px * var(--audit-scale))!important;min-height:calc(38px * var(--audit-scale))}
+.bottom-nav button.active{background:rgba(180,67,44,.08);font-weight:700;border-top:3px solid var(--stamp-red);padding-top:6px}
+
 </style>
 <style>
 #newMSettle{width:24px;height:24px;flex:0 0 auto;margin:0 12px 0 0;vertical-align:middle}
@@ -695,7 +730,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.06-118';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.06-119';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1588,7 +1623,12 @@ function showScreen(id){
   currentScreen = id;
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
   $(id).classList.add('active');
-  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active', b.dataset.screen===id));
+  const navActiveScreen = id==='detailScreen' ? detailReturnScreen : (id==='formScreen' ? (detailReturnScreen==='auditScreen'?'auditScreen':'bookScreen') : id);
+  document.querySelectorAll('.nav-btn').forEach(b=>{
+    const active=b.dataset.screen===navActiveScreen;
+    b.classList.toggle('active',active);
+    b.setAttribute('aria-current',active?'page':'false');
+  });
   $('headerTitle').textContent = (id==='bookScreen' && isP()) ? '申請一覧' : TITLES[id];
   $('fyBar').style.display = ['homeScreen','bookScreen','auditScreen'].includes(id) ? 'flex' : 'none';
   $('fabAdd').style.display = ((isT()||canOwnSubmit()) && ['homeScreen','bookScreen'].includes(id)) ? 'flex' : 'none';
@@ -2506,16 +2546,19 @@ function diffText(a,b){
    伝票の詳細（承認・差戻し・監査もここから）
    ========================================================= */
 let detailFallback = null;
+let detailReturnScreen = 'bookScreen';
 const photoCache = {};
 function openDetail(id, fallback){
   const mx=entryById(id)||fallback; if(mx && mx.status==='submitted' && (isT() || entryIsMyApproval(mx))) metricBegin('entry_approval',id);
   detailId = id; detailFallback = fallback || null;
+  // 監査から開いた伝票は、閉じたとき監査へ戻す。
+  detailReturnScreen = currentScreen==='auditScreen' ? 'auditScreen' : (isP()?'homeScreen':'bookScreen');
   showScreen('detailScreen');
 }
 async function renderDetail(id){
   const e = entryById(id) || (detailFallback && detailFallback.id===id ? detailFallback : null);
   const el = $('detailScreen');
-  if (!e) { el.innerHTML = `<div class="empty">この伝票は見つかりません（削除された可能性があります）</div><button class="btn btn-ghost full" onclick="showScreen('bookScreen')">一覧へ戻る</button>`; return; }
+  if (!e) { el.innerHTML = `<div class="empty">この伝票は見つかりません（削除された可能性があります）</div><button class="btn btn-ghost full" onclick="showScreen(detailReturnScreen||'bookScreen')">一覧へ戻る</button>`; return; }
   const acc = accById(e.accountId), m = methodById(e.methodId);
   const inc = e.type==='income';
   const stl = e.settlementId ? settlements.find(s=>s.id===e.settlementId) : null;
@@ -2599,7 +2642,7 @@ async function renderDetail(id){
   }
   el.innerHTML = html;
 
-  $('detailBack').onclick = () => showScreen(isP() ? 'homeScreen' : 'bookScreen');
+  $('detailBack').onclick = () => showScreen(detailReturnScreen || (isP() ? 'homeScreen' : 'bookScreen'));
   if ($('dEdit')) $('dEdit').onclick = () => openForm(e);
   if ($('dDelete')) $('dDelete').onclick = () => deleteEntry(e);
   if ($('dApprove')) $('dApprove').onclick = () => approveEntry(e, $('gTarget') ? $('gTarget').value : null, $('gRole') ? $('gRole').value : null);
@@ -3690,6 +3733,14 @@ async function renderAdmin(){
       try{const [a,b]=await Promise.all([R(`entries/${entryId}`).get(),R(sandbox).get()]);add('テストデータ残存確認',(!a.exists()&&!b.exists())?'ok':'fail',(!a.exists()&&!b.exists())?'残存データなし':'テストデータが残っています');}catch(e){add('テストデータ残存確認','fail',e?.code||e?.message||String(e));}
     }
     try{
+      add('監査：PC横幅拡張',document.documentElement.innerHTML.includes('max-width:1180px')?'ok':'fail','PCでは監査画面を最大1180pxで表示');
+      add('監査：文字サイズ全体追従',document.documentElement.innerHTML.includes('--audit-scale')&&document.documentElement.innerHTML.includes('stamp-tag')?'ok':'fail','固定サイズの補助文字・表・タグも拡大');
+      const od=openDetail.toString(), rd=renderDetail.toString(), ss=showScreen.toString();
+      add('監査：明細から戻る',od.includes("currentScreen==='auditScreen'")&&rd.includes('detailReturnScreen')?'ok':'fail','監査から開いた明細は監査へ戻る');
+      add('下部タブ：現在地表示',ss.includes('navActiveScreen')&&ss.includes('aria-current')?'ok':'fail','詳細画面でも親タブを選択状態に維持');
+    }catch(e){ add('監査画面UI改善','fail',e?.message||String(e)); }
+
+    try{
       const auditSrc=renderAudit.toString();
       add('監査：現預金照合の役割表示',auditSrc.includes('監査担当者の入力は不要です')?'ok':'fail','照合は会計担当、監査担当は結果確認と明示');
       add('監査：照合待ち表示',auditSrc.includes('現預金残高の照合待ち')?'ok':'fail','未照合時の次の行動を明示');
@@ -4203,6 +4254,8 @@ async function renderAdmin(){
     // 結果をDOMだけでなく状態として保持する。Firebaseの遅延onValueで管理画面が
     // 再描画されても、renderAdmin() が診断グループとこの結果を復元する。
     const categoryOf=(name)=>{
+      if(/監査：|監査画面UI/.test(name))return '監査';
+      if(/下部タブ/.test(name))return '保存・遷移';
       if(/監査文字サイズ/.test(name))return '監査';
       if(/操作履歴抑止|試験ログ|ログの分離/.test(name))return '安全・後処理';
       if(/バージョン表示/.test(name))return '保存・遷移';
