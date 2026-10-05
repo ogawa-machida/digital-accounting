@@ -434,6 +434,21 @@ p,.hint,.notice,.slip-title,.slip-memo,.person-row,.cat-row,.settings-task-btn,
 #auditScreen[class*="audit-font-"] textarea{font-size:calc(13px * var(--audit-scale))!important;min-height:calc(38px * var(--audit-scale))}
 .bottom-nav button.active{background:rgba(180,67,44,.08);font-weight:700;border-top:3px solid var(--stamp-red);padding-top:6px}
 
+
+/* v120: 監査明細も文字サイズを完全継承 */
+body.audit-detail-mode #detailScreen.audit-font-small{--audit-scale:1}
+body.audit-detail-mode #detailScreen.audit-font-medium{--audit-scale:1.18}
+body.audit-detail-mode #detailScreen.audit-font-large{--audit-scale:1.38}
+body.audit-detail-mode #detailScreen.audit-font-xlarge{--audit-scale:1.62}
+body.audit-detail-mode #detailScreen .hint,body.audit-detail-mode #detailScreen small,body.audit-detail-mode #detailScreen .stamp-tag,
+body.audit-detail-mode #detailScreen label,body.audit-detail-mode #detailScreen td,body.audit-detail-mode #detailScreen th{font-size:calc(12px * var(--audit-scale))!important;line-height:1.55}
+body.audit-detail-mode #detailScreen h2,body.audit-detail-mode #detailScreen h3,body.audit-detail-mode #detailScreen .section-title{font-size:calc(15px * var(--audit-scale))!important}
+body.audit-detail-mode #detailScreen .big-amount{font-size:calc(24px * var(--audit-scale))!important}
+body.audit-detail-mode #detailScreen button,body.audit-detail-mode #detailScreen input,body.audit-detail-mode #detailScreen select,body.audit-detail-mode #detailScreen textarea{font-size:calc(13px * var(--audit-scale))!important;min-height:calc(38px * var(--audit-scale))}
+body.audit-detail-mode #detailScreen [style*="font-size:10"],body.audit-detail-mode #detailScreen [style*="font-size:11"],body.audit-detail-mode #detailScreen [style*="font-size:12"],body.audit-detail-mode #detailScreen [style*="font-size:13"],body.audit-detail-mode #detailScreen [style*="font-size:14"]{font-size:calc(12px * var(--audit-scale))!important}
+#auditScreen[class*="audit-font-"] [style*="font-size:10"],#auditScreen[class*="audit-font-"] [style*="font-size:11"],#auditScreen[class*="audit-font-"] [style*="font-size:12"],#auditScreen[class*="audit-font-"] [style*="font-size:13"],#auditScreen[class*="audit-font-"] [style*="font-size:14"]{font-size:calc(12px * var(--audit-scale))!important}
+@media(min-width:900px){body.audit-detail-mode main{max-width:1180px}body.audit-detail-mode #detailScreen{max-width:900px;margin:0 auto}}
+
 </style>
 <style>
 #newMSettle{width:24px;height:24px;flex:0 0 auto;margin:0 12px 0 0;vertical-align:middle}
@@ -730,7 +745,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.06-119';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.06-120';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1621,6 +1636,7 @@ function showScreen(id){
   const enteringBook = id==='bookScreen' && currentScreen!=='bookScreen';
   if (enteringBook) bookFilter.status = actionableBookStatus();
   currentScreen = id;
+  document.body.classList.toggle('audit-detail-mode', id==='detailScreen' && detailReturnScreen==='auditScreen');
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
   $(id).classList.add('active');
   const navActiveScreen = id==='detailScreen' ? detailReturnScreen : (id==='formScreen' ? (detailReturnScreen==='auditScreen'?'auditScreen':'bookScreen') : id);
@@ -2553,6 +2569,7 @@ function openDetail(id, fallback){
   detailId = id; detailFallback = fallback || null;
   // 監査から開いた伝票は、閉じたとき監査へ戻す。
   detailReturnScreen = currentScreen==='auditScreen' ? 'auditScreen' : (isP()?'homeScreen':'bookScreen');
+  if(detailReturnScreen==='auditScreen') setAuditFontSize(getAuditFontSize());
   showScreen('detailScreen');
 }
 async function renderDetail(id){
@@ -3055,11 +3072,10 @@ function getAuditFontSize(){
 function setAuditFontSize(size){
   const v=AUDIT_FONT_SIZES.includes(size)?size:'medium';
   localStorage.setItem('auditFontSize',v);
-  const el=$('auditScreen');
-  if(el){
+  [$('auditScreen'),$('detailScreen')].filter(Boolean).forEach(el=>{
     el.classList.remove(...AUDIT_FONT_SIZES.map(x=>'audit-font-'+x));
     el.classList.add('audit-font-'+v);
-  }
+  });
 }
 function auditFontPickerHtml(){
   const cur=getAuditFontSize();
@@ -3099,6 +3115,7 @@ function renderAudit(){
   const stale=ap.filter(e=>e.auditStale).length;
   const unresolvedIssue=issue.filter(e=>!e.audit?.response).length;
   const moneyOK=latestRecon && Number(latestRecon.diff)===0;
+  const openingNeedsCheck=opening===0 && book<0;
   const checklist=report?.checklist||{};
 
   const card=(label,value,sub,okFlag)=>`<div class="panel" style="margin:0;padding:12px;min-width:0">
@@ -3106,7 +3123,7 @@ function renderAudit(){
     <div style="font-family:'Shippori Mincho',serif;font-size:21px;font-weight:700;line-height:1.25;color:${okFlag===false?'var(--stamp-red)':okFlag===true?'var(--moss)':'var(--ink)'}">${value}</div>
     ${sub?`<div class="hint" style="margin:5px 0 0">${sub}</div>`:''}</div>`;
 
-  let html=auditFontPickerHtml()+`<div class="panel"><h3 style="margin-bottom:10px">${curFY}年度 監査ダッシュボード <small>紙を使わず、この画面で確認できます</small></h3>
+  let html=auditFontPickerHtml()+`${openingNeedsCheck?`<div class="notice amber" style="cursor:default"><span class="n-body"><b>⚠ 期首繰越金の確認が必要です</b><span class="n-sub">期首繰越金が0円で帳簿残高がマイナスです。会計担当者が年度設定を確認するまで、現預金照合・監査完了を行わないでください。</span></span></div>`:''}<div class="panel"><h3 style="margin-bottom:10px">${curFY}年度 監査ダッシュボード <small>紙を使わず、この画面で確認できます</small></h3>
     <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px">
       ${card('帳簿残高',yen(book),`期首 ${yen(opening)} ＋ 収入 ${yen(inc)} − 支出 ${yen(exp)}`,null)}
       ${card('現預金残高の照合',latestRecon?(moneyOK?'照合済み・差額 0円':'照合済み・差額 '+yen(Number(latestRecon.diff)||0)):'照合待ち',
@@ -3175,6 +3192,7 @@ function renderAudit(){
     const final={};
     el.querySelectorAll('.audit-final-check').forEach(x=>final[x.dataset.k]=x.checked);
     if(Object.values(final).filter(Boolean).length<4) return showToast('監査完了前チェックを4項目すべて確認してください');
+    if(openingNeedsCheck) return showToast('期首繰越金の確認が必要です。会計担当者が年度設定を確認してください');
     if(!latestRecon) return showToast('現預金残高の照合待ちです。会計担当者が会計設定から照合を行ってください');
     if(Number(latestRecon.diff)!==0 && !confirm(`現預金照合に${yen(Number(latestRecon.diff)||0)}の差額があります。内容を確認済みとして監査完了しますか？`)) return;
     if(todo.length && !confirm(`未確認の伝票が${todo.length}件あります。内容を確認済みとして監査完了しますか？`)) return;
@@ -3733,6 +3751,13 @@ async function renderAdmin(){
       try{const [a,b]=await Promise.all([R(`entries/${entryId}`).get(),R(sandbox).get()]);add('テストデータ残存確認',(!a.exists()&&!b.exists())?'ok':'fail',(!a.exists()&&!b.exists())?'残存データなし':'テストデータが残っています');}catch(e){add('テストデータ残存確認','fail',e?.code||e?.message||String(e));}
     }
     try{
+      const settingsSrc=renderSettings.toString(), auditSrc2=renderAudit.toString(), detailSrc=openDetail.toString();
+      add('現預金照合：期首繰越ガード',settingsSrc.includes('reconOpeningNeedsCheck')&&settingsSrc.includes('期首繰越金を確認してください')?'ok':'fail','期首0円＋帳簿残高マイナス時は照合を確定させない');
+      add('監査完了：期首繰越ガード',auditSrc2.includes('openingNeedsCheck')&&auditSrc2.includes('期首繰越金の確認が必要です')?'ok':'fail','異常な期首残高のまま監査完了させない');
+      add('監査明細：文字サイズ継承',detailSrc.includes('setAuditFontSize(getAuditFontSize())')&&document.documentElement.innerHTML.includes('audit-detail-mode')?'ok':'fail','監査から開いた個別伝票も監査文字サイズを引き継ぐ');
+    }catch(e){ add('期首繰越・監査明細ガード','fail',e?.message||String(e)); }
+
+    try{
       add('監査：PC横幅拡張',document.documentElement.innerHTML.includes('max-width:1180px')?'ok':'fail','PCでは監査画面を最大1180pxで表示');
       add('監査：文字サイズ全体追従',document.documentElement.innerHTML.includes('--audit-scale')&&document.documentElement.innerHTML.includes('stamp-tag')?'ok':'fail','固定サイズの補助文字・表・タグも拡大');
       const od=openDetail.toString(), rd=renderDetail.toString(), ss=showScreen.toString();
@@ -4254,7 +4279,8 @@ async function renderAdmin(){
     // 結果をDOMだけでなく状態として保持する。Firebaseの遅延onValueで管理画面が
     // 再描画されても、renderAdmin() が診断グループとこの結果を復元する。
     const categoryOf=(name)=>{
-      if(/監査：|監査画面UI/.test(name))return '監査';
+      if(/現預金照合|期首繰越/.test(name))return '年度処理';
+      if(/監査明細|監査：|監査画面UI/.test(name))return '監査';
       if(/下部タブ/.test(name))return '保存・遷移';
       if(/監査文字サイズ/.test(name))return '監査';
       if(/操作履歴抑止|試験ログ|ログの分離/.test(name))return '安全・後処理';
@@ -4579,9 +4605,12 @@ function renderSettings(){
     const kpSettledGross = Object.values(settings.kaihipaySettlements||{}).filter(x=>Number(x.fy)===Number(curFY)).reduce((n,x)=>n+(Number(x.grossAmount)||0),0);
     const kpUnlinked = Math.max(0, kpCard + kpDebit - kpSettledGross);
     const reconPhysicalBook = reconBook - kpUnlinked;
+    const reconOpeningForGuard = Number((settings.opening||{})[curFY])||0;
+    const reconOpeningNeedsCheck = reconOpeningForGuard===0 && reconBook<0;
     const reconAdv = advances.filter(a=>a.settleState==='pending').reduce((n,a)=>n+(Number(a.amount)||0),0);
     const reconHist = Object.entries((((settings.balanceChecks||{})[curFY])||{})).map(([id,v])=>({id,...v})).sort((a,b)=>(b.at||0)-(a.at||0));
     html += `<h2 class="section-title" style="margin-top:20px">現預金残高の確認</h2><div class="form-card">
+      ${reconOpeningNeedsCheck?`<div class="notice amber" style="cursor:default;margin-top:0"><span class="n-body"><b>⚠ 期首繰越金を確認してください</b><span class="n-sub">現在、期首繰越金が0円のため帳簿残高が ${yen(reconBook)} です。この状態では現預金照合を確定できません。年度設定で正しい期首繰越金を登録してから照合してください。</span></span></div>`:''}
       <div class="notice navy" style="cursor:default;margin-top:0"><span class="n-body"><b>監査前に会計担当者が行う確認です</b><span class="n-sub">銀行口座と現金の実残高を入力し、帳簿残高と一致することを確認してください。ここでの確認結果が監査画面に表示されます。</span></span></div>
       <p class="hint">銀行口座と手元現金を、帳簿上の現預金と照合します。会費ペイは実際の振込・手数料データが未連携のため、銀行口座・現金とは分けて表示し、照合対象から除外します。</p>
       <div class="total-check"><span>会計帳簿の総残高</span><b>${yen(reconBook)}</b></div>
@@ -4595,7 +4624,7 @@ function renderSettings(){
       <div class="total-check"><span>未清算の仮払金（自動）</span><b>${yen(reconAdv)}</b></div>
       <div class="field" style="margin-top:12px"><label>確認メモ（任意）</label><input type="text" id="reconMemo" placeholder="例）9月末残高確認"></div>
       <div id="reconPreview" class="total-check" style="margin-top:10px"><span>銀行口座＋現金＋仮払金との差額</span><b>金額を入力してください</b></div>
-      <button class="btn btn-primary full" id="reconSave" style="margin-top:10px">現預金残高を照合して記録する</button>
+      <button class="btn btn-primary full" id="reconSave" style="margin-top:10px" ${reconOpeningNeedsCheck?'disabled title="期首繰越金を確認してください"':''}>現預金残高を照合して記録する</button>
       ${reconHist.length?`<div style="font-weight:700;font-size:13.5px;margin:16px 0 6px">確認履歴</div>`+reconHist.slice(0,12).map(x=>`<div class="cat-row"><span class="cname">${fmtTs(x.at)}<small>${esc(x.byName||'')}・照合帳簿 ${yen(Number(x.physicalBookBalance??x.bookBalance)||0)}／実残高 ${yen(Number(x.actualTotal)||0)}${Number(x.kaihipayUnlinked||0)?`・会費ペイ未連携 ${yen(Number(x.kaihipayUnlinked)||0)}`:''}${x.memo?`・${esc(x.memo)}`:''}</small></span><span class="stamp-tag" style="border-color:${Number(x.diff)===0?'var(--moss)':'var(--stamp-red)'};color:${Number(x.diff)===0?'var(--moss)':'var(--stamp-red)'}">${Number(x.diff)===0?'一致':'差額 '+yen(Number(x.diff)||0)}</span></div>`).join(''):''}
     </div>`;
 
@@ -5080,6 +5109,7 @@ function bindSettings(){
   if($('reconBank')) $('reconBank').oninput=updateReconPreview;
   if($('reconCash')) $('reconCash').oninput=updateReconPreview;
   if($('reconSave')) $('reconSave').onclick=async()=>{
+    if(reconOpeningNeedsCheck) return showToast('期首繰越金が0円で帳簿残高がマイナスです。先に期首繰越金を確認してください');
     if($('reconBank').value===''||$('reconCash').value==='') return showToast('預金残高と現金残高を入力してください');
     const opening=Number((settings.opening||{})[curFY])||0;
     const inc=approvedFY().filter(e=>e.type==='income').reduce((n,e)=>n+(Number(e.amount)||0),0);
