@@ -1940,7 +1940,7 @@ let formPhotos = [];      // dataURLの配列
 let photosChanged = false;
 let formAccount = '', formMethod = '', formAddressee = '';
 let formAiReceiptOriginal = null;
-// v90: 実画面操作自動テスト中だけ使用。通常操作には影響しない。
+// v91: 実画面操作自動テスト中だけ使用。通常操作には影響しない。
 let uiAutoTestContext = null;
 
 async function openForm(e){
@@ -3497,6 +3497,7 @@ async function renderAdmin(){
       add('保存ボタン→Firebase','ok','実ボタン押下からsubmitted伝票の保存まで確認');
       await waitFor(()=>$('detailScreen')?.classList.contains('active'),5000);
       add('保存後の画面遷移','ok','詳細画面まで自動遷移');
+      await sleep(250); // 実画面遷移を描画してから後処理へ進む
       // UIから作られた伝票であることを追加確認。
       if(e.diagnosticRunId!==runId||!e.testMode)throw new Error('診断専用フラグが保存されていません');
       add('診断データ分離','ok','testMode・diagnosticRunIdを確認');
@@ -3508,10 +3509,16 @@ async function renderAdmin(){
       try{renderAll();}catch(_){}
     }
     const fails=rows.filter(x=>x[1]==='fail').length;
-    // renderAllでDOMが再生成されるため、最新の診断画面を開き直して結果を表示。
+    // テスト中は実際の伝票詳細画面まで遷移するため、終了時に必ず管理画面へ戻す。
+    // adminGroupDiagnostics を開くだけでは currentScreen が detailScreen のままなので、
+    // showScreen('adminScreen') を明示的に通してから診断グループを再表示する。
+    showScreen('adminScreen');
     const diagnosticsGroup=$('adminGroupDiagnostics'), adminMenuNow=$('adminMenu');
-    if(adminMenuNow)adminMenuNow.style.display='none'; Object.values(adminGroups).forEach(x=>x&&x.classList.remove('open')); if(diagnosticsGroup)diagnosticsGroup.classList.add('open');
-    out=$('diagUIResult'); if(out)out.innerHTML=`<div class="total-check"><span>実画面操作テスト</span><b>${fails?`${fails}件の異常`:`${rows.length}/${rows.length} PASS`}</b></div>${rows.map(x=>diagRow(...x)).join('')}<p class="hint">実行ID：${esc(runId)}。入力→選択→保存→Firebase→画面遷移まで実際の画面イベント経路を確認しました。</p>`;
+    if(adminMenuNow)adminMenuNow.style.display='none';
+    Object.values(adminGroups).forEach(x=>x&&x.classList.remove('open'));
+    if(diagnosticsGroup)diagnosticsGroup.classList.add('open');
+    out=$('diagUIResult');
+    if(out)out.innerHTML=`<div class="total-check"><span>実画面操作テスト</span><b>${fails?`${fails}件の異常`:`${rows.length}/${rows.length} PASS`}</b></div>${rows.map(x=>diagRow(...x)).join('')}<p class="hint">実行ID：${esc(runId)}。入力→選択→保存→Firebase→画面遷移まで実際の画面イベント経路を確認しました。</p>`;
   }
   if($('diagRun'))$('diagRun').onclick=runSystemDiagnostics;
   if($('diagE2E'))$('diagE2E').onclick=runE2EDiagnostics;
