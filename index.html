@@ -449,6 +449,18 @@ body.audit-detail-mode #detailScreen [style*="font-size:10"],body.audit-detail-m
 #auditScreen[class*="audit-font-"] [style*="font-size:10"],#auditScreen[class*="audit-font-"] [style*="font-size:11"],#auditScreen[class*="audit-font-"] [style*="font-size:12"],#auditScreen[class*="audit-font-"] [style*="font-size:13"],#auditScreen[class*="audit-font-"] [style*="font-size:14"]{font-size:calc(12px * var(--audit-scale))!important}
 @media(min-width:900px){body.audit-detail-mode main{max-width:1180px}body.audit-detail-mode #detailScreen{max-width:900px;margin:0 auto}}
 
+
+/* v122: アカウント操作はヘッダー右上へ集約 */
+.account-chip{cursor:pointer;user-select:none;position:relative}
+.account-chip:hover{background:rgba(180,67,44,.06)}
+.account-chevron{font-size:15px;opacity:.65;margin-left:2px}
+.account-menu-pop{position:fixed;z-index:1200;min-width:220px;max-width:calc(100vw - 24px);background:var(--paper,#fffdf8);border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 30px rgba(40,30,20,.18);padding:8px}
+.account-menu-head{padding:9px 10px 10px;border-bottom:1px solid var(--line);margin-bottom:6px}
+.account-menu-head b{display:block}
+.account-menu-head small{display:block;margin-top:3px;opacity:.7}
+.account-menu-pop button{width:100%;text-align:left;justify-content:flex-start}
+.account-menu-pop .logout-action{margin-top:4px}
+
 </style>
 <style>
 #newMSettle{width:24px;height:24px;flex:0 0 auto;margin:0 12px 0 0;vertical-align:middle}
@@ -601,10 +613,10 @@ label[for="newMSettle"]{display:flex;align-items:center;justify-content:flex-sta
         <div class="org" id="headerOrg"></div>
       </div>
     </div>
-    <div class="user-chip">
+    <div class="user-chip account-chip" id="accountMenuBtn" role="button" tabindex="0" aria-haspopup="menu" aria-expanded="false" title="アカウントメニュー">
       <span class="role-badge" id="roleBadge"></span>
       <span id="userName"></span>
-      <button class="icon-btn" id="logoutBtn" title="ログアウト" aria-label="ログアウト">⎋</button>
+      <span class="account-chevron" aria-hidden="true">⌄</span>
     </div>
   </header>
 
@@ -745,7 +757,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.06-121';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.06-122';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1321,8 +1333,29 @@ window.addEventListener('online',()=>{ if(uiAutoTestContext) uiAutoTestContext.n
       }
     });
   };
-  $('logoutBtn').onclick = () => { if (confirm('ログアウトしますか？')) auth.signOut(); };
-  $('roleBadge').onclick = () => { if(isRealAdmin()) showTestRoleChooser(true); };
+  function closeAccountMenu(){
+    const p=document.getElementById('accountMenuPop'); if(p)p.remove();
+    const b=$('accountMenuBtn'); if(b)b.setAttribute('aria-expanded','false');
+  }
+  function openAccountMenu(){
+    closeAccountMenu();
+    const b=$('accountMenuBtn'); if(!b||!me)return;
+    const p=document.createElement('div'); p.id='accountMenuPop'; p.className='account-menu-pop'; p.setAttribute('role','menu');
+    p.innerHTML=`<div class="account-menu-head"><b>${esc(me.name||me.email||'利用者')}</b><small>${esc(testProfile?`${me.testRoleLabel}・テスト`:(ROLES[me.role]?.name||me.role||''))}</small></div>
+      ${isRealAdmin()?`<button class="btn btn-ghost sm" id="accountRoleTest" role="menuitem">役割テストを切り替える</button>`:''}
+      <button class="btn btn-ghost sm logout-action" id="accountLogout" role="menuitem">ログアウト</button>`;
+    document.body.appendChild(p);
+    const r=b.getBoundingClientRect(), w=Math.min(260,window.innerWidth-24);
+    p.style.width=w+'px'; p.style.top=(r.bottom+6)+'px'; p.style.left=Math.max(12,Math.min(window.innerWidth-w-12,r.right-w))+'px';
+    b.setAttribute('aria-expanded','true');
+    $('accountLogout').onclick=()=>{closeAccountMenu();if(confirm('ログアウトしますか？'))auth.signOut();};
+    if($('accountRoleTest'))$('accountRoleTest').onclick=()=>{closeAccountMenu();showTestRoleChooser(true);};
+    setTimeout(()=>document.addEventListener('click',accountOutsideOnce,{once:true}),0);
+  }
+  function accountOutsideOnce(e){ if(!e.target.closest('#accountMenuPop')&&!e.target.closest('#accountMenuBtn'))closeAccountMenu(); }
+  $('accountMenuBtn').onclick=openAccountMenu;
+  $('accountMenuBtn').onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openAccountMenu();}};
+  $('roleBadge').onclick = e => { e.stopPropagation(); openAccountMenu(); };
   auth.onAuthStateChanged(async user => {
     detachAll();
     if (!user) { me=null; hideAllRoots(); $('loginScreen').style.display='block'; handleInAppBrowser(); return; }
@@ -3800,6 +3833,12 @@ async function renderAdmin(){
     }catch(e){ add('自動試験ログの分離','fail',e?.message||String(e)); }
 
     try{
+      const rs=renderSettings.toString();
+      add('ログアウト：会計設定から分離',!rs.includes("auth.signOut()")?'ok':'fail','会計設定・日常診断の末尾にログアウトを置かない');
+      add('ログアウト：共通アカウントメニュー',!!$('accountMenuBtn')&&typeof openAccountMenu==='function'?'ok':'fail','ヘッダー右上の利用者表示からログアウト可能');
+    }catch(e){ add('ログアウト配置','fail',e?.message||String(e)); }
+
+    try{
       const vi=homeVersionInfo();
       add('ホーム画面のバージョン表示',vi.includes(APP_VERSION)&&/デジタル会計/.test(vi)?'ok':'fail',`Ver.${APP_VERSION} を常時表示`);
     }catch(e){ add('ホーム画面のバージョン表示','fail',e?.message||String(e)); }
@@ -4294,6 +4333,7 @@ async function renderAdmin(){
     const categoryOf=(name)=>{
       if(/現預金照合|期首繰越/.test(name))return '年度処理';
       if(/監査明細|監査：|監査画面UI/.test(name))return '監査';
+      if(/ログアウト/.test(name))return '保存・遷移';
       if(/テスト件数/.test(name))return '安全・後処理';
       if(/下部タブ/.test(name))return '保存・遷移';
       if(/監査文字サイズ/.test(name))return '監査';
@@ -4771,8 +4811,7 @@ function renderSettings(){
       <div id="dailyDiagResult" style="margin-top:12px"></div>
     </div>`;
 
-  html += `<button class="btn btn-ghost full" style="margin-top:6px" onclick="if(confirm('ログアウトしますか？'))auth.signOut()">ログアウト</button>
-    <p class="hint" style="text-align:center;margin-top:12px">バージョン ${APP_VERSION}</p>`;
+  html += `<p class="hint" style="text-align:center;margin-top:18px">バージョン ${APP_VERSION}</p>`;
   el.innerHTML = html;
   // システム管理項目は会計設定から完全に分離し、管理者画面へ寄せる。
   ['会費ペイから会費収入を取り込む','データの取り込み・バックアップ','承認依頼のメール通知'].forEach(title=>{
