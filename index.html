@@ -655,7 +655,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.05-102';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.05-103';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -3551,9 +3551,11 @@ async function renderAdmin(){
     const waitFor=async(fn,ms=5000)=>{const end=Date.now()+ms;while(Date.now()<end){try{const v=fn();if(v)return v;}catch(_){}await sleep(80);}throw new Error('画面の応答がタイムアウトしました');};
     const oldProfile=testProfile, oldMe=me, oldFY=curFY;
     let entryId=null, incomeEntryId=null, settlementEntryId=null, settlementId=null, testPayerId=null, testPayerExisted=false;
+    // v103: finally でも参照するため try の外側で宣言する。
+    const sandbox=`diagnosticTests/${auth.currentUser.uid}/${runId}`;
+    let sandboxCreated=false;
     try{
       uiAutoTestContext={runId,savedEntryId:null,startedOnline:navigator.onLine,networkRecoveredAt:null};
-      const sandbox=`diagnosticTests/${auth.currentUser.uid}/${runId}`; let sandboxCreated=false;
       try{
         await R(sandbox).set({runId,uid:auth.currentUser.uid,version:APP_VERSION,stage:'created',createdAt:Date.now(),testOnly:true}); sandboxCreated=true;
         let ds=await R(sandbox).get(); add('Firebase診断領域の作成・読取',ds.exists()&&ds.val()?.runId===runId?'ok':'fail','診断専用領域で実通信');
