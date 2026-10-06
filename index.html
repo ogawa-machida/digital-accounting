@@ -567,6 +567,9 @@ body.ui-mobile .bottom-nav{display:flex}
 .screen[aria-hidden="true"]{display:none!important;visibility:hidden!important}
 .screen[aria-hidden="false"].active{visibility:visible}
 
+
+.role-flow{display:none!important}
+/* v129: 固定①②③は廃止。操作誘導は「次にやること」へ一本化 */
 </style>
 <style>
 #newMSettle{width:24px;height:24px;flex:0 0 auto;margin:0 12px 0 0;vertical-align:middle}
@@ -863,7 +866,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.06-128';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.06-129';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1867,8 +1870,22 @@ async function showScreen(id){
   $('fabAdd').style.display = ((isT()||canOwnSubmit()) && ['homeScreen','bookScreen'].includes(id)) ? 'flex' : 'none';
   if (id!=='settleScreen') settleView = null;
   const transitionSeq=++screenTransitionSeq;
-  await renderCurrent();
+  try{
+    if(id==='settingsScreen'){
+      renderSettings();
+      injectScreenGuide('settingsScreen');
+    }else{
+      await renderCurrent();
+    }
+  }catch(err){
+    console.error('screen render failed',id,err);
+    if(target) target.innerHTML=`<div class="form-card"><h2>画面を表示できませんでした</h2><p class="hint">再度タブを押してください。改善しない場合は日常の自動診断を実行してください。</p></div>`;
+  }
   if(transitionSeq!==screenTransitionSeq || currentScreen!==id) return;
+  if(id==='settingsScreen' && target && target.textContent.trim().length<20){
+    renderSettings();
+    injectScreenGuide('settingsScreen');
+  }
   if(target) target.classList.add('active');
   window.scrollTo(0,0);
 }
@@ -4024,6 +4041,17 @@ async function renderAdmin(){
     }catch(e){ add('自動試験ログの分離','fail',e?.message||String(e)); }
 
     try{
+      const beforeScreen=currentScreen;
+      await showScreen('settingsScreen');
+      const se=$('settingsScreen');
+      const settingsVisible=!!se && se.classList.contains('active') && se.getAttribute('aria-hidden')==='false';
+      const settingsHasContent=!!se && /団体の情報|会計年度の締め|日常の自動診断/.test(se.textContent||'');
+      add('実画面：会計設定が表示される',settingsVisible?'ok':'fail',settingsVisible?'active・aria-hidden=false を確認':'会計設定画面が非表示');
+      add('実画面：会計設定の内容が描画される',settingsHasContent?'ok':'fail',settingsHasContent?'主要な設定項目の実DOMを確認':'設定画面が空、または主要項目が未描画');
+      if(beforeScreen && beforeScreen!=='settingsScreen') await showScreen(beforeScreen);
+    }catch(e){ add('実画面：会計設定表示','fail',e?.message||String(e)); }
+
+    try{
       const showSrc=showScreen.toString(), cssAll=document.documentElement.innerHTML;
       add('画面遷移：旧画面即時非表示',showSrc.includes("setAttribute('aria-hidden','true')")&&showSrc.indexOf("setAttribute('aria-hidden','true')")<showSrc.indexOf('renderCurrent()')?'ok':'fail','新画面描画前に旧画面を完全非表示');
       add('画面遷移：描画完了後に新画面表示',showSrc.includes('await renderCurrent()')&&showSrc.indexOf('await renderCurrent()')<showSrc.indexOf("target.classList.add('active')")?'ok':'fail','非同期描画も完了してから新画面を表示');
@@ -4563,7 +4591,7 @@ async function renderAdmin(){
     const categoryOf=(name)=>{
       if(/現預金照合|期首繰越/.test(name))return '年度処理';
       if(/監査明細|監査：|監査画面UI/.test(name))return '監査';
-      if(/画面遷移/.test(name))return '保存・遷移';
+      if(/実画面：会計設定|画面遷移/.test(name))return '保存・遷移';
       if(/分かりやすさ/.test(name))return '保存・遷移';
       if(/端末別UI|PC UI|スマホUI|監査PC UI/.test(name))return '保存・遷移';
       if(/役割別UI/.test(name))return '保存・遷移';
