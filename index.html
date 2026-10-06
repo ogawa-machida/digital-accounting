@@ -866,7 +866,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.06-129';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.06-130';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1872,6 +1872,7 @@ async function showScreen(id){
   const transitionSeq=++screenTransitionSeq;
   try{
     if(id==='settingsScreen'){
+      if(target) delete target.dataset.renderError;
       renderSettings();
       injectScreenGuide('settingsScreen');
     }else{
@@ -1879,7 +1880,10 @@ async function showScreen(id){
     }
   }catch(err){
     console.error('screen render failed',id,err);
-    if(target) target.innerHTML=`<div class="form-card"><h2>画面を表示できませんでした</h2><p class="hint">再度タブを押してください。改善しない場合は日常の自動診断を実行してください。</p></div>`;
+    if(target){
+      target.dataset.renderError=String(err?.message||err||'unknown');
+      target.innerHTML=`<div class="form-card"><h2>画面を表示できませんでした</h2><p class="hint">再度タブを押してください。改善しない場合は日常の自動診断を実行してください。</p></div>`;
+    }
   }
   if(transitionSeq!==screenTransitionSeq || currentScreen!==id) return;
   if(id==='settingsScreen' && target && target.textContent.trim().length<20){
@@ -4046,8 +4050,13 @@ async function renderAdmin(){
       const se=$('settingsScreen');
       const settingsVisible=!!se && se.classList.contains('active') && se.getAttribute('aria-hidden')==='false';
       const settingsHasContent=!!se && /団体の情報|会計年度の締め|日常の自動診断/.test(se.textContent||'');
+      const settingsNoRenderError=!!se && !se.dataset.renderError && !(se.textContent||'').includes('画面を表示できませんでした');
+      const settingsControls=!!se && !!se.querySelector('#settingsTaskMenu') && !!se.querySelector('#sSaveOrg') && !!se.querySelector('#dailyDiagRun');
       add('実画面：会計設定が表示される',settingsVisible?'ok':'fail',settingsVisible?'active・aria-hidden=false を確認':'会計設定画面が非表示');
       add('実画面：会計設定の内容が描画される',settingsHasContent?'ok':'fail',settingsHasContent?'主要な設定項目の実DOMを確認':'設定画面が空、または主要項目が未描画');
+      add('実画面：会計設定に描画エラーがない',settingsNoRenderError?'ok':'fail',settingsNoRenderError?'描画例外なし':`描画エラー：${se?.dataset.renderError||'エラー画面を検出'}`);
+      add('実画面：会計設定の操作部品が存在',settingsControls?'ok':'fail',settingsControls?'設定メニュー・保存・自動診断ボタンを確認':'主要操作部品が不足');
+      add('テスト集計：実行結果を動的集計',Array.isArray(results)&&results.length>0?'ok':'fail',`この時点までの実行結果 ${results.length}件（固定件数ではなく実績から集計）`);
       if(beforeScreen && beforeScreen!=='settingsScreen') await showScreen(beforeScreen);
     }catch(e){ add('実画面：会計設定表示','fail',e?.message||String(e)); }
 
@@ -5331,13 +5340,10 @@ function bindSettings(){
     writeLog('利用者削除', null, `${m.name}（${m.email||''}）`); showToast(`${m.name}さんの登録を削除しました`);
     if(['treasurer','viewer'].includes(m.role)) setTimeout(()=>syncRecipients(),800);
   });
-  html += `<h2 class="section-title" style="margin-top:20px">個人情報の取扱い</h2><div class="form-card">
-    <p class="hint" style="margin:0">利用目的：自治会の会計処理、支払・精算、監査、決算およびこれらに必要な連絡。役割に応じて閲覧・操作範囲を制限します。領収書類をAIで読み取る場合は読取りに必要な画像情報をAIサービスへ送信します。</p>
-  </div>`;
 
-  $('budgetImportBtn').onclick = () => { if (!aiProxyConfigured()) return showToast('先に通知・AI共通Apps Script URLを設定してください'); $('budgetInput').click(); };
+  if($('budgetImportBtn')) $('budgetImportBtn').onclick = () => { if (!aiProxyConfigured()) return showToast('先に通知・AI共通Apps Script URLを設定してください'); $('budgetInput').click(); };
 
-  $('sSaveOrg').onclick = async () => {
+  if($('sSaveOrg')) $('sSaveOrg').onclick = async () => {
     const closeMonth=Number($('sClose').value)||12; const fiscalStartMonth=closeMonth===12?1:closeMonth+1;
     await R('settings').update({ orgName:$('sOrg').value.trim()||'町内会', fiscalStartMonth });
     await R(`settings/opening/${curFY}`).set(Math.round(Number($('sOpening').value)||0));
@@ -5452,10 +5458,10 @@ function bindSettings(){
     const d=prompt('摘要（この科目に含まれる支出の例。AIの科目判定にも使います）', a.desc||''); if (d===null) return;
     R(`accounts/${a.id}`).update({ name:n.trim(), desc:d.trim() });
   });
-  $('stdAccBtn').onclick = applyStandardAccounts;
+  if($('stdAccBtn')) $('stdAccBtn').onclick = applyStandardAccounts;
   q('[data-delacc]').forEach(b => b.onclick = () => deleteAccount(accById(b.dataset.delacc)));
   q('[data-toggleacc]').forEach(b => b.onclick = () => { const a=accById(b.dataset.toggleacc); R(`accounts/${a.id}/active`).set(!a.active); });
-  $('addAcc').onclick = async () => {
+  if($('addAcc')) $('addAcc').onclick = async () => {
     const name=$('newAccName').value.trim(); if(!name) return showToast('科目名を入力してください');
     const type=$('newAccType').value;
     await R('accounts').push().set({ name, type, color:PALETTE[accounts.length%PALETTE.length], active:true, order:(type==='income'?100:0)+accounts.length });
@@ -5463,7 +5469,7 @@ function bindSettings(){
   };
   q('[data-settle]').forEach(b => b.onclick = () => { const m=methodById(b.dataset.settle); if(confirm(`「${m.name}」を${m.settle?'精算不要':'要精算'}にしますか？\n（これから登録する伝票に反映されます）`)) R(`methods/${m.id}/settle`).set(!m.settle); });
   q('[data-togglem]').forEach(b => b.onclick = () => { const m=methodById(b.dataset.togglem); R(`methods/${m.id}/active`).set(!m.active); });
-  $('addM').onclick = async () => {
+  if($('addM')) $('addM').onclick = async () => {
     const name=$('newMName').value.trim(); if(!name) return showToast('支払方法の名前を入力してください');
     await R('methods').push().set({ name, use:$('newMUse').value, settle:$('newMSettle').checked, active:true, order:methods.length });
     document.activeElement.blur(); showToast('支払方法を追加しました'); renderSettings();
@@ -5478,7 +5484,7 @@ function bindSettings(){
     R(`payers/${p.id}`).update({ name:n.trim()||p.name, post:post.trim(), branch:branch.trim(), group:group.trim() });
   });
   q('[data-togglep]').forEach(b => b.onclick = () => { const p=payerById(b.dataset.togglep); R(`payers/${p.id}/active`).set(!p.active); });
-  $('addP').onclick = async () => {
+  if($('addP')) $('addP').onclick = async () => {
     const name=$('newPName').value.trim(), branch=$('newPBranch').value, group=$('newPGroup').value; if(!name) return showToast('氏名を入力してください');
     if(!validAffiliation(branch,group)) return showToast('支部と班を選択してください');
     await R('payers').push().set({ name, post:$('newPPost').value.trim(), branch, group, active:true, createdAt:TS() });
@@ -5519,7 +5525,7 @@ function bindSettings(){
     writeLog('立替・仮払設定', null, `${m.name} → ${payerLabel(s.value)||'なし'}`);
     showToast('立替・仮払の設定を保存しました');
   });
-  $('pubDetail').onchange = () => R('settings/publicDetail').set($('pubDetail').value);
+  if($('pubDetail')) $('pubDetail').onchange = () => R('settings/publicDetail').set($('pubDetail').value);
   if($('nEntry')) $('nEntry').onchange = e => R('settings/notifyOnEntry').set(e.target.checked);
   if($('impBtn')) $('impBtn').onclick = openImport;
   if ($('kaihipayBtn')) $('kaihipayBtn').onclick = () => $('kaihipayInput').click();
@@ -5575,8 +5581,8 @@ function bindSettings(){
     $('nTest').disabled = false;
     showToast(r && r.ok ? `テストメールを送りました（${(r.recipients||[]).join('、')}）` : `送信できませんでした：${r && r.error || '不明なエラー'}`);
   };
-  $('pubDo').onclick = publishReport;
-  $('pubStop').onclick = async () => {
+  if($('pubDo')) $('pubDo').onclick = publishReport;
+  if($('pubStop')) $('pubStop').onclick = async () => {
     if (!confirm(`${curFY}年度の会計報告を非公開にしますか？`)) return;
     await R(`public/${curFY}`).remove(); await R(`public/index/years/${curFY}`).remove();
     showToast('非公開にしました');
@@ -5676,7 +5682,6 @@ let batchSeq = 0;
 let batchQueue = [];
 let batchRunning = 0;
 const batchCommon = { methodId:'', payerId:'', purpose:'', storageLocation:'' };
-
 function openBatch(){
   if (isP() && !me.payerId) return showToast('立替・仮払の対象設定が済んでいません');
   batchItems = batchItems.filter(i=>i.state!=='saved');
