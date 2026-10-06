@@ -574,10 +574,17 @@ body.ui-mobile .bottom-nav{display:flex}
 <style>
 #newMSettle{width:24px;height:24px;flex:0 0 auto;margin:0 12px 0 0;vertical-align:middle}
 label[for="newMSettle"]{display:flex;align-items:center;justify-content:flex-start;text-align:left;gap:0;cursor:pointer;width:100%}
+
+/* v148: 総合実画面テスト実行中表示 */
+#uiTestRunningBanner{position:fixed;left:12px;right:12px;top:12px;z-index:99999;background:#fff7df;border:2px solid var(--stamp-red);border-radius:14px;padding:10px 14px;box-shadow:0 6px 20px rgba(0,0,0,.18);display:none}
+#uiTestRunningBanner.show{display:block}
+#uiTestRunningBanner .ui-test-title{font-weight:900;color:var(--stamp-red);font-size:16px}
+#uiTestRunningBanner .ui-test-stage{margin-top:3px;font-weight:700}
+#uiTestRunningBanner .ui-test-note{margin-top:2px;font-size:12px;opacity:.75}
 </style>
 </head>
 <body>
-<div id="uiTestRunningBanner" role="status" aria-live="polite">
+<div id="uiTestRunningBanner" role="status" aria-live="polite" style="display:none">
  <div class="ui-test-title">総合実画面テストを実行中</div>
  <div class="ui-test-stage" id="uiTestRunningStage">開始しています…</div>
  <div class="ui-test-note">自動で画面・役割が切り替わります。完了するまで操作しないでください。</div>
@@ -873,7 +880,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.07-147';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.07-148';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -3304,11 +3311,6 @@ function openPrint(title, body){
     .meta b{font-weight:normal; color:#666;}
     .noprint{margin-bottom:16px;} @media print{ .noprint{display:none;} body{margin:10mm;} }
   
-#uiTestRunningBanner{position:fixed;left:12px;right:12px;top:12px;z-index:99999;background:#fff7df;border:2px solid var(--stamp-red);border-radius:14px;padding:10px 14px;box-shadow:0 6px 20px rgba(0,0,0,.18);display:none}
-#uiTestRunningBanner.show{display:block}
-#uiTestRunningBanner .ui-test-title{font-weight:900;color:var(--stamp-red);font-size:16px}
-#uiTestRunningBanner .ui-test-stage{margin-top:3px;font-weight:700}
-#uiTestRunningBanner .ui-test-note{margin-top:2px;font-size:12px;opacity:.75}
 </style></head><body><div class="noprint"><button onclick="window.print()">印刷する</button></div>${body}</body></html>`);
   w.document.close();
 }
@@ -4231,7 +4233,8 @@ async function renderAdmin(){
       add('役割別UI：次にやること',typeof roleNextAction==='function'&&typeof nextActionHtml==='function'?'ok':'fail','ホームで役割と状態から次の操作を1つ提示');
       const nextSrc=roleNextAction.toString(), bindSrc=bindNextAction.toString();
       add('役割別UI：監査完了後の年度決算導線',nextSrc.includes('監査が完了しました。年度決算を確定してください')&&bindSrc.includes("a.action==='fiscalClose'")?'ok':'fail','監査完了後はホームから年度決算・切り替えへ案内');
-      add('総合テストUI：実行中表示',!!$('uiTestRunningBanner')?'ok':'fail','実行中は固定バナーで現在工程を表示');
+      add('総合テストUI：実行中表示',!!$('uiTestRunningBanner')&&document.head.textContent.includes('v148: 総合実画面テスト実行中表示')?'ok':'fail','実行中表示のCSSが実際のhead内にある');
+      add('総合テストUI：通常時は非表示',$('uiTestRunningBanner')?.style.display==='none'||$('uiTestRunningBanner')?.classList.contains('show')?'ok':'fail','通常時はフェイルセーフで非表示');
       add('総合テストUI：終了時復元設計',/curFY=oldFY/.test(runUIScreenTest.toString())&&/banner\?\.classList\.remove\('show'\)/.test(runUIScreenTest.toString())?'ok':'fail','全テスト終了後に年度・役割・実行中表示を復元');
       add('年度決算UI：専用画面',!!$('fiscalCloseScreen')&&renderFiscalCloseScreen.toString().includes('年度決算・年度切り替え')?'ok':'fail','会計設定と年度末業務を別画面化');
       add('画面遷移：伝票詳細の描画完了待ち',renderCurrent.toString().includes("await renderDetail(detailId)")?'ok':'fail','承認・監査ボタン描画前の競合を防止');
@@ -4335,7 +4338,7 @@ async function renderAdmin(){
     lastUiTestSummary=null;
     out.innerHTML=`<div class="diag-summary warn"><span>総合実画面テスト<br><small>実行中</small></span><span class="diag-score">0/0</span></div><p class="hint">実行した項目をその場で集計します。前回結果は使用しません。</p>`;
     const banner=$('uiTestRunningBanner'), bannerStage=$('uiTestRunningStage');
-    banner?.classList.add('show');
+    if(banner){banner.style.display='';banner.classList.add('show');}
     const sleep=ms=>new Promise(r=>setTimeout(r,ms));
     let uiTestStage='開始';
     const updateBanner=()=>{if(bannerStage)bannerStage.textContent=`${uiTestStage}　確認済み ${rows.length}項目`;};
@@ -4905,7 +4908,7 @@ async function renderAdmin(){
     // テスト中は実際の伝票詳細画面まで遷移するため、終了時に必ず管理画面へ戻す。
     // showScreen は非同期なので完了を待ち、診断年度の遅延描画が本番画面を上書きしないようにする。
     await showScreen('adminScreen');
-    banner?.classList.remove('show');
+    if(banner){banner.classList.remove('show');banner.style.display='none';}
     // showScreen() → renderCurrent() により管理画面DOMは再生成される。
     // したがって renderAdmin() 内で保持していた adminGroups の参照は古いDOMを指す。
     // 必ず再生成後のDOMを document から取り直して結果を表示する。
