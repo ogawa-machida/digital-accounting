@@ -866,7 +866,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.07-141';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.07-142';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -4737,6 +4737,54 @@ async function renderAdmin(){
       add('実画面：会計設定の描画例外なし',noError?'ok':'fail',noError?'エラー画面なし':`描画エラー：${se?.dataset.renderError||'エラー画面を検出'}`);
       add('実画面：会計設定の操作部品',controls?'ok':'fail',controls?'メニュー・保存・自動診断ボタンを確認':'主要操作部品が不足');
       add('実画面：①②③固定フローなし',noStepFlow?'ok':'fail','固定3ステップ表示を廃止');
+
+      // 現預金残高照合を、診断専用年度で実際のボタン押下まで確認する。
+      // 本番年度の残高確認履歴には残さず、保存確認後に即時削除する。
+      {
+        const reconTestFY=9997, savedFY=curFY;
+        const hadOpening=Object.prototype.hasOwnProperty.call(settings.opening||{},reconTestFY);
+        const savedOpening=(settings.opening||{})[reconTestFY];
+        const savedCtx=uiAutoTestContext;
+        let reconTestId=null;
+        try{
+          settings.opening=settings.opening||{};
+          settings.opening[reconTestFY]=1000;
+          curFY=reconTestFY;
+          uiAutoTestContext={runId:`${runId}_recon`,savedEntryId:null,startedOnline:navigator.onLine};
+          renderSettings();
+          const bankEl=$('reconBank'), cashEl=$('reconCash'), memoEl=$('reconMemo'), saveEl=$('reconSave');
+          if(!bankEl||!cashEl||!saveEl)throw new Error('現預金残高照合の入力・保存部品がありません');
+          if(saveEl.disabled)throw new Error('診断専用年度で残高照合ボタンが無効です');
+          bankEl.value='1000'; bankEl.dispatchEvent(new Event('input',{bubbles:true}));
+          cashEl.value='0'; cashEl.dispatchEvent(new Event('input',{bubbles:true}));
+          if(memoEl)memoEl.value=`総合実画面テスト ${runId}`;
+          const before=(await R(`settings/balanceChecks/${reconTestFY}`).get()).val()||{};
+          saveEl.click();
+          let after={}, found=null;
+          const end=Date.now()+5000;
+          while(Date.now()<end&&!found){
+            await sleep(100);
+            after=(await R(`settings/balanceChecks/${reconTestFY}`).get()).val()||{};
+            const newId=Object.keys(after).find(k=>!Object.prototype.hasOwnProperty.call(before,k));
+            if(newId){reconTestId=newId;found=after[newId];}
+          }
+          if(!found)throw new Error('保存ボタン押下後の残高照合データを確認できません');
+          add('実画面：現預金残高照合の保存',Number(found.diff)===0&&Number(found.bank)===1000&&Number(found.cash)===0?'ok':'fail',`実ボタン→Firebase保存を確認（差額 ${yen(Number(found.diff)||0)}）`);
+          await R(`settings/balanceChecks/${reconTestFY}/${reconTestId}`).remove();
+          reconTestId=null;
+          const gone=await R(`settings/balanceChecks/${reconTestFY}`).get();
+          const residue=Object.values(gone.val()||{}).some(x=>String(x?.memo||'').includes(runId));
+          add('実画面：現預金照合テストの撤去',!residue?'ok':'fail',!residue?'診断用残高照合を削除':'診断用残高照合が残っています');
+        }catch(e){
+          add('実画面：現預金残高照合の保存','fail',e?.message||String(e));
+        }finally{
+          try{if(reconTestId)await R(`settings/balanceChecks/${reconTestFY}/${reconTestId}`).remove();}catch(_){}
+          if(hadOpening)settings.opening[reconTestFY]=savedOpening; else delete settings.opening[reconTestFY];
+          curFY=savedFY;
+          uiAutoTestContext=savedCtx;
+          renderSettings();
+        }
+      }
       await showScreen('adminScreen');
     }catch(e){
       add('実画面：会計設定タブを開ける','fail',e?.message||String(e));
@@ -5593,6 +5641,10 @@ function bindSettings(){
   if($('reconSave')) $('reconSave').onclick=async()=>{
     const btn=$('reconSave');
     try{
+      const guardOpening=Number((settings.opening||{})[curFY])||0;
+      const guardIncome=approvedFY().filter(e=>e.type==='income').reduce((n,e)=>n+(Number(e.amount)||0),0);
+      const guardExpense=approvedFY().filter(e=>e.type==='expense').reduce((n,e)=>n+(Number(e.amount)||0),0);
+      const reconOpeningNeedsCheck=guardOpening===0 && (guardOpening+guardIncome-guardExpense)<0;
       if(reconOpeningNeedsCheck) return showToast('期首繰越金が0円で帳簿残高がマイナスです。先に期首繰越金を確認してください');
       if($('reconBank').value===''||$('reconCash').value==='') return showToast('預金残高と現金残高を入力してください');
       btn.disabled=true; btn.textContent='記録しています…';
