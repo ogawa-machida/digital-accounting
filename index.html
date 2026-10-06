@@ -866,7 +866,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.07-140';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.07-141';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -5591,21 +5591,33 @@ function bindSettings(){
   if($('reconBank')) $('reconBank').oninput=updateReconPreview;
   if($('reconCash')) $('reconCash').oninput=updateReconPreview;
   if($('reconSave')) $('reconSave').onclick=async()=>{
-    if(reconOpeningNeedsCheck) return showToast('期首繰越金が0円で帳簿残高がマイナスです。先に期首繰越金を確認してください');
-    if($('reconBank').value===''||$('reconCash').value==='') return showToast('預金残高と現金残高を入力してください');
-    const opening=Number((settings.opening||{})[curFY])||0;
-    const inc=approvedFY().filter(e=>e.type==='income').reduce((n,e)=>n+(Number(e.amount)||0),0);
-    const exp=approvedFY().filter(e=>e.type==='expense').reduce((n,e)=>n+(Number(e.amount)||0),0);
-    const book=opening+inc-exp;
-    const kpCard=approvedFY().filter(e=>e.type==='income' && methodById(e.methodId)?.name==='会費ペイ（カード決済）').reduce((n,e)=>n+(Number(e.amount)||0),0);
-    const kpDebit=approvedFY().filter(e=>e.type==='income' && methodById(e.methodId)?.name==='会費ペイ（口座引き落とし）').reduce((n,e)=>n+(Number(e.amount)||0),0);
-    const kp=kpCard+kpDebit, physicalBook=book-kp;
-    const adv=advances.filter(a=>a.settleState==='pending').reduce((n,a)=>n+(Number(a.amount)||0),0);
-    const bank=Math.round(Number($('reconBank').value)||0), cash=Math.round(Number($('reconCash').value)||0), actual=bank+cash+adv, diff=actual-physicalBook;
-    const ref=R(`settings/balanceChecks/${curFY}`).push();
-    await ref.set({at:TS(),by:me.uid,byName:me.name,bank,cash,pendingAdvance:adv,actualTotal:actual,bookBalance:book,physicalBookBalance:physicalBook,kaihipayCard:kpCard,kaihipayDebit:kpDebit,kaihipayUnlinked:kp,diff,memo:$('reconMemo').value.trim()});
-    writeLog('残高確認',null,`${curFY}年度 帳簿${yen(book)} 実残高${yen(actual)} 差額${yen(diff)}`);
-    showToast(diff===0?'帳簿残高と一致しました':'残高確認を記録しました（差額あり）');
+    const btn=$('reconSave');
+    try{
+      if(reconOpeningNeedsCheck) return showToast('期首繰越金が0円で帳簿残高がマイナスです。先に期首繰越金を確認してください');
+      if($('reconBank').value===''||$('reconCash').value==='') return showToast('預金残高と現金残高を入力してください');
+      btn.disabled=true; btn.textContent='記録しています…';
+      const opening=Number((settings.opening||{})[curFY])||0;
+      const inc=approvedFY().filter(e=>e.type==='income').reduce((n,e)=>n+(Number(e.amount)||0),0);
+      const exp=approvedFY().filter(e=>e.type==='expense').reduce((n,e)=>n+(Number(e.amount)||0),0);
+      const book=opening+inc-exp;
+      const kpCard=approvedFY().filter(e=>e.type==='income' && methodById(e.methodId)?.name==='会費ペイ（カード決済）').reduce((n,e)=>n+(Number(e.amount)||0),0);
+      const kpDebit=approvedFY().filter(e=>e.type==='income' && methodById(e.methodId)?.name==='会費ペイ（口座引き落とし）').reduce((n,e)=>n+(Number(e.amount)||0),0);
+      const kp=kpCard+kpDebit, physicalBook=book-kp;
+      const adv=advances.filter(a=>a.settleState==='pending').reduce((n,a)=>n+(Number(a.amount)||0),0);
+      const bank=Math.round(Number($('reconBank').value)||0), cash=Math.round(Number($('reconCash').value)||0), actual=bank+cash+adv, diff=actual-physicalBook;
+      const memo=$('reconMemo').value.trim();
+      const ref=R(`settings/balanceChecks/${curFY}`).push();
+      await ref.set({at:TS(),by:me.uid,byName:me.name,bank,cash,pendingAdvance:adv,actualTotal:actual,bookBalance:book,physicalBookBalance:physicalBook,kaihipayCard:kpCard,kaihipayDebit:kpDebit,kaihipayUnlinked:kp,diff,memo});
+      const saved=await ref.get();
+      if(!saved.exists()) throw new Error('保存後のデータを確認できませんでした');
+      await writeLog('残高確認',null,`${curFY}年度 帳簿${yen(book)} 実残高${yen(actual)} 差額${yen(diff)}`);
+      showToast(diff===0?'✓ 帳簿残高と一致し、照合結果を記録しました':'照合結果を記録しました（差額あり）');
+      setTimeout(()=>renderSettings(),250);
+    }catch(e){
+      console.error('balance reconciliation save failed',e);
+      showToast(`残高照合の記録に失敗しました：${e?.message||e}`);
+      if(btn){btn.disabled=false;btn.textContent='現預金残高を照合して記録する';}
+    }
   };
 
   q('[data-budget]').forEach(inp => inp.onchange = async () => {
