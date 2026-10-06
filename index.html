@@ -873,7 +873,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.07-146';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.07-147';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -4232,6 +4232,7 @@ async function renderAdmin(){
       const nextSrc=roleNextAction.toString(), bindSrc=bindNextAction.toString();
       add('役割別UI：監査完了後の年度決算導線',nextSrc.includes('監査が完了しました。年度決算を確定してください')&&bindSrc.includes("a.action==='fiscalClose'")?'ok':'fail','監査完了後はホームから年度決算・切り替えへ案内');
       add('総合テストUI：実行中表示',!!$('uiTestRunningBanner')?'ok':'fail','実行中は固定バナーで現在工程を表示');
+      add('総合テストUI：終了時復元設計',/curFY=oldFY/.test(runUIScreenTest.toString())&&/banner\?\.classList\.remove\('show'\)/.test(runUIScreenTest.toString())?'ok':'fail','全テスト終了後に年度・役割・実行中表示を復元');
       add('年度決算UI：専用画面',!!$('fiscalCloseScreen')&&renderFiscalCloseScreen.toString().includes('年度決算・年度切り替え')?'ok':'fail','会計設定と年度末業務を別画面化');
       add('画面遷移：伝票詳細の描画完了待ち',renderCurrent.toString().includes("await renderDetail(detailId)")?'ok':'fail','承認・監査ボタン描画前の競合を防止');
       add('年度決算UI：残高照合履歴の取得',!renderFiscalCloseScreen.toString().includes('latestBalanceCheck')?'ok':'fail','未定義関数を使用しない');
@@ -4770,7 +4771,6 @@ async function renderAdmin(){
       }catch(e){add('テストセッション終了処理','fail',e?.message||String(e));}
       uiAutoTestContext=null; testProfile=oldProfile; me=oldMe; curFY=oldFY; applyEffectiveProfile();
       try{renderAll();}catch(_){}
-      banner?.classList.remove('show');
     }
     // v131: 総合実画面テスト自身で会計設定画面を本当に開いて確認する。
     try{
@@ -4896,10 +4896,16 @@ async function renderAdmin(){
     const failHtml=failRows.length?`<div class="diag-failbox"><b>異常項目</b>${failRows.map(x=>diagRow(...x)).join('')}</div>`:'';
     lastUiTestResultHtml=`<div class="diag-summary ${stateClass}"><span>総合実画面テスト<br><small>${stateText}</small></span><span class="diag-score">${passed}/${total} PASS</span></div>${failHtml}<details class="diag-details"><summary>詳細を確認（${total}項目）</summary>${catHtml}${rows.map(x=>diagRow(...x)).join('')}<p class="hint">実行バージョン：${esc(APP_VERSION)}／実行項目数：${total}／実行ID：${esc(runId)}。件数はこの実行で実際に実行した項目から自動集計しています。<br>支出申請→会計承認→監査→AI修正履歴→精算→収入登録→会員向け報告→年度処理→決算書類→年度切り替え→異常系→Firebase保存→撤去まで一括確認しました。</p></details>`;
     adminActiveGroup='diagnostics';
+    // v147: 診断用年度（9997等）やテスト役割を、全テスト終了後に必ず元へ戻す。
+    uiAutoTestContext=null;
+    testProfile=oldProfile;
+    me=oldMe;
+    curFY=oldFY;
+    applyEffectiveProfile();
     // テスト中は実際の伝票詳細画面まで遷移するため、終了時に必ず管理画面へ戻す。
-    // adminGroupDiagnostics を開くだけでは currentScreen が detailScreen のままなので、
-    // showScreen('adminScreen') を明示的に通してから診断グループを再表示する。
-    showScreen('adminScreen');
+    // showScreen は非同期なので完了を待ち、診断年度の遅延描画が本番画面を上書きしないようにする。
+    await showScreen('adminScreen');
+    banner?.classList.remove('show');
     // showScreen() → renderCurrent() により管理画面DOMは再生成される。
     // したがって renderAdmin() 内で保持していた adminGroups の参照は古いDOMを指す。
     // 必ず再生成後のDOMを document から取り直して結果を表示する。
