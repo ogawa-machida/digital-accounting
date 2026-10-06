@@ -544,6 +544,25 @@ body.ui-mobile .bottom-nav{display:flex}
 .next-action-card.none .next-kicker,.next-action-card.waiting .next-kicker,.next-action-card.optional .next-kicker{color:var(--moss)}
 .plain-note{padding:9px 11px;border-radius:8px;background:var(--wash,#f5efe3);font-size:.9em;line-height:1.55}
 
+
+/* v126: PC版の下部タブはブラウザ幅いっぱい */
+@media(min-width:768px){
+  body.ui-desktop .bottom-nav{
+    width:100vw!important;
+    max-width:none!important;
+    left:0!important;
+    right:0!important;
+    transform:none!important;
+    margin:0!important;
+  }
+  body.ui-desktop .bottom-nav .nav-inner,
+  body.ui-desktop .bottom-nav-inner{
+    width:100%!important;
+    max-width:none!important;
+    margin:0!important;
+  }
+}
+
 </style>
 <style>
 #newMSettle{width:24px;height:24px;flex:0 0 auto;margin:0 12px 0 0;vertical-align:middle}
@@ -840,7 +859,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.06-125';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.06-126';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -3985,6 +4004,11 @@ async function renderAdmin(){
         .filter(l=>!l.testMode&&!l.diagnosticRunId&&l.testRole!=='ui-auto'&&!/^TEST[-・_]/i.test(String(l.voucherNo||''))&&!/自動(?:UI)?テスト|システム診断用/.test(String(l.detail||'')));
       add('過去の試験ログ非表示',visibleLogTest.length===1&&visibleLogTest[0].action==='本番'?'ok':'fail','識別可能な既存試験ログも操作履歴から除外');
     }catch(e){ add('自動試験ログの分離','fail',e?.message||String(e)); }
+
+    try{
+      const cssText=document.documentElement.innerHTML;
+      add('PC UI：下部タブ全幅',cssText.includes('width:100vw!important')&&cssText.includes('max-width:none!important')?'ok':'fail','PC版の下部タブをブラウザ幅いっぱいに表示');
+    }catch(e){ add('PC UI：下部タブ全幅','fail',e?.message||String(e)); }
 
     try{
       const na=roleNextAction(), nah=nextActionHtml();
