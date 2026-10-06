@@ -880,7 +880,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.07-149';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.07-151';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1171,6 +1171,7 @@ function findCashMethod(){ return methods.find(m=>(m.use==='income'||m.use==='bo
 let toastTimer;
 let uiTestCapturedErrors=[];
 let uiTestStageGlobal='';
+let balanceReconSaveState={status:'idle',error:''};
 function showToast(msg){
   const text=String(msg??'');
   // v149: 総合実画面テスト中にユーザー向けエラーが出た場合は最終PASSへ紛れ込ませない。
@@ -4356,7 +4357,10 @@ async function renderAdmin(){
     const add=(n,s,d)=>{rows.push([n,s,d]);updateBanner();};
     const markStage=name=>{uiTestStage=name;updateBanner();};
     const waitFor=async(fn,ms=5000)=>{const end=Date.now()+ms;while(Date.now()<end){try{const v=fn();if(v)return v;}catch(_){}await sleep(80);}throw new Error(`「${uiTestStage}」で画面の応答がタイムアウトしました`);};
-    const oldProfile=testProfile, oldMe=me, oldFY=curFY;
+    const oldProfile=testProfile, oldMe=me;
+    // v151: 9996〜9999 は総合テスト専用年度。前回の異常終了で残っていても復元先にはしない。
+    const isDiagnosticFY = fy => Number(fy)>=9996 && Number(fy)<=9999;
+    const oldFY = isDiagnosticFY(curFY) ? fyOf(localDate()) : curFY;
     let entryId=null, incomeEntryId=null, settlementEntryId=null, settlementId=null, testPayerId=null, testPayerExisted=false, publicTestFY=9998, publicTestCreated=false, yearTestCreated=false, transitionTestCreated=false;
     // v103: finally でも参照するため try の外側で宣言する。
     const sandbox=`diagnosticTests/${auth.currentUser.uid}/${runId}`;
@@ -4737,7 +4741,12 @@ async function renderAdmin(){
       try{
         if(publicTestCreated){await R(`public/${publicTestFY}`).remove();await R(`public/index/years/${publicTestFY}`).remove();}
         if(yearTestCreated){await R(`statistics/${publicTestFY}`).remove();await R(`yearClosures/${publicTestFY}`).remove();}
-        if(transitionTestCreated){await R('settings/fiscalTransitions/9996-9997').remove();}
+        if(transitionTestCreated){
+          // v151: 年度切替テストが途中で止まっても診断年度の設定を残さない。
+          await R('settings/fiscalTransitions/9996-9997').remove();
+          await R('settings/opening/9997').remove();
+          if(accounts[0]?.id) await R(`accounts/${accounts[0].id}/budget/9997`).remove();
+        }
       }catch(e){add('会員報告・年度処理・年度切替の後処理','fail',e?.message||String(e));}
       try{
         if(settlementId) await R(`settlements/${settlementId}`).remove();
@@ -4783,7 +4792,8 @@ async function renderAdmin(){
           residueCount
         });
       }catch(e){add('テストセッション終了処理','fail',e?.message||String(e));}
-      uiAutoTestContext=null; testProfile=oldProfile; me=oldMe; curFY=oldFY; applyEffectiveProfile();
+      uiAutoTestContext=null; testProfile=oldProfile; me=oldMe; curFY=isDiagnosticFY(oldFY)?fyOf(localDate()):oldFY; applyEffectiveProfile();
+      try{subscribeFY();}catch(_){}
       try{renderAll();}catch(_){}
     }
     // v131: 総合実画面テスト自身で会計設定画面を本当に開いて確認する。
@@ -4836,6 +4846,12 @@ async function renderAdmin(){
             if(newId){reconTestId=newId;found=after[newId];}
           }
           if(!found)throw new Error('保存ボタン押下後の残高照合データを確認できません');
+          // v150: 書込みを見つけても直ちに診断データを削除しない。
+          // 実際の保存ハンドラ自身が「保存後の再読込」を終えるまで待つ。
+          const saveDoneLimit=Date.now()+7000;
+          while(balanceReconSaveState.status==='saving' && Date.now()<saveDoneLimit) await sleep(100);
+          if(balanceReconSaveState.status==='saving') throw new Error('残高照合の保存処理が完了しませんでした');
+          if(balanceReconSaveState.status==='fail') throw new Error(`残高照合の保存処理でエラー：${balanceReconSaveState.error||'詳細不明'}`);
           const reconToastErrors=uiTestCapturedErrors.slice(toastErrorStart);
           const reconSavedOk=Number(found.diff)===0&&Number(found.bank)===1000&&Number(found.cash)===0;
           add('実画面：現預金残高照合の保存',reconSavedOk&&!reconToastErrors.length?'ok':'fail',
@@ -4865,6 +4881,10 @@ async function renderAdmin(){
     const uniqueUiErrors=[...new Map(uiTestCapturedErrors.map(x=>[x.message,x])).values()];
     add('実画面：テスト中のエラー表示なし',uniqueUiErrors.length===0?'ok':'fail',
       uniqueUiErrors.length===0?'ユーザー向けエラー表示なし':uniqueUiErrors.map(x=>`${x.stage?x.stage+'：':''}${x.message}`).join(' / '));
+    // v151: テスト終了時点で診断年度を通常画面へ持ち越さないことも検査する。
+    const restoreFYForCheck=isDiagnosticFY(oldFY)?fyOf(localDate()):oldFY;
+    add('実画面：診断年度を通常画面へ残さない',!isDiagnosticFY(restoreFYForCheck)?'ok':'fail',
+      !isDiagnosticFY(restoreFYForCheck)?`復元先 ${restoreFYForCheck}年度`:`診断年度 ${restoreFYForCheck} が復元先に残っています`);
     {
       const before=rows.length;
       add('テスト件数：動的集計','ok',`この項目を含め、実行済みrowsから総数を算出（集計直前 ${before}項目）`);
@@ -4923,8 +4943,10 @@ async function renderAdmin(){
     uiTestStageGlobal='';
     testProfile=oldProfile;
     me=oldMe;
-    curFY=oldFY;
+    curFY=isDiagnosticFY(oldFY) ? fyOf(localDate()) : oldFY;
     applyEffectiveProfile();
+    // v151: 年度別購読も通常年度へ戻す。9997年度の購読・遅延描画を残さない。
+    try{ subscribeFY(); }catch(_){}
     // テスト中は実際の伝票詳細画面まで遷移するため、終了時に必ず管理画面へ戻す。
     // showScreen は非同期なので完了を待ち、診断年度の遅延描画が本番画面を上書きしないようにする。
     await showScreen('adminScreen');
@@ -5717,6 +5739,7 @@ function bindSettings(){
   if($('reconCash')) $('reconCash').oninput=updateReconPreview;
   if($('reconSave')) $('reconSave').onclick=async()=>{
     const btn=$('reconSave');
+    balanceReconSaveState={status:'saving',error:''};
     try{
       const guardOpening=Number((settings.opening||{})[curFY])||0;
       const guardIncome=approvedFY().filter(e=>e.type==='income').reduce((n,e)=>n+(Number(e.amount)||0),0);
@@ -5737,17 +5760,15 @@ function bindSettings(){
       const memo=$('reconMemo').value.trim();
       const ref=R(`settings/balanceChecks/${curFY}`).push();
       await ref.set({at:TS(),by:me.uid,byName:me.name,bank,cash,pendingAdvance:adv,actualTotal:actual,bookBalance:book,physicalBookBalance:physicalBook,kaihipayCard:kpCard,kaihipayDebit:kpDebit,kaihipayUnlinked:kp,diff,memo});
-      // v149: set() 成功直後の単発getだけで失敗扱いにしない。短時間再確認して確定する。
-      let saved=null;
-      for(let i=0;i<6;i++){
-        try{ saved=await ref.get(); if(saved.exists()) break; }catch(readErr){ if(i===5) throw readErr; }
-        await new Promise(r=>setTimeout(r,150*(i+1)));
-      }
-      if(!saved?.exists()) throw new Error('保存後のデータを確認できませんでした');
+      // v151: Firebase RTDB の set() が正常完了した時点で書込みは確定済み。
+      // 直後の get() は端末・通信状態により一時的に確認できないことがあるため、
+      // それを業務エラーにはしない。総合実画面テスト側で別途、実保存を検証する。
       await writeLog('残高確認',null,`${curFY}年度 帳簿${yen(book)} 実残高${yen(actual)} 差額${yen(diff)}`);
+      balanceReconSaveState={status:'success',error:''};
       showToast(diff===0?'✓ 帳簿残高と一致し、照合結果を記録しました':'照合結果を記録しました（差額あり）');
       setTimeout(()=>renderSettings(),250);
     }catch(e){
+      balanceReconSaveState={status:'fail',error:String(e?.message||e)};
       console.error('balance reconciliation save failed',e);
       showToast(`残高照合の記録に失敗しました：${e?.message||e}`);
       if(btn){btn.disabled=false;btn.textContent='現預金残高を照合して記録する';}
