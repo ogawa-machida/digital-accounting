@@ -866,7 +866,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.06-132';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.06-133';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -3662,6 +3662,79 @@ async function loadAdminMetrics(){
     adminMetrics=toArr(snap.val());
   }catch(e){ console.warn(e); adminMetrics=[]; }
 }
+
+function demoPrevFY(){
+  const nowFY=fyOf(localDate());
+  return Number(nowFY)-1;
+}
+function demoDate(fy,offsetMonth=0,day=10){
+  const st=startMonth();
+  const total=(st-1)+offsetMonth;
+  const y=Number(fy)+Math.floor(total/12), m=(total%12)+1;
+  return `${y}-${pad(m)}-${pad(day)}`;
+}
+async function createClosingDemoData(){
+  if(!isRealAdmin()||!auth.currentUser)return showToast('実管理者で実行してください');
+  const owner=auth.currentUser.uid, fy=demoPrevFY(), nextFY=fy+1;
+  if(isFYClosed(fy))return showToast(`${fy}年度はすでに決算確定済みです`);
+  const [en,ar,bc,yc,dr]=await Promise.all([
+    R('entries').get(),R(`auditReports/${fy}`).get(),R(`settings/balanceChecks/${fy}`).get(),
+    R(`yearClosures/${fy}`).get(),R(`demoRuns/${owner}/${fy}`).get()
+  ]);
+  if(dr.exists())return showToast(`${fy}年度のデモデータはすでに作成済みです`);
+  const existing=Object.values(en.val()||{}).filter(e=>Number(e?.fy)===fy && !e?.testMode);
+  if(existing.length||ar.exists()||bc.exists()||yc.exists()){
+    return showToast(`${fy}年度には既存データがあります。安全のためデモデータは作成しません`);
+  }
+  const incomeAcc=accounts.find(a=>a.active!==false&&a.type==='income')||accounts.find(a=>a.type==='income');
+  const expenseAccs=accounts.filter(a=>a.active!==false&&a.type==='expense');
+  const expenseAcc=expenseAccs[0]||accounts.find(a=>a.type==='expense');
+  if(!incomeAcc||!expenseAcc)return showToast('収入科目・支出科目を登録してから実行してください');
+  const cashMethod=methods.find(m=>/現金/.test(m.name||''))||methods.find(m=>m.active!==false)||methods[0];
+  const bankMethod=methods.find(m=>/銀行|振込|口座/.test(m.name||''))||cashMethod;
+  const testPayerId=`test_${owner}`;
+  await ensureTestPayer();
+
+  const prevOpening=(settings.opening||{})[fy];
+  const nextOpening=(settings.opening||{})[nextFY];
+  const budgetSnapshot={};
+  accounts.forEach(a=>budgetSnapshot[a.id]={
+    demoFY:(a.budget||{})[fy]===undefined?null:Number((a.budget||{})[fy]),
+    nextFY:(a.budget||{})[nextFY]===undefined?null:Number((a.budget||{})[nextFY])
+  });
+
+  const now=TS(), actor=`test:${owner}:treasurer`;
+  const mk=(n,type,amount,purpose,account,method,date)=>({
+    fy,date,type,amount,purpose,payee:type==='income'?'デモ入金':'デモ支払先',
+    accountId:account.id,methodId:method?.id||'',payerId:testPayerId,payerName:`${realMe.name}（テスト）`,
+    status:'approved',approvedAt:now,approvedBy:actor,approvedByName:`${realMe.name}（会計・テスト）`,
+    createdAt:now-n*1000,createdBy:actor,createdByName:`${realMe.name}（会計・テスト）`,
+    voucherNo:`DEMO-${fy}-${pad(n,3)}`,settleState:'settled',
+    imported:true,importSource:'監査・年度更新デモ',memo:'デモ用データ',
+    testMode:true,testRole:'treasurer',testOwnerUid:owner,demoClosing:true
+  });
+  const ex=(i)=>expenseAccs[i%Math.max(1,expenseAccs.length)]||expenseAcc;
+  const rows=[
+    mk(1,'income',720000,'自治会費（デモ）',incomeAcc,bankMethod,demoDate(fy,0,8)),
+    mk(2,'income',180000,'補助金（デモ）',incomeAcc,bankMethod,demoDate(fy,2,15)),
+    mk(3,'income',60000,'行事参加費（デモ）',incomeAcc,cashMethod,demoDate(fy,5,12)),
+    mk(4,'expense',85000,'総会・会議運営費（デモ）',ex(0),cashMethod,demoDate(fy,1,20)),
+    mk(5,'expense',126000,'地域行事費（デモ）',ex(1),bankMethod,demoDate(fy,4,18)),
+    mk(6,'expense',98000,'防災・防犯活動費（デモ）',ex(2),bankMethod,demoDate(fy,6,9)),
+    mk(7,'expense',42000,'広報・印刷費（デモ）',ex(3),cashMethod,demoDate(fy,8,14)),
+    mk(8,'expense',36000,'事務用品費（デモ）',ex(4),cashMethod,demoDate(fy,10,11))
+  ];
+  const ups={};
+  rows.forEach((e,i)=>{ups[`entries/__demo_close_${owner}_${fy}_${i+1}`]=e;});
+  ups[`demoRuns/${owner}/${fy}`]={
+    fy,nextFY,createdAt:now,createdBy:owner,appVersion:APP_VERSION,
+    previousOpening:prevOpening===undefined?null:prevOpening,
+    nextOpening:nextOpening===undefined?null:nextOpening,
+    budgetSnapshot
+  };
+  await db.ref(ROOT).update(ups);
+  showToast(`${fy}年度のデモデータを作成しました。年度を${fy}年度へ切り替えて監査を開始してください`);
+}
 async function renderAdmin(){
   const el=$('adminScreen'); if(!el) return;
   if(!isAdmin()){ el.innerHTML='<div class="empty"><b>管理者専用です</b></div>'; return; }
@@ -3715,6 +3788,8 @@ async function renderAdmin(){
         <div id="adminMemberList"></div>
         <button class="btn btn-navy full" id="adminAddBtn" style="margin-top:10px">＋ 管理者を追加</button>
         <button class="btn btn-ghost full" id="adminTestModeBtn" style="margin-top:8px">🧪 テスト役割を切り替える</button>
+        <button class="btn btn-navy full" id="adminCreateClosingDemoBtn" style="margin-top:8px">🎬 監査・年度更新のデモデータを作成</button>
+        <p class="hint" style="margin:6px 2px 0">前年度にデモ用の承認済み伝票を作成します。監査 → 現預金照合 → 監査完了 → 年度確定・次年度更新まで一連で試せます。</p>
         <button class="btn btn-ghost full" id="adminClearTestBtn" style="margin-top:8px;color:var(--stamp-red)">テストデータを一括削除</button>
         <div id="adminAddPanel" style="margin-top:10px"></div>
       </div>
@@ -3838,12 +3913,19 @@ async function renderAdmin(){
     catch(e){console.error(e);showToast('管理者権限を変更できませんでした');}
   });
   if($('adminTestModeBtn')) $('adminTestModeBtn').onclick=()=>showTestRoleChooser(true);
+  if($('adminCreateClosingDemoBtn')) $('adminCreateClosingDemoBtn').onclick=async()=>{
+    if(!confirm('前年度に「監査・年度更新デモ」用のテストデータを作成します。\n\n本番データがある年度には作成しません。作成後はテスト役割を使って、会計→監査→年度確定まで操作できます。'))return;
+    try{await createClosingDemoData();}catch(e){console.error(e);showToast('デモデータの作成に失敗しました：'+String(e?.message||e));}
+  };
   if($('adminClearTestBtn')) $('adminClearTestBtn').onclick=async()=>{
     if(!isRealAdmin())return;
-    if(!confirm('この管理者アカウントがテストモードで作成した伝票・領収書類・仮払・精算・操作履歴・時間計測・テスト用支払者を削除しますか？\n\n本番データは削除しません。'))return;
+    if(!confirm('この管理者アカウントが作成したテストデータを削除しますか？\n\n監査・年度更新デモで作成した伝票、残高照合、監査完了、年度確定・繰越設定も元に戻します。\n\n本番データは削除しません。'))return;
     const owner=auth.currentUser.uid;
     try{
-      const [en,ad,st,lg,wm,py]=await Promise.all([R('entries').get(),R('advances').get(),R('settlements').get(),R('log').get(),R('workMetrics').get(),R('payers').get()]);
+      const [en,ad,st,lg,wm,py,dr,ar,bc,yc,ft]=await Promise.all([
+        R('entries').get(),R('advances').get(),R('settlements').get(),R('log').get(),R('workMetrics').get(),R('payers').get(),
+        R(`demoRuns/${owner}`).get(),R('auditReports').get(),R('settings/balanceChecks').get(),R('yearClosures').get(),R('settings/fiscalTransitions').get()
+      ]);
       const ups={}; let count=0;
       Object.entries(en.val()||{}).forEach(([id,v])=>{if(v?.testMode && (v.testActor===realMe.name || String(v.createdBy||'').startsWith(`test:${owner}:`))){ups[`entries/${id}`]=null;ups[`photos/${id}`]=null;count++;}});
       Object.entries(ad.val()||{}).forEach(([id,v])=>{if(v?.testMode&&v.testOwnerUid===owner){ups[`advances/${id}`]=null;count++;}});
@@ -3851,6 +3933,20 @@ async function renderAdmin(){
       Object.entries(lg.val()||{}).forEach(([id,v])=>{if(v?.testMode&&v.testOwnerUid===owner){ups[`log/${id}`]=null;}});
       Object.entries(wm.val()||{}).forEach(([id,v])=>{if(v?.testMode&&v.uid===owner){ups[`workMetrics/${id}`]=null;}});
       Object.entries(py.val()||{}).forEach(([id,v])=>{if(v?.testMode&&v.testOwnerUid===owner){ups[`payers/${id}`]=null;}});
+      Object.entries(dr.val()||{}).forEach(([fy,d])=>{
+        // デモ開始時点で既存データが無いことを確認して作成しているため、この年度のデモ後生成物を安全に撤去できる。
+        ups[`auditReports/${fy}`]=null;
+        ups[`settings/balanceChecks/${fy}`]=null;
+        ups[`yearClosures/${fy}`]=null;
+        ups[`settings/fiscalTransitions/${fy}-${Number(fy)+1}`]=null;
+        ups[`settings/opening/${fy}`]=d.previousOpening===null?null:d.previousOpening;
+        ups[`settings/opening/${Number(fy)+1}`]=d.nextOpening===null?null:d.nextOpening;
+        Object.entries(d.budgetSnapshot||{}).forEach(([aid,b])=>{
+          ups[`accounts/${aid}/budget/${fy}`]=b?.demoFY===null?null:b?.demoFY;
+          ups[`accounts/${aid}/budget/${Number(fy)+1}`]=b?.nextFY===null?null:b?.nextFY;
+        });
+        ups[`demoRuns/${owner}/${fy}`]=null;
+      });
       if(Object.keys(ups).length) await db.ref(ROOT).update(ups);
       showToast(`テストデータを削除しました（主要データ ${count}件）`);
     }catch(e){console.error(e);showToast('テストデータの削除に失敗しました');}
@@ -3964,7 +4060,11 @@ async function renderAdmin(){
     const backupDays=Number(settings.retentionPolicy?.deleteBackupDays??30); rows.push(['短期復旧バックアップ期限','ok',`${backupDays}日（物理削除実行時のみ作成）`]);
     const fail=rows.some(x=>x[1]==='fail');out.innerHTML=`<div class="total-check"><span>模擬テスト</span><b>${fail?'異常あり':'全ケース正常'}</b></div>${rows.map(x=>diagRow(...x)).join('')}<p class="hint">メモリ上の判定だけを行いました。Firebaseの会計データ・バックアップには触れていません。</p>`;
   }
-  async function runE2EDiagnostics(){
+  function safelyHasDemoCleanup(){
+  const src=(typeof bindAdminActions==='function'?String(bindAdminActions):'')+String(renderAdmin||'')+String(createClosingDemoData||'');
+  return src.includes('demoRuns') && !!$('adminClearTestBtn');
+}
+async function runE2EDiagnostics(){
     const out=$('diagE2EResult'); if(!out)return;
     if(!isRealAdmin()){out.innerHTML=diagRow('総合自動テスト','fail','実管理者で実行してください');return;}
     if(!confirm('総合自動テストを実行します。\n\n診断専用のテストデータとテスト伝票を一時的に作成し、最後に自動削除します。通常の会計データは変更しません。'))return;
@@ -4464,6 +4564,14 @@ async function renderAdmin(){
       publicTestCreated=false;
       const pubGone=await R(`public/${publicTestFY}`).get();
       add('会員向け報告の非公開・撤去',!pubGone.exists()?'ok':'fail','診断公開データを撤去');
+
+      // ---- 監査・年度更新デモデータ ----
+      {
+        const demoSrc=createClosingDemoData.toString(), clearSrc=String($('adminClearTestBtn')?.onclick||'');
+        add('デモ：前年度を自動選択',demoSrc.includes('demoPrevFY()')?'ok':'fail','締め日を過ぎた前年度を対象');
+        add('デモ：本番年度への混入防止',demoSrc.includes('existing.length')&&demoSrc.includes('安全のためデモデータは作成しません')?'ok':'fail','既存本番データ・監査・照合・年度確定がある年度には作成しない');
+        add('デモ：年度更新後も一括復元可能',demoSrc.includes('budgetSnapshot')&&safelyHasDemoCleanup()?'ok':'fail','監査・残高照合・年度確定・繰越・次年度予算を削除/復元');
+      }
 
       // ---- 年度締め：未精算仮払金ガード ----
       {
