@@ -880,7 +880,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.07-148';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.07-149';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1169,7 +1169,16 @@ function findCashMethod(){ return methods.find(m=>(m.use==='income'||m.use==='bo
 
 
 let toastTimer;
-function showToast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove('show'), 2600); }
+let uiTestCapturedErrors=[];
+let uiTestStageGlobal='';
+function showToast(msg){
+  const text=String(msg??'');
+  // v149: 総合実画面テスト中にユーザー向けエラーが出た場合は最終PASSへ紛れ込ませない。
+  if(uiAutoTestContext && /(失敗|エラー|できませんでした|Permission denied|denied)/i.test(text)){
+    uiTestCapturedErrors.push({at:Date.now(),stage:(typeof uiTestStageGlobal!=='undefined'?uiTestStageGlobal:''),message:text});
+  }
+  const t=document.getElementById('toast'); t.textContent=text; t.classList.add('show'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove('show'), 2600);
+}
 function $(id){ return document.getElementById(id); }
 function hideAllRoots(){ ['setupScreen','loginScreen','reportApplyScreen','joinScreen','profileScreen','pendingScreen','publicScreen','mainWrap'].forEach(id=>$(id).style.display='none'); }
 function fillBranchGroup(branchEl, groupEl, branch, group){
@@ -4341,7 +4350,9 @@ async function renderAdmin(){
     if(banner){banner.style.display='';banner.classList.add('show');}
     const sleep=ms=>new Promise(r=>setTimeout(r,ms));
     let uiTestStage='開始';
-    const updateBanner=()=>{if(bannerStage)bannerStage.textContent=`${uiTestStage}　確認済み ${rows.length}項目`;};
+    uiTestStageGlobal=uiTestStage;
+    uiTestCapturedErrors=[];
+    const updateBanner=()=>{uiTestStageGlobal=uiTestStage;if(bannerStage)bannerStage.textContent=`${uiTestStage}　確認済み ${rows.length}項目`;};
     const add=(n,s,d)=>{rows.push([n,s,d]);updateBanner();};
     const markStage=name=>{uiTestStage=name;updateBanner();};
     const waitFor=async(fn,ms=5000)=>{const end=Date.now()+ms;while(Date.now()<end){try{const v=fn();if(v)return v;}catch(_){}await sleep(80);}throw new Error(`「${uiTestStage}」で画面の応答がタイムアウトしました`);};
@@ -4814,6 +4825,7 @@ async function renderAdmin(){
           cashEl.value='0'; cashEl.dispatchEvent(new Event('input',{bubbles:true}));
           if(memoEl)memoEl.value=`総合実画面テスト ${runId}`;
           const before=(await R(`settings/balanceChecks/${reconTestFY}`).get()).val()||{};
+          const toastErrorStart=uiTestCapturedErrors.length;
           saveEl.click();
           let after={}, found=null;
           const end=Date.now()+5000;
@@ -4824,7 +4836,10 @@ async function renderAdmin(){
             if(newId){reconTestId=newId;found=after[newId];}
           }
           if(!found)throw new Error('保存ボタン押下後の残高照合データを確認できません');
-          add('実画面：現預金残高照合の保存',Number(found.diff)===0&&Number(found.bank)===1000&&Number(found.cash)===0?'ok':'fail',`実ボタン→Firebase保存を確認（差額 ${yen(Number(found.diff)||0)}）`);
+          const reconToastErrors=uiTestCapturedErrors.slice(toastErrorStart);
+          const reconSavedOk=Number(found.diff)===0&&Number(found.bank)===1000&&Number(found.cash)===0;
+          add('実画面：現預金残高照合の保存',reconSavedOk&&!reconToastErrors.length?'ok':'fail',
+            reconToastErrors.length?`保存中にエラー表示を検出：${reconToastErrors.map(x=>x.message).join(' / ')}`:`実ボタン→Firebase保存を確認（差額 ${yen(Number(found.diff)||0)}）`);
           await R(`settings/balanceChecks/${reconTestFY}/${reconTestId}`).remove();
           reconTestId=null;
           const gone=await R(`settings/balanceChecks/${reconTestFY}`).get();
@@ -4846,6 +4861,10 @@ async function renderAdmin(){
       try{await showScreen('adminScreen');}catch(_){}
     }
 
+    // v149: 個別項目が後で成功しても、途中のユーザー向けエラー表示を見逃さない。
+    const uniqueUiErrors=[...new Map(uiTestCapturedErrors.map(x=>[x.message,x])).values()];
+    add('実画面：テスト中のエラー表示なし',uniqueUiErrors.length===0?'ok':'fail',
+      uniqueUiErrors.length===0?'ユーザー向けエラー表示なし':uniqueUiErrors.map(x=>`${x.stage?x.stage+'：':''}${x.message}`).join(' / '));
     {
       const before=rows.length;
       add('テスト件数：動的集計','ok',`この項目を含め、実行済みrowsから総数を算出（集計直前 ${before}項目）`);
@@ -4901,6 +4920,7 @@ async function renderAdmin(){
     adminActiveGroup='diagnostics';
     // v147: 診断用年度（9997等）やテスト役割を、全テスト終了後に必ず元へ戻す。
     uiAutoTestContext=null;
+    uiTestStageGlobal='';
     testProfile=oldProfile;
     me=oldMe;
     curFY=oldFY;
@@ -5717,8 +5737,13 @@ function bindSettings(){
       const memo=$('reconMemo').value.trim();
       const ref=R(`settings/balanceChecks/${curFY}`).push();
       await ref.set({at:TS(),by:me.uid,byName:me.name,bank,cash,pendingAdvance:adv,actualTotal:actual,bookBalance:book,physicalBookBalance:physicalBook,kaihipayCard:kpCard,kaihipayDebit:kpDebit,kaihipayUnlinked:kp,diff,memo});
-      const saved=await ref.get();
-      if(!saved.exists()) throw new Error('保存後のデータを確認できませんでした');
+      // v149: set() 成功直後の単発getだけで失敗扱いにしない。短時間再確認して確定する。
+      let saved=null;
+      for(let i=0;i<6;i++){
+        try{ saved=await ref.get(); if(saved.exists()) break; }catch(readErr){ if(i===5) throw readErr; }
+        await new Promise(r=>setTimeout(r,150*(i+1)));
+      }
+      if(!saved?.exists()) throw new Error('保存後のデータを確認できませんでした');
       await writeLog('残高確認',null,`${curFY}年度 帳簿${yen(book)} 実残高${yen(actual)} 差額${yen(diff)}`);
       showToast(diff===0?'✓ 帳簿残高と一致し、照合結果を記録しました':'照合結果を記録しました（差額あり）');
       setTimeout(()=>renderSettings(),250);
