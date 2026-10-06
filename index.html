@@ -866,7 +866,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.06-138';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.07-139';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -5380,7 +5380,8 @@ async function resetTrialData(){
   try{
     // ルール更新漏れを本番データ削除の直前に検出する。
     const roleSnap=await R(`members/${me.uid}/role`).get();
-    if(roleSnap.val()!=='treasurer') throw new Error('会計権限を確認できません');
+    const resetRole=roleSnap.val();
+    if(resetRole!=='treasurer' && resetRole!=='admin') throw new Error('管理者・会計権限を確認できません');
     // 軽量バックアップは領収書類を複製しないため、初期化前は画像の存在を確認して誤解を防ぐ。
     const photoSnap=await R('photos').get();
     const photoCount=photoSnap.exists() && typeof photoSnap.val()==='object' ? Object.keys(photoSnap.val()).length : 0;
@@ -5408,7 +5409,7 @@ async function resetTrialData(){
     setTimeout(()=>location.reload(),700);
   }catch(e){
     console.error(e); if(btn) btn.disabled=false;
-    showToast(`初期化に失敗しました：${e?.message||e}。Firebaseルール -54 と会計権限を確認してください`);
+    showToast(`初期化に失敗しました：${e?.message||e}`);
   }
 }
 
