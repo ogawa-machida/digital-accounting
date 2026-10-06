@@ -465,6 +465,85 @@ body.audit-detail-mode #detailScreen [style*="font-size:10"],body.audit-detail-m
 .next-action-card{border:1px solid var(--line);border-left:5px solid var(--stamp-navy);background:var(--paper,#fffdf8);border-radius:12px;padding:16px;margin:0 0 14px}.next-action-card.amber{border-left-color:#b27a18}.next-action-card.moss{border-left-color:var(--moss)}.next-kicker{font-size:12px;font-weight:800;letter-spacing:.08em;color:var(--stamp-red);margin-bottom:4px}.next-action-card h2{font-size:18px;margin:0 0 6px}.next-action-card p{margin:0 0 12px;line-height:1.65;color:var(--muted)}
 .screen-guide{border:1px solid var(--line);border-radius:10px;background:rgba(255,253,248,.72);margin:0 0 12px;overflow:hidden}.screen-guide summary{cursor:pointer;padding:10px 12px;display:flex;align-items:center;gap:10px;list-style:none}.screen-guide summary::-webkit-details-marker{display:none}.screen-guide summary span{font-size:11px;font-weight:800;color:var(--stamp-red);white-space:nowrap}.screen-guide summary b{font-size:14px}.screen-guide-body{padding:0 12px 12px}.screen-guide-body>p{margin:0 0 9px;line-height:1.6}.role-flow{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin:8px 0 10px}.role-flow span{display:inline-flex;align-items:center;gap:5px;background:var(--wash,#f5efe3);border-radius:999px;padding:5px 9px;font-size:12px;font-weight:700}.role-flow i{font-style:normal;display:inline-grid;place-items:center;width:19px;height:19px;border-radius:50%;background:var(--stamp-navy);color:#fff;font-size:11px}.role-flow em{font-style:normal;opacity:.45}@media(max-width:640px){.role-flow em{display:none}.next-action-card .btn{width:100%}.screen-guide summary{align-items:flex-start;flex-direction:column;gap:2px}}
 
+
+/* =========================================================
+   v124 Responsive UI
+   mobile: vertical, compact, thumb-first
+   desktop: wide, larger type, information-dense without crowding
+   ========================================================= */
+body.ui-mobile main{max-width:680px;margin:0 auto}
+body.ui-mobile .screen{width:100%}
+body.ui-mobile .summary-strip{grid-template-columns:repeat(2,minmax(0,1fr))}
+body.ui-mobile .form-row,body.ui-mobile .form-grid{grid-template-columns:1fr!important}
+body.ui-mobile .next-action-card{padding:15px}
+body.ui-mobile .btn{min-height:46px}
+body.ui-mobile .bottom-nav{display:flex}
+
+@media(min-width:768px){
+  html{font-size:18px}
+  body.ui-desktop main{max-width:1280px;margin:0 auto;padding-left:28px;padding-right:28px}
+  body.ui-desktop .screen{width:100%;max-width:none}
+  body.ui-desktop .bottom-nav{max-width:1280px;left:50%;transform:translateX(-50%)}
+  body.ui-desktop .summary-strip{grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+  body.ui-desktop .panel,body.ui-desktop .form-card{padding:20px}
+  body.ui-desktop .next-action-card{padding:20px 22px}
+  body.ui-desktop .next-action-card h2{font-size:1.25rem}
+  body.ui-desktop .next-action-card p{font-size:1rem}
+  body.ui-desktop .screen-guide summary b{font-size:1rem}
+  body.ui-desktop .screen-guide summary span{font-size:.78rem}
+  body.ui-desktop .screen-guide-body>p{font-size:.95rem}
+  body.ui-desktop .hint,body.ui-desktop small{font-size:.86rem}
+  body.ui-desktop button,body.ui-desktop input,body.ui-desktop select,body.ui-desktop textarea{font-size:1rem}
+  body.ui-desktop .btn{min-height:46px;padding:10px 16px}
+  body.ui-desktop table{font-size:.95rem}
+  body.ui-desktop th,body.ui-desktop td{padding:10px 9px}
+  body.ui-desktop .slip-title{font-size:1rem}
+  body.ui-desktop .slip-sub{font-size:.88rem}
+  body.ui-desktop .slip-amount{font-size:1.15rem}
+  body.ui-desktop .section-title{font-size:1.25rem}
+  body.ui-desktop .role-flow span{font-size:.86rem;padding:7px 11px}
+  body.ui-desktop .role-flow i{width:23px;height:23px;font-size:.75rem}
+
+  /* 会計・出納帳：PCでは一覧性を上げる */
+  body.ui-desktop #bookScreen .slip-list,
+  body.ui-desktop #bookScreen .entries-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+  body.ui-desktop #bookScreen .slip{margin-bottom:0}
+
+  /* 精算・設定・管理：横幅を使ってカードを読みやすく */
+  body.ui-desktop #settleScreen .cards,
+  body.ui-desktop #settingsScreen .settings-grid,
+  body.ui-desktop #adminScreen .admin-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+
+  /* 監査は特にPC中心。標準で広く、大きくする */
+  body.ui-desktop:has(#auditScreen.active) main{max-width:1320px}
+  body.ui-desktop #auditScreen{max-width:1320px;margin:0 auto;font-size:1.05rem}
+  body.ui-desktop #auditScreen .summary-strip{grid-template-columns:repeat(4,minmax(0,1fr))}
+  body.ui-desktop #auditScreen .audit-font-picker{position:sticky;top:64px;z-index:20;background:var(--paper,#fffdf8);box-shadow:0 3px 10px rgba(40,30,20,.08)}
+  body.ui-desktop #auditScreen .audit-size-btn{min-width:82px}
+  body.ui-desktop #auditScreen .panel{padding:22px}
+
+  /* 監査から開く伝票はPC用の大きな閲覧面 */
+  body.ui-desktop.audit-detail-mode main{max-width:1280px}
+  body.ui-desktop.audit-detail-mode #detailScreen{max-width:1040px;margin:0 auto}
+  body.ui-desktop.audit-detail-mode #detailScreen .panel,
+  body.ui-desktop.audit-detail-mode #detailScreen .form-card{padding:22px}
+  body.ui-desktop.audit-detail-mode #detailScreen .big-amount{font-size:2rem!important}
+}
+
+/* 大画面ではさらに余白を使うが、1行を長くしすぎない */
+@media(min-width:1200px){
+  body.ui-desktop main{padding-left:36px;padding-right:36px}
+  body.ui-desktop #homeScreen .next-action-card,
+  body.ui-desktop #homeScreen .screen-guide{max-width:1180px;margin-left:auto;margin-right:auto}
+}
+
+
+/* v125: 必須操作と任意確認を視覚的に区別 */
+.next-action-card.none,.next-action-card.waiting,.next-action-card.optional{border-left-color:var(--moss)}
+.next-action-card .next-secondary{background:transparent!important;color:var(--stamp-navy)!important;border:1px solid var(--line)!important;box-shadow:none!important;min-height:38px}
+.next-action-card.none .next-kicker,.next-action-card.waiting .next-kicker,.next-action-card.optional .next-kicker{color:var(--moss)}
+.plain-note{padding:9px 11px;border-radius:8px;background:var(--wash,#f5efe3);font-size:.9em;line-height:1.55}
+
 </style>
 <style>
 #newMSettle{width:24px;height:24px;flex:0 0 auto;margin:0 12px 0 0;vertical-align:middle}
@@ -761,7 +840,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.06-123';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.06-125';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1647,6 +1726,30 @@ const ICONS = {
   audit:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/><path d="M8.5 11l2 2 3.5-3.5"/></svg>',
   settings:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>'
 };
+
+/* =========================================================
+   v124 スマホ縦型 / PC横型の明確なUI分離
+   768px未満: mobile、768px以上: desktop
+   ========================================================= */
+const DESKTOP_UI_BREAKPOINT=768;
+function uiLayoutMode(){return window.innerWidth>=DESKTOP_UI_BREAKPOINT?'desktop':'mobile';}
+function applyUILayoutMode(){
+  const mode=uiLayoutMode();
+  document.body.classList.toggle('ui-desktop',mode==='desktop');
+  document.body.classList.toggle('ui-mobile',mode==='mobile');
+  document.body.dataset.uiMode=mode;
+  return mode;
+}
+let uiLayoutResizeTimer=null;
+window.addEventListener('resize',()=>{
+  clearTimeout(uiLayoutResizeTimer);
+  uiLayoutResizeTimer=setTimeout(()=>{
+    const before=document.body.dataset.uiMode||'';
+    const after=applyUILayoutMode();
+    if(before && before!==after && me) renderCurrent();
+  },120);
+});
+
 function roleSimpleGuide(){
   if(isAdmin())return{title:'管理者',one:'会計業務と利用者・権限・システム管理を行います。',flow:['状況を確認','会計処理','必要時に管理']};
   if(isT())return{title:'会計担当',one:'申請を確認し、承認・精算・帳簿管理を行います。',flow:['申請を確認','承認・差戻し','精算・帳簿']};
@@ -1655,23 +1758,40 @@ function roleSimpleGuide(){
   return{title:'役員',one:'会計状況を見て、自分の承認が必要なものだけ対応します。',flow:['状況を見る','要確認だけ対応','結果を確認']};
 }
 function screenPlainGuide(id){
-  const m={homeScreen:['ホーム','まずここを見れば大丈夫です。今あなたが対応することを上から順に表示します。'],bookScreen:[isP()?'申請一覧':isViewer()?'伝票確認':'伝票・出納帳',isP()?'自分の申請と現在の状態を確認します。':'伝票を確認します。押すと詳しい内容が開きます。'],settleScreen:[isP()||isViewer()?'精算確認':'精算処理',isP()?'会計からの精算結果を確認します。':isViewer()?'自分に関係する精算状況を確認します。':'承認済みの立替・仮払をまとめて精算します。'],auditScreen:['監査','上から順に「要確認事項 → 伝票 → 現預金 → 監査完了」を確認します。'],settingsScreen:['会計設定','年度・口座・科目など、会計全体の設定を行います。'],adminScreen:['管理','利用者・権限、データ、通知・AI、個人情報、診断などを管理します。'],detailScreen:['伝票の詳細',detailReturnScreen==='auditScreen'?'監査対象の伝票です。内容・領収書類・処理履歴を確認します。':'伝票の内容・領収書類・処理状況を確認します。']};
+  const m={homeScreen:['ホーム','まずここを見れば大丈夫です。今あなたが対応することを上から順に表示します。'],bookScreen:[isP()?'申請一覧':isViewer()?'伝票確認':'伝票・出納帳',isP()?'自分の申請と現在の状態を確認します。':'伝票を確認します。押すと詳しい内容が開きます。'],settleScreen:[isP()||isViewer()?'精算確認':'精算処理',isP()?'会計からの精算結果を確認します。':isViewer()?'自分に関係する精算状況を確認します。':'承認済みの立替・仮払をまとめて精算します。'],auditScreen:['監査','上から順に「気になる点 → 伝票・領収書類 → 現預金の照合結果 → 監査完了」を確認します。'],settingsScreen:['会計設定','年度、期首繰越金、銀行口座、科目などを設定します。普段の伝票処理では使いません。'],adminScreen:['管理','利用者と権限、バックアップ、通知・AI、個人情報、自動テストなど、システム全体を管理します。'],detailScreen:['伝票の詳細',detailReturnScreen==='auditScreen'?'監査対象の伝票です。内容・領収書類・処理履歴を確認します。':'伝票の内容・領収書類・処理状況を確認します。']};
   return m[id]||[TITLES[id]||'この画面','画面の案内に沿って操作してください。'];
 }
 function roleNextAction(){
   const fy=fyEntries();
-  if(isA()){const todo=fy.filter(e=>e.status==='approved'&&(!e.audit||e.auditStale));return todo.length?{tone:'navy',title:`監査する伝票が ${todo.length}件あります`,sub:'1件ずつ確認し、問題の有無を記録します。',label:'監査を始める',go:'auditScreen'}:{tone:'moss',title:'未確認の監査伝票はありません',sub:'現預金照合など残りの確認事項を見てください。',label:'監査状況を見る',go:'auditScreen'};}
-  if(isP()){const mine=allEntries(),ret=mine.filter(e=>e.status==='returned'),unc=settlements.filter(x=>x.payerId===me.payerId&&!x.payerConfirm);if(ret.length)return{tone:'amber',title:`差戻しが ${ret.length}件あります`,sub:'会計担当のコメントを見て修正し、再申請してください。',label:'差戻しを確認',go:'bookScreen',filter:'returned'};if(unc.length)return{tone:'navy',title:`精算の受取確認が ${unc.length}件あります`,sub:'会計が記録した金額を確認してください。',label:'精算を確認',go:'settleScreen'};return{tone:'moss',title:'支払いをしたら、ここから申請します',sub:'領収書類があれば撮影して入力できます。',label:'支出を申請する',action:'new'};}
-  if(isViewer()){const a=visibleBookEntries().filter(e=>e.fy===curFY&&entryIsMyApproval(e));return a.length?{tone:'amber',title:`あなたの承認が必要な伝票が ${a.length}件あります`,sub:'内容を確認して承認または差戻しをしてください。',label:'承認する伝票を見る',go:'bookScreen',filter:'submitted'}:{tone:'moss',title:'現在、あなたの承認待ちはありません',sub:'必要なときだけ対応すれば大丈夫です。',label:'会計状況を見る',go:'bookScreen'};}
+  if(isA()){
+    const todo=fy.filter(e=>e.status==='approved'&&(!e.audit||e.auditStale));
+    const opening=Number((settings.opening||{})[curFY])||0;
+    const book=approvedFY().reduce((n,e)=>n+(e.type==='income'?1:-1)*(Number(e.amount)||0),opening);
+    if(opening===0&&book<0)return{kind:'blocked',tone:'amber',title:'会計担当者の確認待ちです',sub:'期首繰越金が0円で帳簿残高がマイナスです。会計担当者が修正するまで監査完了は行わないでください。',secondaryLabel:'監査画面を確認',go:'auditScreen'};
+    if(todo.length)return{kind:'required',tone:'navy',title:`確認する伝票が ${todo.length}件あります`,sub:'伝票と領収書類を1件ずつ確認し、問題の有無を記録してください。',label:'伝票の監査を始める',go:'auditScreen'};
+    return{kind:'optional',tone:'moss',title:'伝票の確認は完了しています',sub:'現預金照合など、年度監査の残りの確認事項がある場合だけ監査画面を確認してください。',secondaryLabel:'監査の進み具合を確認',go:'auditScreen'};
+  }
+  if(isP()){
+    const mine=allEntries(),ret=mine.filter(e=>e.status==='returned'),unc=settlements.filter(x=>x.payerId===me.payerId&&!x.payerConfirm);
+    if(ret.length)return{kind:'required',tone:'amber',title:`修正が必要な申請が ${ret.length}件あります`,sub:'会計担当者のコメントを確認し、内容を直して再申請してください。',label:'修正する申請を見る',go:'bookScreen',filter:'returned'};
+    if(unc.length)return{kind:'required',tone:'navy',title:`精算の受取確認が ${unc.length}件あります`,sub:'会計担当者が記録した精算額を確認してください。',label:'精算内容を確認',go:'settleScreen'};
+    return{kind:'normal',tone:'moss',title:'今、対応が必要な申請はありません',sub:'自治会の支払いを立て替えたときは、ここから新しい支出を申請できます。',label:'新しい支出を申請',action:'new'};
+  }
+  if(isViewer()){
+    const a=visibleBookEntries().filter(e=>e.fy===curFY&&entryIsMyApproval(e));
+    if(a.length)return{kind:'required',tone:'amber',title:`あなたの確認・承認が必要な伝票が ${a.length}件あります`,sub:'内容を確認し、問題なければ承認、修正が必要なら差戻しをしてください。',label:'承認する伝票を確認',go:'bookScreen',filter:'submitted'};
+    return{kind:'none',tone:'moss',title:'現在、あなたが対応することはありません',sub:'新たに役員の承認が必要になった場合は、ここに表示します。',secondaryLabel:'必要なら伝票を確認',go:'bookScreen'};
+  }
   const sub=fy.filter(e=>e.status==='submitted'&&e.selfApprovalRequired!==true),ret=fy.filter(e=>e.status==='returned');
-  if(sub.length)return{tone:'amber',title:`確認待ちの申請が ${sub.length}件あります`,sub:'内容と領収書類を確認し、承認または差戻しをしてください。',label:'確認待ちを処理',go:'bookScreen',filter:'submitted'};
-  if(ret.length)return{tone:'navy',title:`差戻し中の申請が ${ret.length}件あります`,sub:'申請者の修正・再申請を待っています。',label:'差戻し中を見る',go:'bookScreen',filter:'returned'};
-  const ready=settlePeople().filter(p=>p.ready);if(ready.length)return{tone:'navy',title:`精算できる人が ${ready.length}人います`,sub:'承認済みの立替・仮払をまとめて精算できます。',label:'精算処理へ',go:'settleScreen'};
-  return{tone:'moss',title:'現在、急いで対応する会計処理はありません',sub:'新しい申請が届くと、ここに次の操作を表示します。',label:'伝票・出納帳を見る',go:'bookScreen'};
+  if(sub.length)return{kind:'required',tone:'amber',title:`会計担当者の確認待ちが ${sub.length}件あります`,sub:'申請内容と領収書類を確認し、承認または差戻しをしてください。',label:'確認待ちの申請を処理',go:'bookScreen',filter:'submitted'};
+  if(ret.length)return{kind:'waiting',tone:'navy',title:`申請者の修正待ちが ${ret.length}件あります`,sub:'差戻し済みです。申請者から再申請されるまで、会計担当者の操作は不要です。',secondaryLabel:'差戻し中の伝票を確認',go:'bookScreen',filter:'returned'};
+  const ready=settlePeople().filter(p=>p.ready);
+  if(ready.length)return{kind:'required',tone:'navy',title:`精算できる人が ${ready.length}人います`,sub:'承認済みの立替・仮払があります。支払額を確認して精算を記録してください。',label:'精算を処理',go:'settleScreen'};
+  return{kind:'none',tone:'moss',title:'現在、会計担当者が対応することはありません',sub:'新しい申請や精算対象が発生すると、ここに次の操作を表示します。',secondaryLabel:'必要なら伝票を確認',go:'bookScreen'};
 }
-function nextActionHtml(){const a=roleNextAction();return `<section class="next-action-card ${a.tone||''}"><div class="next-kicker">次にやること</div><h2>${esc(a.title)}</h2><p>${esc(a.sub)}</p><button class="btn btn-primary" id="nextActionBtn">${esc(a.label)}</button></section>`;}
+function nextActionHtml(){const a=roleNextAction();const action=a.label?`<button class="btn btn-primary" id="nextActionBtn">${esc(a.label)}</button>`:a.secondaryLabel?`<button class="btn btn-ghost next-secondary" id="nextActionBtn">${esc(a.secondaryLabel)}</button>`:'';return `<section class="next-action-card ${a.tone||''} ${a.kind||''}"><div class="next-kicker">${a.kind==='none'||a.kind==='waiting'||a.kind==='optional'?'現在の状況':'次にやること'}</div><h2>${esc(a.title)}</h2><p>${esc(a.sub)}</p>${action}</section>`;}
 function bindNextAction(){const b=$('nextActionBtn');if(!b)return;b.onclick=()=>{const a=roleNextAction();if(a.action==='new')return openForm();if(a.filter)bookFilter.status=a.filter;if(a.go)showScreen(a.go);};}
-function screenGuideHtml(id){const [t,d]=screenPlainGuide(id),r=roleSimpleGuide();return `<details class="screen-guide" ${id==='homeScreen'?'open':''}><summary><span>この画面ですること</span><b>${esc(t)}</b></summary><div class="screen-guide-body"><p>${esc(d)}</p><div class="role-flow">${r.flow.map((x,i)=>`<span><i>${i+1}</i>${esc(x)}</span>`).join('<em>→</em>')}</div><p class="hint">あなたの役割：<b>${esc(r.title)}</b>　${esc(r.one)}</p></div></details>`;}
+function screenGuideHtml(id){const [t,d]=screenPlainGuide(id),r=roleSimpleGuide();const glossary=id==='settleScreen'?'<p class="plain-note"><b>精算とは：</b>立て替えたお金を自治会から支払う、または仮払金の残りを返す処理です。</p>':id==='auditScreen'?'<p class="plain-note"><b>監査とは：</b>帳簿の数字と伝票・領収書類・実際の残高が合っているかを確認する作業です。</p>':'';return `<details class="screen-guide" ${id==='homeScreen'?'open':''}><summary><span>この画面ですること</span><b>${esc(t)}</b></summary><div class="screen-guide-body"><p>${esc(d)}</p>${glossary}<div class="role-flow">${r.flow.map((x,i)=>`<span><i>${i+1}</i>${esc(x)}</span>`).join('<em>→</em>')}</div><p class="hint">あなたの役割：<b>${esc(r.title)}</b>　${esc(r.one)}</p></div></details>`;}
 function injectScreenGuide(id){const el=$(id);if(!el||['cashFeeScreen','batchScreen','budgetImportScreen','importScreen'].includes(id))return;el.querySelectorAll(':scope > .screen-guide').forEach(x=>x.remove());el.insertAdjacentHTML('afterbegin',screenGuideHtml(id));}
 
 function navItems(){
@@ -1728,6 +1848,7 @@ function renderAll(){
   renderCurrent();
 }
 function renderCurrent(){
+  applyUILayoutMode();
   if (!me || curFY===null) return;
   switch(currentScreen){
     case 'homeScreen': renderHome(); break;
@@ -1838,7 +1959,7 @@ function bindSlips(container){
    ホーム
    ========================================================= */
 function homeVersionInfo(){
-  return `<div class="hint" style="text-align:center;margin:20px 0 6px;padding-top:10px;border-top:1px solid var(--line);font-size:11px;opacity:.8">デジタル会計　Ver.${esc(APP_VERSION)}</div>`;
+  return `<div class="hint" style="text-align:center;margin:20px 0 6px;padding-top:10px;border-top:1px solid var(--line);font-size:11px;opacity:.8">デジタル会計　Ver.${esc(APP_VERSION)}　<span class="ui-mode-label">${uiLayoutMode()==='desktop'?'PC表示':'スマホ表示'}</span></div>`;
 }
 function renderHome(){
   const el = $('homeScreen');
@@ -3866,6 +3987,24 @@ async function renderAdmin(){
     }catch(e){ add('自動試験ログの分離','fail',e?.message||String(e)); }
 
     try{
+      const na=roleNextAction(), nah=nextActionHtml();
+      add('分かりやすさ：不要な強調ボタン抑止',(na.kind!=='none'||!nah.includes('btn btn-primary'))?'ok':'fail','対応不要時は大きな赤ボタンを出さない');
+      add('分かりやすさ：必須と任意の区別',typeof na.kind==='string'?'ok':'fail',`現在の案内種別：${na.kind||'未設定'}`);
+      add('分かりやすさ：精算の説明',screenGuideHtml('settleScreen').includes('精算とは')?'ok':'fail','初めてでも用語の意味が分かる');
+      add('分かりやすさ：監査の説明',screenGuideHtml('auditScreen').includes('監査とは')?'ok':'fail','監査担当者向けに平易な説明を表示');
+      add('分かりやすさ：設定の用途明示',screenPlainGuide('settingsScreen')[1].includes('普段の伝票処理では使いません')?'ok':'fail','日常操作と設定を混同しない');
+    }catch(e){ add('分かりやすさ再点検','fail',e?.message||String(e)); }
+
+    try{
+      const mode=applyUILayoutMode();
+      add('端末別UI：自動判定',['desktop','mobile'].includes(mode)?'ok':'fail',`現在は ${mode==='desktop'?'PC横型':'スマホ縦型'} 表示`);
+      add('端末別UI：768px境界',DESKTOP_UI_BREAKPOINT===768?'ok':'fail','768px未満=スマホ、768px以上=PC');
+      add('PC UI：横幅と文字拡大',document.documentElement.innerHTML.includes('max-width:1280px')&&document.documentElement.innerHTML.includes('html{font-size:18px}')?'ok':'fail','PCは広い作業領域＋大きめ文字');
+      add('監査PC UI：専用横幅',document.documentElement.innerHTML.includes('#auditScreen{max-width:1320px')&&document.documentElement.innerHTML.includes('#detailScreen{max-width:1040px')?'ok':'fail','監査本体・監査伝票をPC向けに拡張');
+      add('スマホUI：縦型維持',document.documentElement.innerHTML.includes('body.ui-mobile .form-row')&&document.documentElement.innerHTML.includes('grid-template-columns:1fr!important')?'ok':'fail','スマホは1カラム中心');
+    }catch(e){ add('端末別UI','fail',e?.message||String(e)); }
+
+    try{
       const ni=navItems().map(x=>x[2]).join('／');
       add('役割別UI：画面目的ガイド',typeof screenPlainGuide==='function'&&typeof injectScreenGuide==='function'?'ok':'fail','主要画面に「この画面ですること」を表示');
       add('役割別UI：次にやること',typeof roleNextAction==='function'&&typeof nextActionHtml==='function'?'ok':'fail','ホームで役割と状態から次の操作を1つ提示');
@@ -4374,6 +4513,8 @@ async function renderAdmin(){
     const categoryOf=(name)=>{
       if(/現預金照合|期首繰越/.test(name))return '年度処理';
       if(/監査明細|監査：|監査画面UI/.test(name))return '監査';
+      if(/分かりやすさ/.test(name))return '保存・遷移';
+      if(/端末別UI|PC UI|スマホUI|監査PC UI/.test(name))return '保存・遷移';
       if(/役割別UI/.test(name))return '保存・遷移';
       if(/ログアウト/.test(name))return '保存・遷移';
       if(/テスト件数/.test(name))return '安全・後処理';
