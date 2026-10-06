@@ -868,7 +868,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.07-144';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.07-145';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1930,7 +1930,7 @@ async function renderCurrent(){
     case 'adminScreen': await renderAdmin(); break;
     case 'fiscalCloseScreen': renderFiscalCloseScreen(); break;
     case 'settingsScreen': { const a=document.activeElement; const typing = a && $('settingsScreen').contains(a) && ['INPUT','TEXTAREA','SELECT'].includes(a.tagName) && a.type!=='checkbox'; if (!typing) renderSettings(); break; }
-    case 'detailScreen': if (detailId) renderDetail(detailId); break;
+    case 'detailScreen': if (detailId) await renderDetail(detailId); break;
   }
   injectScreenGuide(currentScreen);
 }
@@ -2824,13 +2824,13 @@ function diffText(a,b){
 let detailFallback = null;
 let detailReturnScreen = 'bookScreen';
 const photoCache = {};
-function openDetail(id, fallback){
+async function openDetail(id, fallback){
   const mx=entryById(id)||fallback; if(mx && mx.status==='submitted' && (isT() || entryIsMyApproval(mx))) metricBegin('entry_approval',id);
   detailId = id; detailFallback = fallback || null;
   // 監査から開いた伝票は、閉じたとき監査へ戻す。
   detailReturnScreen = currentScreen==='auditScreen' ? 'auditScreen' : (isP()?'homeScreen':'bookScreen');
   if(detailReturnScreen==='auditScreen') setAuditFontSize(getAuditFontSize());
-  showScreen('detailScreen');
+  await showScreen('detailScreen');
 }
 async function renderDetail(id){
   const e = entryById(id) || (detailFallback && detailFallback.id===id ? detailFallback : null);
@@ -4221,6 +4221,8 @@ async function renderAdmin(){
       const nextSrc=roleNextAction.toString(), bindSrc=bindNextAction.toString();
       add('役割別UI：監査完了後の年度決算導線',nextSrc.includes('監査が完了しました。年度決算を確定してください')&&bindSrc.includes("a.action==='fiscalClose'")?'ok':'fail','監査完了後はホームから年度決算・切り替えへ案内');
       add('年度決算UI：専用画面',!!$('fiscalCloseScreen')&&renderFiscalCloseScreen.toString().includes('年度決算・年度切り替え')?'ok':'fail','会計設定と年度末業務を別画面化');
+      add('画面遷移：伝票詳細の描画完了待ち',renderCurrent.toString().includes("await renderDetail(detailId)")?'ok':'fail','承認・監査ボタン描画前の競合を防止');
+      add('年度決算UI：残高照合履歴の取得',!renderFiscalCloseScreen.toString().includes('latestBalanceCheck')?'ok':'fail','未定義関数を使用しない');
       add('会計設定UI：保存ボタン明確化',renderSettings.toString().includes('団体・年度設定を保存する')?'ok':'fail','設定保存の意味を明示');
       add('役割別UI：①②③表示を廃止',!screenGuideHtml('homeScreen').includes('role-flow')?'ok':'fail','固定3ステップを表示せず「次にやること」へ一本化');
       add('役割別UI：タブ名称',ni.length>0?'ok':'fail',`現在の役割：${ni}`);
@@ -4415,8 +4417,10 @@ async function renderAdmin(){
       add('診断データ分離','ok','testMode・diagnosticRunIdを確認');
 
       // ---- 会計承認：支払者が実画面で作成したsubmitted伝票を、会計役割の実ボタンで承認 ----
-      testProfile='treasurer'; applyEffectiveProfile(); renderAll();
-      openDetail(entryId); markStage('会計承認画面'); await waitFor(()=>$('detailScreen')?.classList.contains('active') && $('dApprove'),5000);
+      await showScreen('bookScreen');
+      testProfile='treasurer'; applyEffectiveProfile();
+      markStage('会計承認画面'); await openDetail(entryId,e);
+      await waitFor(()=>$('detailScreen')?.classList.contains('active') && $('dApprove'),8000);
       add('会計承認画面を開く','ok','会計テスト役割で承認ボタンを表示');
       $('dApprove').click();
       await waitFor(async()=>{const x=await R(`entries/${entryId}/status`).get();return x.val()==='approved';},8000);
@@ -4426,8 +4430,10 @@ async function renderAdmin(){
       add('承認者記録',!!approved?.approvedByName?'ok':'fail',approved?.approvedByName||'未記録');
 
       // ---- 監査：承認済み伝票を監査役割の実ボタンで「問題なし」にする ----
-      testProfile='auditor'; applyEffectiveProfile(); renderAll();
-      openDetail(entryId); markStage('監査画面'); await waitFor(()=>$('detailScreen')?.classList.contains('active') && $('aOk'),5000);
+      await showScreen('bookScreen');
+      testProfile='auditor'; applyEffectiveProfile();
+      markStage('監査画面'); await openDetail(entryId,approved);
+      await waitFor(()=>$('detailScreen')?.classList.contains('active') && $('aOk'),8000);
       add('監査画面を開く','ok','監査テスト役割で監査ボタンを表示');
       $('aOk').click();
       await waitFor(async()=>{const x=await R(`entries/${entryId}/audit/result`).get();return x.val()==='ok';},8000);
@@ -4703,7 +4709,14 @@ async function renderAdmin(){
         if(settlementEntryId){await R(`entries/${settlementEntryId}`).remove();await R(`photos/${settlementEntryId}`).remove();}
         if(incomeEntryId){await R(`entries/${incomeEntryId}`).remove();await R(`photos/${incomeEntryId}`).remove();}
         if(entryId){await R(`entries/${entryId}`).remove();await R(`photos/${entryId}`).remove();}
-        add('テスト伝票の撤去','ok',(entryId||incomeEntryId||settlementEntryId||settlementId)?'診断データを削除':'作成済みデータなし');
+        await sleep(250);
+        for(const rid of [entryId,incomeEntryId,settlementEntryId].filter(Boolean)){
+          const rs=await R(`entries/${rid}`).get();
+          if(rs.exists() && rs.val()?.diagnosticRunId===runId){
+            await R(`entries/${rid}`).remove(); await R(`photos/${rid}`).remove();
+          }
+        }
+        add('テスト伝票の撤去','ok',(entryId||incomeEntryId||settlementEntryId||settlementId)?'診断データを削除（遅延書込も再確認）':'作成済みデータなし');
       }catch(e){add('テスト伝票の撤去','fail',e?.message||String(e));}
       try{if(testPayerId&&!testPayerExisted){const ps=await R(`payers/${testPayerId}`).get();if(ps.exists()&&ps.val()?.testMode)await R(`payers/${testPayerId}`).remove();}}catch(_){}
       try{
@@ -5519,7 +5532,7 @@ function renderFiscalCloseScreen(){
   const blockers=sum.unresolved.length+sum.pendingSettlement.length+sum.pendingAdvances.length+(hasAudit?0:1)+(dateOk?0:1);
   const switched=!!settings.fiscalTransitions?.[`${fromFY}-${toFY}`];
   const nextBudgetCount=bp.filter(x=>x.to!==0).length;
-  const balance=latestBalanceCheck(fromFY);
+  const balance=Object.entries((((settings.balanceChecks||{})[fromFY])||{})).map(([id,v])=>({id,...v})).sort((a,b)=>(b.at||0)-(a.at||0))[0]||null;
   el.innerHTML=`<h2 class="section-title">${fromFY}年度 年度決算・年度切り替え</h2><div class="form-card">
     <div class="total-check"><span>対象年度</span><b>${fromFY}年度 → ${toFY}年度</b></div>
     <div class="total-check"><span>締め日</span><b>${fiscalYearEndDate(fromFY)} ${dateOk?'✓ 経過':'（まだ確定不可）'}</b></div>
