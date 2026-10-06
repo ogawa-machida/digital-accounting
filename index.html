@@ -866,7 +866,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.06-130';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.06-131';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -4585,6 +4585,27 @@ async function renderAdmin(){
       uiAutoTestContext=null; testProfile=oldProfile; me=oldMe; curFY=oldFY; applyEffectiveProfile();
       try{renderAll();}catch(_){}
     }
+    // v131: 総合実画面テスト自身で会計設定画面を本当に開いて確認する。
+    try{
+      await showScreen('settingsScreen');
+      await sleep(50);
+      const se=$('settingsScreen');
+      const visible=!!se && se.classList.contains('active') && se.getAttribute('aria-hidden')==='false';
+      const content=!!se && /団体の情報|会計年度の締め|日常の自動診断/.test(se.textContent||'');
+      const noError=!!se && !se.dataset.renderError && !(se.textContent||'').includes('画面を表示できませんでした');
+      const controls=!!se && !!se.querySelector('#settingsTaskMenu') && !!se.querySelector('#sSaveOrg') && !!se.querySelector('#dailyDiagRun');
+      const noStepFlow=!screenGuideHtml('settingsScreen').includes('role-flow') && !screenGuideHtml('homeScreen').includes('role-flow');
+      add('実画面：会計設定タブを開ける',visible?'ok':'fail',visible?'実際の画面遷移で可視状態を確認':'会計設定が可視状態にならない');
+      add('実画面：会計設定の主要内容',content?'ok':'fail',content?'主要設定項目の実DOMを確認':'設定項目が描画されていない');
+      add('実画面：会計設定の描画例外なし',noError?'ok':'fail',noError?'エラー画面なし':`描画エラー：${se?.dataset.renderError||'エラー画面を検出'}`);
+      add('実画面：会計設定の操作部品',controls?'ok':'fail',controls?'メニュー・保存・自動診断ボタンを確認':'主要操作部品が不足');
+      add('実画面：①②③固定フローなし',noStepFlow?'ok':'fail','固定3ステップ表示を廃止');
+      await showScreen('adminScreen');
+    }catch(e){
+      add('実画面：会計設定タブを開ける','fail',e?.message||String(e));
+      try{await showScreen('adminScreen');}catch(_){}
+    }
+
     {
       const before=rows.length;
       add('テスト件数：動的集計','ok',`この項目を含め、実行済みrowsから総数を算出（集計直前 ${before}項目）`);
