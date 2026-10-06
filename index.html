@@ -866,7 +866,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.07-139';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.07-140';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -3700,14 +3700,14 @@ async function createClosingDemoData(){
     next:(a.budget||{})[nextFY]===undefined?null:Number((a.budget||{})[nextFY])
   });
 
-  const now=TS(), actor=`closing-demo:${owner}`;
+  const demoNow=Date.now(), actor=`closing-demo:${owner}`;
   const mk=(n,type,amount,purpose,account,method,date)=>({
     fy,date,type,amount,purpose,
     payee:type==='income'?'デモ入金':'デモ支払先',
     accountId:account.id,methodId:method.id,
     payerId:null,payerName:'',
-    status:'approved',approvedAt:now,approvedBy:actor,approvedByName:'デモ会計担当',
-    createdAt:now-n*1000,createdBy:actor,createdByName:'デモ会計担当',
+    status:'approved',approvedAt:demoNow,approvedBy:actor,approvedByName:'デモ会計担当',
+    createdAt:demoNow-n*1000,createdBy:actor,createdByName:'デモ会計担当',
     voucherNo:`DEMO-${fy}-${pad(n,3)}`,settleState:'settled',
     imported:true,importSource:'監査・年度更新デモ',memo:'デモ専用。テスト終了後に削除してください。',
     testMode:true,testOwnerUid:owner,closingDemo:true
@@ -3726,7 +3726,7 @@ async function createClosingDemoData(){
   const ups={};
   rows.forEach((e,i)=>ups[`entries/__closing_demo_${owner}_${fy}_${i+1}`]=e);
   ups[`closingDemoRuns/${owner}/${fy}`]={
-    fy,nextFY,createdAt:now,createdBy:owner,appVersion:APP_VERSION,
+    fy,nextFY,createdAt:demoNow,createdBy:owner,appVersion:APP_VERSION,
     previousOpening:previousOpening===undefined?null:previousOpening,
     nextOpening:nextOpening===undefined?null:nextOpening,budgetSnapshot
   };
