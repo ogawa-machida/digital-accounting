@@ -866,7 +866,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.06-136';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.06-137';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -4305,7 +4305,9 @@ async function renderAdmin(){
     out.innerHTML=`<div class="diag-summary warn"><span>総合実画面テスト<br><small>実行中</small></span><span class="diag-score">0/0</span></div><p class="hint">実行した項目をその場で集計します。前回結果は使用しません。</p>`;
     const add=(n,s,d)=>rows.push([n,s,d]);
     const sleep=ms=>new Promise(r=>setTimeout(r,ms));
-    const waitFor=async(fn,ms=5000)=>{const end=Date.now()+ms;while(Date.now()<end){try{const v=fn();if(v)return v;}catch(_){}await sleep(80);}throw new Error('画面の応答がタイムアウトしました');};
+    let uiTestStage='開始';
+    const markStage=name=>{uiTestStage=name;};
+    const waitFor=async(fn,ms=5000)=>{const end=Date.now()+ms;while(Date.now()<end){try{const v=fn();if(v)return v;}catch(_){}await sleep(80);}throw new Error(`「${uiTestStage}」で画面の応答がタイムアウトしました`);};
     const oldProfile=testProfile, oldMe=me, oldFY=curFY;
     let entryId=null, incomeEntryId=null, settlementEntryId=null, settlementId=null, testPayerId=null, testPayerExisted=false, publicTestFY=9998, publicTestCreated=false, yearTestCreated=false, transitionTestCreated=false;
     // v103: finally でも参照するため try の外側で宣言する。
@@ -4331,7 +4333,7 @@ async function renderAdmin(){
       await R(uiTestSessionPath(auth.currentUser.uid)).update({payerId:testPayerId,payerCreated:!testPayerExisted});
       add('テスト利用者への切替','ok',`${me.testRoleLabel||'支払者'}として画面操作`);
       // 実際の＋ボタンをクリックしてフォームを開く。
-      $('fabAdd').click(); await waitFor(()=>$('formScreen')?.classList.contains('active'));
+      markStage('支出登録画面を開く'); $('fabAdd').click(); await waitFor(()=>$('formScreen')?.classList.contains('active'));
       add('支出登録画面を開く','ok','＋ボタンのclickイベントで画面遷移');
       {
         const must=(id,label)=>{const el=$(id);add(label,el?'ok':'fail',el?'画面要素を確認':`${id}がありません`);return el;};
@@ -4376,7 +4378,7 @@ async function renderAdmin(){
         $('fNoReceiptReason').value=keepReason;
       }
       $('formSaveBtn').click();
-      await waitFor(()=>uiAutoTestContext?.savedEntryId,8000); entryId=uiAutoTestContext.savedEntryId;
+      markStage('支出伝票を保存'); await waitFor(()=>uiAutoTestContext?.savedEntryId,8000); entryId=uiAutoTestContext.savedEntryId;
       await R(uiTestSessionPath(auth.currentUser.uid)).update({entryId});
       if(uiTestNetworkInterrupted)throw new Error('テスト中に通信断を検知しました');
       const snap=await R(`entries/${entryId}`).get(); if(!snap.exists())throw new Error('保存後の診断伝票がFirebaseにありません');
@@ -4389,7 +4391,7 @@ async function renderAdmin(){
         add('保存ステータス',e.status==='submitted'?'ok':'fail',e.status||'');
         add('領収書類なし保存',e.noReceipt===true?'ok':'fail',String(e.noReceipt));
       }
-      await waitFor(()=>$('detailScreen')?.classList.contains('active'),5000);
+      markStage('支出保存後の詳細画面'); await waitFor(()=>$('detailScreen')?.classList.contains('active'),5000);
       add('保存後の画面遷移','ok','詳細画面まで自動遷移');
       await sleep(250); // 実画面遷移を描画してから後処理へ進む
       // UIから作られた伝票であることを追加確認。
@@ -4398,7 +4400,7 @@ async function renderAdmin(){
 
       // ---- 会計承認：支払者が実画面で作成したsubmitted伝票を、会計役割の実ボタンで承認 ----
       testProfile='treasurer'; applyEffectiveProfile(); renderAll();
-      openDetail(entryId); await waitFor(()=>$('detailScreen')?.classList.contains('active') && $('dApprove'),5000);
+      openDetail(entryId); markStage('会計承認画面'); await waitFor(()=>$('detailScreen')?.classList.contains('active') && $('dApprove'),5000);
       add('会計承認画面を開く','ok','会計テスト役割で承認ボタンを表示');
       $('dApprove').click();
       await waitFor(async()=>{const x=await R(`entries/${entryId}/status`).get();return x.val()==='approved';},8000);
@@ -4409,7 +4411,7 @@ async function renderAdmin(){
 
       // ---- 監査：承認済み伝票を監査役割の実ボタンで「問題なし」にする ----
       testProfile='auditor'; applyEffectiveProfile(); renderAll();
-      openDetail(entryId); await waitFor(()=>$('detailScreen')?.classList.contains('active') && $('aOk'),5000);
+      openDetail(entryId); markStage('監査画面'); await waitFor(()=>$('detailScreen')?.classList.contains('active') && $('aOk'),5000);
       add('監査画面を開く','ok','監査テスト役割で監査ボタンを表示');
       $('aOk').click();
       await waitFor(async()=>{const x=await R(`entries/${entryId}/audit/result`).get();return x.val()==='ok';},8000);
@@ -4442,7 +4444,7 @@ async function renderAdmin(){
       add('AI原判定の保持',!!aiCheck?.aiReceiptOriginal?'ok':'fail','AI読取時点の値を保持');
       add('AI修正項目の記録',Array.isArray(aiCheck?.aiReceiptChangedFields)&&aiCheck.aiReceiptChangedFields.length===3?'ok':'fail',`${aiCheck?.aiReceiptChangedFields?.length||0}項目`);
       add('AI修正履歴の保存',aiCheck?.aiReceiptEditHistory&&Object.keys(aiCheck.aiReceiptEditHistory).length?'ok':'fail','原判定→修正後を構造化保存');
-      testProfile='auditor'; applyEffectiveProfile(); renderAll(); openDetail(entryId); await waitFor(()=>$('detailScreen')?.classList.contains('active'),5000);
+      testProfile='auditor'; applyEffectiveProfile(); renderAll(); openDetail(entryId); markStage('AI差分監査詳細画面'); await waitFor(()=>$('detailScreen')?.classList.contains('active'),5000);
       add('AI差分の監査表示',$('detailScreen').textContent.includes('AIレシート読取の確認')&&$('detailScreen').textContent.includes('AI読取後の修正')?'ok':'fail','監査詳細画面で差分を表示');
 
       // ---- 精算：監査済み伝票とは分離した専用診断伝票を作り、会計の精算画面から実ボタンで記録 ----
@@ -4464,7 +4466,7 @@ async function renderAdmin(){
       // attachDataの非同期反映待ちに依存せず、診断中だけ現在年度マップへ即時反映する。
       fyMap[settlementEntryId]={id:settlementEntryId,...(await stRef.get()).val()};
       showScreen('settleScreen'); settleView=testPayerId; renderSettle();
-      await waitFor(()=>$('stDo') && !$('stDo').disabled,8000);
+      markStage('精算画面'); await waitFor(()=>$('stDo') && !$('stDo').disabled,8000);
       add('精算画面を開く','ok','精算専用の承認済み診断支出を表示');
       if(!$('stDate')||!$('stWay'))throw new Error('精算入力欄がありません');
       $('stMemo').value=`自動UI精算 ${runId}`; $('stMemo').dispatchEvent(new Event('input',{bubbles:true}));
@@ -4472,7 +4474,7 @@ async function renderAdmin(){
       uiAutoTestContext.savedSettlementId=null;
       const originalConfirm=window.confirm;
       window.confirm=()=>true;
-      try{$('stDo').click(); await waitFor(()=>uiAutoTestContext?.savedSettlementId,12000);}
+      try{$('stDo').click(); markStage('精算保存'); await waitFor(()=>uiAutoTestContext?.savedSettlementId,12000);}
       finally{window.confirm=originalConfirm;}
       settlementId=uiAutoTestContext.savedSettlementId;
       if(!settlementId)throw new Error('精算保存の完了を確認できません');
@@ -4491,7 +4493,7 @@ async function renderAdmin(){
 
       // ---- 収入登録：会計役割で実際の登録フォーム→収入切替→入力→保存 ----
       testProfile='treasurer'; applyEffectiveProfile(); renderAll();
-      $('fabAdd').click(); await waitFor(()=>$('formScreen')?.classList.contains('active'),5000);
+      markStage('収入登録画面'); $('fabAdd').click(); await waitFor(()=>$('formScreen')?.classList.contains('active'),5000);
       const incomeTypeBtn=[...$('fTypeSeg').querySelectorAll('button')].find(b=>b.dataset.type==='income');
       if(!incomeTypeBtn)throw new Error('収入切替ボタンがありません');
       incomeTypeBtn.click(); await sleep(80);
@@ -4507,14 +4509,14 @@ async function renderAdmin(){
       add('収入入力・選択','ok','日付・金額・入金元・用途・科目・受取方法を実画面で操作');
       uiAutoTestContext.savedEntryId=null;
       $('formSaveBtn').click();
-      await waitFor(()=>uiAutoTestContext?.savedEntryId,8000); incomeEntryId=uiAutoTestContext.savedEntryId;
+      markStage('収入伝票を保存'); await waitFor(()=>uiAutoTestContext?.savedEntryId,8000); incomeEntryId=uiAutoTestContext.savedEntryId;
       await R(uiTestSessionPath(auth.currentUser.uid)).update({entryId:incomeEntryId});
       const incomeSnap=await R(`entries/${incomeEntryId}`).get();
       if(!incomeSnap.exists())throw new Error('収入診断伝票がFirebaseにありません');
       const income=incomeSnap.val();
       add('収入保存→Firebase',income.type==='income'&&Number(income.amount)===654?'ok':'fail',`${income.type||''} ${income.amount||''}`);
       add('収入の自動承認',income.status==='approved'?'ok':'fail',income.status||'');
-      await waitFor(()=>$('detailScreen')?.classList.contains('active'),5000);
+      markStage('収入保存後の詳細画面'); await waitFor(()=>$('detailScreen')?.classList.contains('active'),5000);
       add('収入保存後の詳細遷移','ok','収入伝票の詳細画面へ自動遷移');
 
       // 収入診断伝票はここで即時撤去し、セッション監視対象を元の支出伝票へ戻す。
@@ -4544,7 +4546,7 @@ async function renderAdmin(){
       const pubSaved=(await R(`public/${publicTestFY}`).get()).val();
       add('会員向け報告の公開データ保存',pubSaved?.balance===1179&&pubSaved?.items?.[0]?.amount===321?'ok':'fail','診断専用年度へ保存');
       await renderPublic([publicTestFY],publicTestFY);
-      await waitFor(()=>$('publicBody')?.textContent.includes(`${publicTestFY}年度 会計報告`),5000);
+      markStage('会員向け報告画面'); await waitFor(()=>$('publicBody')?.textContent.includes(`${publicTestFY}年度 会計報告`),5000);
       const pubText=$('publicBody')?.textContent||'';
       add('会員向け報告の実画面表示',pubText.includes('自治会運営用品')||pubText.includes('個人情報のため詳細非表示')?'ok':'fail','会計報告画面を実描画');
       // 画面の説明文には「支払者名・領収書類画像・内部メモは公開しません」という語句自体が
@@ -4664,7 +4666,7 @@ async function renderAdmin(){
 
       // 管理画面へ戻して結果表示へ
       showScreen('adminScreen');
-    }catch(e){add('実画面操作テスト','fail',e?.message||String(e));}
+    }catch(e){add(`実画面操作テスト：${uiTestStage}`,'fail',e?.message||String(e));}
     finally{
       try{
         if(publicTestCreated){await R(`public/${publicTestFY}`).remove();await R(`public/index/years/${publicTestFY}`).remove();}
