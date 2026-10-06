@@ -863,7 +863,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.06-127';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.06-128';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1814,7 +1814,7 @@ function roleNextAction(){
 }
 function nextActionHtml(){const a=roleNextAction();const action=a.label?`<button class="btn btn-primary" id="nextActionBtn">${esc(a.label)}</button>`:a.secondaryLabel?`<button class="btn btn-ghost next-secondary" id="nextActionBtn">${esc(a.secondaryLabel)}</button>`:'';return `<section class="next-action-card ${a.tone||''} ${a.kind||''}"><div class="next-kicker">${a.kind==='none'||a.kind==='waiting'||a.kind==='optional'?'現在の状況':'次にやること'}</div><h2>${esc(a.title)}</h2><p>${esc(a.sub)}</p>${action}</section>`;}
 function bindNextAction(){const b=$('nextActionBtn');if(!b)return;b.onclick=()=>{const a=roleNextAction();if(a.action==='new')return openForm();if(a.filter)bookFilter.status=a.filter;if(a.go)showScreen(a.go);};}
-function screenGuideHtml(id){const [t,d]=screenPlainGuide(id),r=roleSimpleGuide();const glossary=id==='settleScreen'?'<p class="plain-note"><b>精算とは：</b>立て替えたお金を自治会から支払う、または仮払金の残りを返す処理です。</p>':id==='auditScreen'?'<p class="plain-note"><b>監査とは：</b>帳簿の数字と伝票・領収書類・実際の残高が合っているかを確認する作業です。</p>':'';return `<details class="screen-guide" ${id==='homeScreen'?'open':''}><summary><span>この画面ですること</span><b>${esc(t)}</b></summary><div class="screen-guide-body"><p>${esc(d)}</p>${glossary}<div class="role-flow">${r.flow.map((x,i)=>`<span><i>${i+1}</i>${esc(x)}</span>`).join('<em>→</em>')}</div><p class="hint">あなたの役割：<b>${esc(r.title)}</b>　${esc(r.one)}</p></div></details>`;}
+function screenGuideHtml(id){const [t,d]=screenPlainGuide(id),r=roleSimpleGuide();const glossary=id==='settleScreen'?'<p class="plain-note"><b>精算とは：</b>立て替えたお金を自治会から支払う、または仮払金の残りを返す処理です。</p>':id==='auditScreen'?'<p class="plain-note"><b>監査とは：</b>帳簿の数字と伝票・領収書類・実際の残高が合っているかを確認する作業です。</p>':'';return `<details class="screen-guide" ${id==='homeScreen'?'open':''}><summary><span>この画面ですること</span><b>${esc(t)}</b></summary><div class="screen-guide-body"><p>${esc(d)}</p>${glossary}<p class="hint">あなたの役割：<b>${esc(r.title)}</b>　${esc(r.one)}</p></div></details>`;}
 function injectScreenGuide(id){const el=$(id);if(!el||['cashFeeScreen','batchScreen','budgetImportScreen','importScreen'].includes(id))return;el.querySelectorAll(':scope > .screen-guide').forEach(x=>x.remove());el.insertAdjacentHTML('afterbegin',screenGuideHtml(id));}
 
 function navItems(){
@@ -1836,7 +1836,8 @@ function buildNav(){
   showScreen(currentScreen);
 }
 const TITLES = { homeScreen:'ホーム', bookScreen:'出納帳', settleScreen:'精算', auditScreen:'監査', settingsScreen:'設定', adminScreen:'管理者', formScreen:'登録', cashFeeScreen:'現金会費', detailScreen:'伝票', batchScreen:'まとめて読み込み', budgetImportScreen:'予算の取り込み', importScreen:'データ取り込み' };
-function showScreen(id){
+let screenTransitionSeq=0;
+async function showScreen(id){
   // 監査画面は管理者・監査担当専用。会計の日常画面からは分離する。
   if(id==='auditScreen' && !isAdmin() && !isA()) id='homeScreen';
   const enteringBook = id==='bookScreen' && currentScreen!=='bookScreen';
@@ -1865,7 +1866,9 @@ function showScreen(id){
   $('fyBar').style.display = ['homeScreen','bookScreen','auditScreen'].includes(id) ? 'flex' : 'none';
   $('fabAdd').style.display = ((isT()||canOwnSubmit()) && ['homeScreen','bookScreen'].includes(id)) ? 'flex' : 'none';
   if (id!=='settleScreen') settleView = null;
-  renderCurrent();
+  const transitionSeq=++screenTransitionSeq;
+  await renderCurrent();
+  if(transitionSeq!==screenTransitionSeq || currentScreen!==id) return;
   if(target) target.classList.add('active');
   window.scrollTo(0,0);
 }
@@ -1879,9 +1882,9 @@ function renderAll(){
   $('fyLabel').textContent = `${curFY}年度`;
   $('fySub').textContent = fyRangeLabel(curFY);
   updateBadges();
-  renderCurrent();
+  renderCurrent().catch(e=>console.error('renderCurrent',e));
 }
-function renderCurrent(){
+async function renderCurrent(){
   applyUILayoutMode();
   if (!me || curFY===null) return;
   switch(currentScreen){
@@ -1890,7 +1893,7 @@ function renderCurrent(){
     case 'cashFeeScreen': renderCashFeeScreen(); break;
     case 'settleScreen': renderSettle(); break;
     case 'auditScreen': renderAudit(); break;
-    case 'adminScreen': renderAdmin(); break;
+    case 'adminScreen': await renderAdmin(); break;
     case 'settingsScreen': { const a=document.activeElement; const typing = a && $('settingsScreen').contains(a) && ['INPUT','TEXTAREA','SELECT'].includes(a.tagName) && a.type!=='checkbox'; if (!typing) renderSettings(); break; }
     case 'detailScreen': if (detailId) renderDetail(detailId); break;
   }
@@ -4023,7 +4026,8 @@ async function renderAdmin(){
     try{
       const showSrc=showScreen.toString(), cssAll=document.documentElement.innerHTML;
       add('画面遷移：旧画面即時非表示',showSrc.includes("setAttribute('aria-hidden','true')")&&showSrc.indexOf("setAttribute('aria-hidden','true')")<showSrc.indexOf('renderCurrent()')?'ok':'fail','新画面描画前に旧画面を完全非表示');
-      add('画面遷移：描画後に新画面表示',showSrc.indexOf('renderCurrent()')<showSrc.indexOf("target.classList.add('active')")?'ok':'fail','新画面の内容を描画してから表示');
+      add('画面遷移：描画完了後に新画面表示',showSrc.includes('await renderCurrent()')&&showSrc.indexOf('await renderCurrent()')<showSrc.indexOf("target.classList.add('active')")?'ok':'fail','非同期描画も完了してから新画面を表示');
+      add('画面遷移：古い非同期描画を破棄',showSrc.includes('screenTransitionSeq')?'ok':'fail','連続タップ時に古い画面を後から表示しない');
       add('画面遷移：残像アニメーションなし',!Array.from(document.styleSheets).some(ss=>{try{return Array.from(ss.cssRules||[]).some(r=>String(r.cssText||'').includes('fadeIn'))}catch(_){return false}})?'ok':'fail','全面画面のフェードを廃止');
     }catch(e){ add('画面遷移：残像防止','fail',e?.message||String(e)); }
 
@@ -4054,7 +4058,7 @@ async function renderAdmin(){
       const ni=navItems().map(x=>x[2]).join('／');
       add('役割別UI：画面目的ガイド',typeof screenPlainGuide==='function'&&typeof injectScreenGuide==='function'?'ok':'fail','主要画面に「この画面ですること」を表示');
       add('役割別UI：次にやること',typeof roleNextAction==='function'&&typeof nextActionHtml==='function'?'ok':'fail','ホームで役割と状態から次の操作を1つ提示');
-      add('役割別UI：3ステップ案内',roleSimpleGuide().flow.length===3?'ok':'fail','各役割の基本フローを3段階で表示');
+      add('役割別UI：①②③表示を廃止',!screenGuideHtml('homeScreen').includes('role-flow')?'ok':'fail','固定3ステップを表示せず「次にやること」へ一本化');
       add('役割別UI：タブ名称',ni.length>0?'ok':'fail',`現在の役割：${ni}`);
     }catch(e){ add('役割別UIガイド','fail',e?.message||String(e)); }
 
