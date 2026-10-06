@@ -577,6 +577,11 @@ label[for="newMSettle"]{display:flex;align-items:center;justify-content:flex-sta
 </style>
 </head>
 <body>
+<div id="uiTestRunningBanner" role="status" aria-live="polite">
+ <div class="ui-test-title">総合実画面テストを実行中</div>
+ <div class="ui-test-stage" id="uiTestRunningStage">開始しています…</div>
+ <div class="ui-test-note">自動で画面・役割が切り替わります。完了するまで操作しないでください。</div>
+</div>
 
 <!-- 初期設定が未完了のとき -->
 <div id="setupScreen" style="display:none;">
@@ -868,7 +873,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.07-145';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.07-146';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -3298,7 +3303,13 @@ function openPrint(title, body){
     .meta{display:grid; grid-template-columns:90px 1fr 90px 1fr; gap:3px 8px; font-size:12px;}
     .meta b{font-weight:normal; color:#666;}
     .noprint{margin-bottom:16px;} @media print{ .noprint{display:none;} body{margin:10mm;} }
-  </style></head><body><div class="noprint"><button onclick="window.print()">印刷する</button></div>${body}</body></html>`);
+  
+#uiTestRunningBanner{position:fixed;left:12px;right:12px;top:12px;z-index:99999;background:#fff7df;border:2px solid var(--stamp-red);border-radius:14px;padding:10px 14px;box-shadow:0 6px 20px rgba(0,0,0,.18);display:none}
+#uiTestRunningBanner.show{display:block}
+#uiTestRunningBanner .ui-test-title{font-weight:900;color:var(--stamp-red);font-size:16px}
+#uiTestRunningBanner .ui-test-stage{margin-top:3px;font-weight:700}
+#uiTestRunningBanner .ui-test-note{margin-top:2px;font-size:12px;opacity:.75}
+</style></head><body><div class="noprint"><button onclick="window.print()">印刷する</button></div>${body}</body></html>`);
   w.document.close();
 }
 
@@ -4220,6 +4231,7 @@ async function renderAdmin(){
       add('役割別UI：次にやること',typeof roleNextAction==='function'&&typeof nextActionHtml==='function'?'ok':'fail','ホームで役割と状態から次の操作を1つ提示');
       const nextSrc=roleNextAction.toString(), bindSrc=bindNextAction.toString();
       add('役割別UI：監査完了後の年度決算導線',nextSrc.includes('監査が完了しました。年度決算を確定してください')&&bindSrc.includes("a.action==='fiscalClose'")?'ok':'fail','監査完了後はホームから年度決算・切り替えへ案内');
+      add('総合テストUI：実行中表示',!!$('uiTestRunningBanner')?'ok':'fail','実行中は固定バナーで現在工程を表示');
       add('年度決算UI：専用画面',!!$('fiscalCloseScreen')&&renderFiscalCloseScreen.toString().includes('年度決算・年度切り替え')?'ok':'fail','会計設定と年度末業務を別画面化');
       add('画面遷移：伝票詳細の描画完了待ち',renderCurrent.toString().includes("await renderDetail(detailId)")?'ok':'fail','承認・監査ボタン描画前の競合を防止');
       add('年度決算UI：残高照合履歴の取得',!renderFiscalCloseScreen.toString().includes('latestBalanceCheck')?'ok':'fail','未定義関数を使用しない');
@@ -4321,10 +4333,13 @@ async function renderAdmin(){
     lastUiTestResultHtml='';
     lastUiTestSummary=null;
     out.innerHTML=`<div class="diag-summary warn"><span>総合実画面テスト<br><small>実行中</small></span><span class="diag-score">0/0</span></div><p class="hint">実行した項目をその場で集計します。前回結果は使用しません。</p>`;
-    const add=(n,s,d)=>rows.push([n,s,d]);
+    const banner=$('uiTestRunningBanner'), bannerStage=$('uiTestRunningStage');
+    banner?.classList.add('show');
     const sleep=ms=>new Promise(r=>setTimeout(r,ms));
     let uiTestStage='開始';
-    const markStage=name=>{uiTestStage=name;};
+    const updateBanner=()=>{if(bannerStage)bannerStage.textContent=`${uiTestStage}　確認済み ${rows.length}項目`;};
+    const add=(n,s,d)=>{rows.push([n,s,d]);updateBanner();};
+    const markStage=name=>{uiTestStage=name;updateBanner();};
     const waitFor=async(fn,ms=5000)=>{const end=Date.now()+ms;while(Date.now()<end){try{const v=fn();if(v)return v;}catch(_){}await sleep(80);}throw new Error(`「${uiTestStage}」で画面の応答がタイムアウトしました`);};
     const oldProfile=testProfile, oldMe=me, oldFY=curFY;
     let entryId=null, incomeEntryId=null, settlementEntryId=null, settlementId=null, testPayerId=null, testPayerExisted=false, publicTestFY=9998, publicTestCreated=false, yearTestCreated=false, transitionTestCreated=false;
@@ -4419,8 +4434,11 @@ async function renderAdmin(){
       // ---- 会計承認：支払者が実画面で作成したsubmitted伝票を、会計役割の実ボタンで承認 ----
       await showScreen('bookScreen');
       testProfile='treasurer'; applyEffectiveProfile();
-      markStage('会計承認画面'); await openDetail(entryId,e);
-      await waitFor(()=>$('detailScreen')?.classList.contains('active') && $('dApprove'),8000);
+      const approvalSnap=await R(`entries/${entryId}`).get(), approvalEntry=approvalSnap.val();
+      fyMap[entryId]={id:entryId,...approvalEntry};
+      detailId=entryId; detailFallback=fyMap[entryId]; detailReturnScreen='bookScreen';
+      markStage('会計承認画面'); await showScreen('detailScreen');
+      await waitFor(()=>$('detailScreen')?.classList.contains('active') && $('dApprove'),12000);
       add('会計承認画面を開く','ok','会計テスト役割で承認ボタンを表示');
       $('dApprove').click();
       await waitFor(async()=>{const x=await R(`entries/${entryId}/status`).get();return x.val()==='approved';},8000);
@@ -4432,8 +4450,10 @@ async function renderAdmin(){
       // ---- 監査：承認済み伝票を監査役割の実ボタンで「問題なし」にする ----
       await showScreen('bookScreen');
       testProfile='auditor'; applyEffectiveProfile();
-      markStage('監査画面'); await openDetail(entryId,approved);
-      await waitFor(()=>$('detailScreen')?.classList.contains('active') && $('aOk'),8000);
+      fyMap[entryId]={id:entryId,...approved};
+      detailId=entryId; detailFallback=fyMap[entryId]; detailReturnScreen='auditScreen';
+      markStage('監査画面'); await showScreen('detailScreen');
+      await waitFor(()=>$('detailScreen')?.classList.contains('active') && $('aOk'),12000);
       add('監査画面を開く','ok','監査テスト役割で監査ボタンを表示');
       $('aOk').click();
       await waitFor(async()=>{const x=await R(`entries/${entryId}/audit/result`).get();return x.val()==='ok';},8000);
@@ -4750,6 +4770,7 @@ async function renderAdmin(){
       }catch(e){add('テストセッション終了処理','fail',e?.message||String(e));}
       uiAutoTestContext=null; testProfile=oldProfile; me=oldMe; curFY=oldFY; applyEffectiveProfile();
       try{renderAll();}catch(_){}
+      banner?.classList.remove('show');
     }
     // v131: 総合実画面テスト自身で会計設定画面を本当に開いて確認する。
     try{
