@@ -866,7 +866,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.07-142';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.07-143';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1815,10 +1815,19 @@ function roleNextAction(){
   if(ret.length)return{kind:'waiting',tone:'navy',title:`申請者の修正待ちが ${ret.length}件あります`,sub:'差戻し済みです。申請者から再申請されるまで、会計担当者の操作は不要です。',secondaryLabel:'差戻し中の伝票を確認',go:'bookScreen',filter:'returned'};
   const ready=settlePeople().filter(p=>p.ready);
   if(ready.length)return{kind:'required',tone:'navy',title:`精算できる人が ${ready.length}人います`,sub:'承認済みの立替・仮払があります。支払額を確認して精算を記録してください。',label:'精算を処理',go:'settleScreen'};
+  if(auditReports[curFY] && !isFYClosed(curFY)){
+    const sum=fiscalYearClosingSummary(curFY);
+    if(!fiscalYearCanClose(curFY))return{kind:'waiting',tone:'navy',title:'監査は完了しています',sub:`会計年度の締め日（${fiscalYearEndDate(curFY)}）を過ぎると、年度決算を確定できます。`,secondaryLabel:'年度決算の準備を確認',action:'fiscalClose'};
+    if(sum.unresolved.length||sum.pendingSettlement.length||sum.pendingAdvances.length){
+      return{kind:'required',tone:'amber',title:'監査完了後の年度決算に未処理があります',sub:`未完了申請 ${sum.unresolved.length}件・未精算 ${sum.pendingSettlement.length}件・未精算仮払金 ${sum.pendingAdvances.length}件を解消すると決算確定できます。`,label:'年度決算の状態を確認',action:'fiscalClose'};
+    }
+    return{kind:'required',tone:'navy',title:'監査が完了しました。年度決算を確定してください',sub:`${curFY}年度の監査と未処理確認が完了しています。決算内容を確認し、次年度への繰越・年度更新を行います。`,label:'年度決算・切り替えへ',action:'fiscalClose'};
+  }
+  if(isFYClosed(curFY))return{kind:'none',tone:'moss',title:`${curFY}年度の決算は確定済みです`,sub:'この年度の通常の追加・修正・承認・監査はロックされています。次年度へ切り替えて運用してください。',secondaryLabel:'決算確定内容を確認',action:'fiscalClose'};
   return{kind:'none',tone:'moss',title:'現在、会計担当者が対応することはありません',sub:'新しい申請や精算対象が発生すると、ここに次の操作を表示します。',secondaryLabel:'必要なら伝票を確認',go:'bookScreen'};
 }
 function nextActionHtml(){const a=roleNextAction();const action=a.label?`<button class="btn btn-primary" id="nextActionBtn">${esc(a.label)}</button>`:a.secondaryLabel?`<button class="btn btn-ghost next-secondary" id="nextActionBtn">${esc(a.secondaryLabel)}</button>`:'';return `<section class="next-action-card ${a.tone||''} ${a.kind||''}"><div class="next-kicker">${a.kind==='none'||a.kind==='waiting'||a.kind==='optional'?'現在の状況':'次にやること'}</div><h2>${esc(a.title)}</h2><p>${esc(a.sub)}</p>${action}</section>`;}
-function bindNextAction(){const b=$('nextActionBtn');if(!b)return;b.onclick=()=>{const a=roleNextAction();if(a.action==='new')return openForm();if(a.filter)bookFilter.status=a.filter;if(a.go)showScreen(a.go);};}
+function bindNextAction(){const b=$('nextActionBtn');if(!b)return;b.onclick=async()=>{const a=roleNextAction();if(a.action==='new')return openForm();if(a.action==='fiscalClose'){await showScreen('settingsScreen');setTimeout(()=>{document.querySelector('[data-settings-open="money"]')?.click();setTimeout(()=>$('fySwitchPreview')?.click(),80);},80);return;}if(a.filter)bookFilter.status=a.filter;if(a.go)showScreen(a.go);};}
 function screenGuideHtml(id){const [t,d]=screenPlainGuide(id),r=roleSimpleGuide();const glossary=id==='settleScreen'?'<p class="plain-note"><b>精算とは：</b>立て替えたお金を自治会から支払う、または仮払金の残りを返す処理です。</p>':id==='auditScreen'?'<p class="plain-note"><b>監査とは：</b>帳簿の数字と伝票・領収書類・実際の残高が合っているかを確認する作業です。</p>':'';return `<details class="screen-guide" ${id==='homeScreen'?'open':''}><summary><span>この画面ですること</span><b>${esc(t)}</b></summary><div class="screen-guide-body"><p>${esc(d)}</p>${glossary}<p class="hint">あなたの役割：<b>${esc(r.title)}</b>　${esc(r.one)}</p></div></details>`;}
 function injectScreenGuide(id){const el=$(id);if(!el||['cashFeeScreen','batchScreen','budgetImportScreen','importScreen'].includes(id))return;el.querySelectorAll(':scope > .screen-guide').forEach(x=>x.remove());el.insertAdjacentHTML('afterbegin',screenGuideHtml(id));}
 
@@ -4206,6 +4215,8 @@ async function renderAdmin(){
       const ni=navItems().map(x=>x[2]).join('／');
       add('役割別UI：画面目的ガイド',typeof screenPlainGuide==='function'&&typeof injectScreenGuide==='function'?'ok':'fail','主要画面に「この画面ですること」を表示');
       add('役割別UI：次にやること',typeof roleNextAction==='function'&&typeof nextActionHtml==='function'?'ok':'fail','ホームで役割と状態から次の操作を1つ提示');
+      const nextSrc=roleNextAction.toString(), bindSrc=bindNextAction.toString();
+      add('役割別UI：監査完了後の年度決算導線',nextSrc.includes('監査が完了しました。年度決算を確定してください')&&bindSrc.includes("a.action==='fiscalClose'")?'ok':'fail','監査完了後はホームから年度決算・切り替えへ案内');
       add('役割別UI：①②③表示を廃止',!screenGuideHtml('homeScreen').includes('role-flow')?'ok':'fail','固定3ステップを表示せず「次にやること」へ一本化');
       add('役割別UI：タブ名称',ni.length>0?'ok':'fail',`現在の役割：${ni}`);
     }catch(e){ add('役割別UIガイド','fail',e?.message||String(e)); }
@@ -4756,6 +4767,8 @@ async function renderAdmin(){
           if(!bankEl||!cashEl||!saveEl)throw new Error('現預金残高照合の入力・保存部品がありません');
           if(saveEl.disabled)throw new Error('診断専用年度で残高照合ボタンが無効です');
           bankEl.value='1000'; bankEl.dispatchEvent(new Event('input',{bubbles:true}));
+          const partialText=$('reconPreview')?.textContent||'';
+          add('実画面：現預金照合の暫定差額',partialText.includes('暫定差額')&&partialText.includes('現金は未入力')?'ok':'fail',partialText||'暫定差額が表示されません');
           cashEl.value='0'; cashEl.dispatchEvent(new Event('input',{bubbles:true}));
           if(memoEl)memoEl.value=`総合実画面テスト ${runId}`;
           const before=(await R(`settings/balanceChecks/${reconTestFY}`).get()).val()||{};
@@ -5623,7 +5636,8 @@ function bindSettings(){
   };
   const updateReconPreview = () => {
     const bank=$('reconBank'), cash=$('reconCash'), out=$('reconPreview'); if(!bank||!cash||!out) return;
-    if(bank.value==='' || cash.value===''){ out.classList.remove('ng'); out.innerHTML='<span>実残高合計との差額</span><b>金額を入力してください</b>'; return; }
+    const bankMissing=bank.value==='', cashMissing=cash.value==='';
+    if(bankMissing && cashMissing){ out.classList.remove('ng'); out.innerHTML='<span>実残高合計との差額</span><b>銀行口座または現金を入力してください</b>'; return; }
     const opening=Number((settings.opening||{})[curFY])||0;
     const inc=approvedFY().filter(e=>e.type==='income').reduce((n,e)=>n+(Number(e.amount)||0),0);
     const exp=approvedFY().filter(e=>e.type==='expense').reduce((n,e)=>n+(Number(e.amount)||0),0);
@@ -5633,8 +5647,9 @@ function bindSettings(){
     const adv=advances.filter(a=>a.settleState==='pending').reduce((n,a)=>n+(Number(a.amount)||0),0);
     const actual=Math.round(Number(bank.value)||0)+Math.round(Number(cash.value)||0)+adv;
     const diff=actual-physicalBook;
+    const missing=[bankMissing?'銀行口座':'',cashMissing?'現金':''].filter(Boolean).join('・');
     out.classList.toggle('ng',diff!==0);
-    out.innerHTML=`<span>実残高合計 ${yen(actual)}</span><b>${diff===0?'✓ 一致':'差額 '+yen(diff)}</b>`;
+    out.innerHTML=`<span>${missing?`現在の入力合計 ${yen(actual)}（${missing}は未入力）`:`実残高合計 ${yen(actual)}`}</span><b>${missing?'暫定差額 ':'差額 '}${yen(diff)}${!missing&&diff===0?' ✓ 一致':''}</b>`;
   };
   if($('reconBank')) $('reconBank').oninput=updateReconPreview;
   if($('reconCash')) $('reconCash').oninput=updateReconPreview;
