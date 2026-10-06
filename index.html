@@ -866,7 +866,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.06-131';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.06-132';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1058,10 +1058,12 @@ function fiscalYearClosingSummary(fy,list=Object.values(fyMap||{})){
   const approved=list.filter(e=>Number(e.fy)===Number(fy)&&e.status==='approved');
   const unresolved=list.filter(e=>Number(e.fy)===Number(fy)&&e.status!=='approved'&&e.status!=='rejected');
   const pendingSettlement=approved.filter(e=>e.settleState==='pending');
+  const pendingAdvances=advances.filter(a=>a.settleState==='pending'&&a.date&&Number(fyOf(a.date))===Number(fy));
+  const pendingAdvanceAmount=pendingAdvances.reduce((n,a)=>n+(Number(a.amount)||0),0);
   const opening=Number((settings.opening||{})[fy])||0;
   const income=approved.filter(e=>e.type==='income').reduce((n,e)=>n+(Number(e.amount)||0),0);
   const expense=approved.filter(e=>e.type==='expense').reduce((n,e)=>n+(Number(e.amount)||0),0);
-  return {fy,approved,unresolved,pendingSettlement,opening,income,expense,closing:opening+income-expense};
+  return {fy,approved,unresolved,pendingSettlement,pendingAdvances,pendingAdvanceAmount,opening,income,expense,closing:opening+income-expense};
 }
 function nextYearBudgetPreview(fromFY,toFY){
   return accounts.map(a=>({id:a.id,name:a.name,type:a.type,active:a.active!==false,from:Number((a.budget||{})[fromFY])||0,to:Number((a.budget||{})[toFY])||0}));
@@ -4463,6 +4465,21 @@ async function renderAdmin(){
       const pubGone=await R(`public/${publicTestFY}`).get();
       add('会員向け報告の非公開・撤去',!pubGone.exists()?'ok':'fail','診断公開データを撤去');
 
+      // ---- 年度締め：未精算仮払金ガード ----
+      {
+        const guardFY=curFY;
+        const guardDate=fiscalYearStartDate(guardFY);
+        const originalAdvances=advances;
+        const testAdvance={id:'__diag_pending_advance__',date:guardDate,amount:12345,settleState:'pending',payerId:'__diag__',testMode:true,diagnosticRunId:runId};
+        advances=[...originalAdvances,testAdvance];
+        const blocked=fiscalYearClosingSummary(guardFY);
+        add('年度確定：未精算仮払金を検出',blocked.pendingAdvances.some(a=>a.id===testAdvance.id)&&blocked.pendingAdvanceAmount>=12345?'ok':'fail',`診断用仮払 ${yen(12345)} を未精算として検出`);
+        add('年度確定：仮払残高ありをブロック条件化',blocked.pendingAdvances.length>0?'ok':'fail',`${blocked.pendingAdvances.length}件・${yen(blocked.pendingAdvanceAmount)}`);
+        advances=originalAdvances;
+        const cleared=fiscalYearClosingSummary(guardFY);
+        add('年度確定：仮払精算後は診断用残高を解除',!cleared.pendingAdvances.some(a=>a.id===testAdvance.id)?'ok':'fail','診断用仮払を除去後に再判定');
+      }
+
       // ---- 年度処理：匿名統計→年度確定→削除ゲートの成立を診断専用年度で確認 ----
       const yearList=[
         {fy:publicTestFY,status:'approved',type:'income',amount:500,aiReceiptOriginal:null,aiReceiptChangedFields:[]},
@@ -4920,6 +4937,7 @@ function renderSettings(){
       <div class="total-check"><span>${curFY}年度 承認済み</span><b>${fySummary.approved.length}件</b></div>
       <div class="total-check"><span>未完了の申請</span><b style="color:${fySummary.unresolved.length?'var(--stamp-red)':'var(--moss)'}">${fySummary.unresolved.length}件</b></div>
       <div class="total-check"><span>未精算</span><b style="color:${fySummary.pendingSettlement.length?'var(--stamp-red)':'var(--moss)'}">${fySummary.pendingSettlement.length}件</b></div>
+      <div class="total-check"><span>未精算仮払金</span><b style="color:${fySummary.pendingAdvances.length?'var(--stamp-red)':'var(--moss)'}">${fySummary.pendingAdvances.length}件・${yen(fySummary.pendingAdvanceAmount)}</b></div>
       <div class="total-check"><span>年度末残高（次年度繰越候補）</span><b>${yen(fySummary.closing)}</b></div>
       <div class="total-check"><span>${nextFY}年度 前年度繰越金</span><b>${Number.isFinite(nextOpening)?yen(nextOpening):'未設定'}</b></div>
       <div class="total-check"><span>${nextFY}年度 予算</span><b>${nextBudgetCount?`${nextBudgetCount}科目設定済`:'未設定'}</b></div>
@@ -5376,14 +5394,15 @@ function bindSettings(){
     const fromFY=curFY,toFY=curFY+1, sum=fiscalYearClosingSummary(fromFY), bp=nextYearBudgetPreview(fromFY,toFY);
     const box=$('fySwitchBox');
     const hasAudit=!!auditReports[fromFY], dateOk=fiscalYearCanClose(fromFY), alreadyClosed=isFYClosed(fromFY);
-    const blockers=sum.unresolved.length+sum.pendingSettlement.length+(hasAudit?0:1)+(dateOk?0:1);
+    const blockers=sum.unresolved.length+sum.pendingSettlement.length+sum.pendingAdvances.length+(hasAudit?0:1)+(dateOk?0:1);
     box.innerHTML=`<div class="audit-box">
       <div style="font-weight:800;margin-bottom:8px">${fromFY}年度 → ${toFY}年度</div>
       <div class="total-check"><span>締め日</span><b>${fiscalYearEndDate(fromFY)} ${dateOk?'✓ 経過':'（まだ確定不可）'}</b></div>
       <div class="total-check"><span>監査</span><b>${hasAudit?'✓ 完了':'未完了'}</b></div>
       <div class="total-check"><span>未完了申請</span><b>${sum.unresolved.length}件</b></div>
       <div class="total-check"><span>未精算</span><b>${sum.pendingSettlement.length}件</b></div>
-      ${alreadyClosed?`<div class="notice ok"><b>決算確定済み</b><br>${fromFY}年度はロックされています。</div>`:(blockers?`<div class="notice warn"><b>まだ決算確定できません</b><br>締め日経過・監査完了・未完了申請0件・未精算0件のすべてが必要です。</div>`:`<div class="notice ok"><b>決算確定できます</b><br>確定すると${fromFY}年度の通常の追加・修正・承認・監査をロックします。</div>`)}
+      <div class="total-check"><span>未精算仮払金</span><b style="color:${sum.pendingAdvances.length?'var(--stamp-red)':'var(--moss)'}">${sum.pendingAdvances.length}件・${yen(sum.pendingAdvanceAmount)}</b></div>
+      ${alreadyClosed?`<div class="notice ok"><b>決算確定済み</b><br>${fromFY}年度はロックされています。</div>`:(blockers?`<div class="notice warn"><b>まだ決算確定できません</b><br>締め日経過・監査完了・未完了申請0件・未精算0件・未精算仮払金0件のすべてが必要です。</div>`:`<div class="notice ok"><b>決算確定できます</b><br>確定すると${fromFY}年度の通常の追加・修正・承認・監査をロックします。</div>`)}
       <div class="total-check"><span>年度末残高</span><b>${yen(sum.closing)}</b></div>
       <label class="check-line" style="margin-top:10px"><input type="checkbox" id="fyCarryOpening" checked> ${toFY}年度の前年度繰越金に ${yen(sum.closing)} を設定</label>
       <label class="check-line"><input type="checkbox" id="fyCarryBudget" checked> ${fromFY}年度の予算額を${toFY}年度の予算案として引き継ぐ</label>
@@ -5406,6 +5425,7 @@ function bindSettings(){
       if(!fiscalYearCanClose(fromFY))return showToast(`会計年度の締め日（${fiscalYearEndDate(fromFY)}）を過ぎるまで決算確定できません`);
       if(!auditReports[fromFY])return showToast('監査完了後に決算確定してください');
       if(fresh.unresolved.length||fresh.pendingSettlement.length)return showToast('未完了の申請または未精算があるため確定できません');
+      if(fresh.pendingAdvances.length)return showToast(`未精算の仮払金が ${fresh.pendingAdvances.length}件（${yen(fresh.pendingAdvanceAmount)}）あるため決算確定できません`);
       if(isFYClosed(fromFY))return showToast(`${fromFY}年度はすでに決算確定済みです`);
       const ups={};
       if(carryOpening)ups[`settings/opening/${toFY}`]=fresh.closing;
@@ -5413,7 +5433,7 @@ function bindSettings(){
       const key=`${fromFY}-${toFY}`;
       ups[`settings/fiscalTransitions/${key}`]={fromFY,toFY,preparedAt:TS(),preparedBy:me.uid,preparedByName:me.name||'',openingCarried:carryOpening,budgetCarried:carryBudget,closingBalance:fresh.closing,appVersion:APP_VERSION,fiscalEndDate:fiscalYearEndDate(fromFY)};
       const sig=statsSignatureFromList(fromFY,Object.values(fyMap||{}));
-      ups[`yearClosures/${fromFY}`]={fy:fromFY,closedAt:TS(),closedBy:me.uid,closedByName:me.name||'',sourceVersion:APP_VERSION,fiscalStartMonth:startMonth(),fiscalEndDate:fiscalYearEndDate(fromFY),auditAt:auditReports[fromFY]?.at||null,closingBalance:fresh.closing,...sig};
+      ups[`yearClosures/${fromFY}`]={fy:fromFY,closedAt:TS(),closedBy:me.uid,closedByName:me.name||'',sourceVersion:APP_VERSION,fiscalStartMonth:startMonth(),fiscalEndDate:fiscalYearEndDate(fromFY),auditAt:auditReports[fromFY]?.at||null,closingBalance:fresh.closing,pendingAdvanceCountAtClose:fresh.pendingAdvances.length,pendingAdvanceAmountAtClose:fresh.pendingAdvanceAmount,...sig};
       await db.ref(ROOT).update(ups);
       writeLog('年度決算確定・切り替え',null,`${fromFY}年度（${fiscalYearEndDate(fromFY)}締め）→${toFY}年度／繰越 ${carryOpening?'あり':'なし'}／予算引継 ${carryBudget?'あり':'なし'}`);
       showToast(`${fromFY}年度の決算を確定し、${toFY}年度への切り替えを準備しました`);
