@@ -59,10 +59,9 @@ a{color:inherit;}
 .icon-btn{background:none; border:none; color:var(--ink-soft); font-size:19px; padding:4px;}
 
 main{max-width:600px; margin:0 auto; padding:14px 14px 24px;}
-.screen{display:none;}
-.screen.active{display:block; animation:fadeIn .22s ease;}
-@keyframes fadeIn{from{opacity:0; transform:translateY(4px);} to{opacity:1; transform:none;}}
-@media (prefers-reduced-motion: reduce){ .screen.active{animation:none;} }
+.screen{display:none!important;}
+.screen.active{display:block!important;}
+/* v127: 画面切替時は旧画面を即時消去。全面画面にはフェードを使わない */
 
 /* 年度バー */
 .fy-nav{display:flex; align-items:center; justify-content:center; gap:14px; margin:0 auto 12px; max-width:600px;}
@@ -563,6 +562,11 @@ body.ui-mobile .bottom-nav{display:flex}
   }
 }
 
+
+/* v127: 画面切替の残像防止 */
+.screen[aria-hidden="true"]{display:none!important;visibility:hidden!important}
+.screen[aria-hidden="false"].active{visibility:visible}
+
 </style>
 <style>
 #newMSettle{width:24px;height:24px;flex:0 0 auto;margin:0 12px 0 0;vertical-align:middle}
@@ -859,7 +863,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.06-126';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.06-127';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1837,10 +1841,20 @@ function showScreen(id){
   if(id==='auditScreen' && !isAdmin() && !isA()) id='homeScreen';
   const enteringBook = id==='bookScreen' && currentScreen!=='bookScreen';
   if (enteringBook) bookFilter.status = actionableBookStatus();
+  const previousScreen=currentScreen;
+  // 旧画面を先に完全に非表示にしてから、新画面を描画する。
+  // 設定→管理など描画量の多い画面でも前画面が一瞬残らない。
+  document.querySelectorAll('.screen').forEach(el=>{
+    el.classList.remove('active');
+    el.setAttribute('aria-hidden','true');
+  });
   currentScreen = id;
   document.body.classList.toggle('audit-detail-mode', id==='detailScreen' && detailReturnScreen==='auditScreen');
-  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
-  $(id).classList.add('active');
+  const target=$(id);
+  if(target){
+    target.querySelectorAll(':scope > .screen-guide').forEach(x=>x.remove());
+    target.setAttribute('aria-hidden','false');
+  }
   const navActiveScreen = id==='detailScreen' ? detailReturnScreen : (id==='formScreen' ? (detailReturnScreen==='auditScreen'?'auditScreen':'bookScreen') : id);
   document.querySelectorAll('.nav-btn').forEach(b=>{
     const active=b.dataset.screen===navActiveScreen;
@@ -1852,6 +1866,7 @@ function showScreen(id){
   $('fabAdd').style.display = ((isT()||canOwnSubmit()) && ['homeScreen','bookScreen'].includes(id)) ? 'flex' : 'none';
   if (id!=='settleScreen') settleView = null;
   renderCurrent();
+  if(target) target.classList.add('active');
   window.scrollTo(0,0);
 }
 function renderAll(){
@@ -4006,6 +4021,13 @@ async function renderAdmin(){
     }catch(e){ add('自動試験ログの分離','fail',e?.message||String(e)); }
 
     try{
+      const showSrc=showScreen.toString(), cssAll=document.documentElement.innerHTML;
+      add('画面遷移：旧画面即時非表示',showSrc.includes("setAttribute('aria-hidden','true')")&&showSrc.indexOf("setAttribute('aria-hidden','true')")<showSrc.indexOf('renderCurrent()')?'ok':'fail','新画面描画前に旧画面を完全非表示');
+      add('画面遷移：描画後に新画面表示',showSrc.indexOf('renderCurrent()')<showSrc.indexOf("target.classList.add('active')")?'ok':'fail','新画面の内容を描画してから表示');
+      add('画面遷移：残像アニメーションなし',!Array.from(document.styleSheets).some(ss=>{try{return Array.from(ss.cssRules||[]).some(r=>String(r.cssText||'').includes('fadeIn'))}catch(_){return false}})?'ok':'fail','全面画面のフェードを廃止');
+    }catch(e){ add('画面遷移：残像防止','fail',e?.message||String(e)); }
+
+    try{
       const cssText=document.documentElement.innerHTML;
       add('PC UI：下部タブ全幅',cssText.includes('width:100vw!important')&&cssText.includes('max-width:none!important')?'ok':'fail','PC版の下部タブをブラウザ幅いっぱいに表示');
     }catch(e){ add('PC UI：下部タブ全幅','fail',e?.message||String(e)); }
@@ -4537,6 +4559,7 @@ async function renderAdmin(){
     const categoryOf=(name)=>{
       if(/現預金照合|期首繰越/.test(name))return '年度処理';
       if(/監査明細|監査：|監査画面UI/.test(name))return '監査';
+      if(/画面遷移/.test(name))return '保存・遷移';
       if(/分かりやすさ/.test(name))return '保存・遷移';
       if(/端末別UI|PC UI|スマホUI|監査PC UI/.test(name))return '保存・遷移';
       if(/役割別UI/.test(name))return '保存・遷移';
