@@ -866,7 +866,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.06-137';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.06-138';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -4444,8 +4444,17 @@ async function renderAdmin(){
       add('AI原判定の保持',!!aiCheck?.aiReceiptOriginal?'ok':'fail','AI読取時点の値を保持');
       add('AI修正項目の記録',Array.isArray(aiCheck?.aiReceiptChangedFields)&&aiCheck.aiReceiptChangedFields.length===3?'ok':'fail',`${aiCheck?.aiReceiptChangedFields?.length||0}項目`);
       add('AI修正履歴の保存',aiCheck?.aiReceiptEditHistory&&Object.keys(aiCheck.aiReceiptEditHistory).length?'ok':'fail','原判定→修正後を構造化保存');
-      testProfile='auditor'; applyEffectiveProfile(); renderAll(); openDetail(entryId); markStage('AI差分監査詳細画面'); await waitFor(()=>$('detailScreen')?.classList.contains('active'),5000);
-      add('AI差分の監査表示',$('detailScreen').textContent.includes('AIレシート読取の確認')&&$('detailScreen').textContent.includes('AI読取後の修正')?'ok':'fail','監査詳細画面で差分を表示');
+      // Firebaseへ直接updateしたAI差分は、attachDataのonValue反映より先に次の画面確認へ進むことがある。
+      // ここでは診断で取得済みの最新値をfyMapへ即時反映し、renderAll/openDetailの二重非同期遷移も避ける。
+      fyMap[entryId]={id:entryId,...aiCheck};
+      testProfile='auditor'; applyEffectiveProfile();
+      detailId=entryId; detailFallback=fyMap[entryId]; detailReturnScreen='auditScreen';
+      markStage('AI差分監査詳細画面');
+      await showScreen('detailScreen');
+      await waitFor(()=>$('detailScreen')?.classList.contains('active')
+        && $('detailScreen')?.textContent.includes('AIレシート読取の確認')
+        && $('detailScreen')?.textContent.includes('AI読取後の修正'),5000);
+      add('AI差分の監査表示','ok','監査詳細画面で差分を表示');
 
       // ---- 精算：監査済み伝票とは分離した専用診断伝票を作り、会計の精算画面から実ボタンで記録 ----
       // 監査済み伝票を書き換えると auditStale / Rules の整合性に影響するため、精算専用伝票を使用する。
