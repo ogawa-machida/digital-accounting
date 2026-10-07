@@ -880,7 +880,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.07-153';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.07-154';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -4458,38 +4458,7 @@ async function renderAdmin(){
       if(e.diagnosticRunId!==runId||!e.testMode)throw new Error('診断専用フラグが保存されていません');
       add('診断データ分離','ok','testMode・diagnosticRunIdを確認');
 
-      // ---- 会計承認：支払者が実画面で作成したsubmitted伝票を、会計役割の実ボタンで承認 ----
-      await showScreen('bookScreen');
-      testProfile='treasurer'; applyEffectiveProfile();
-      const approvalSnap=await R(`entries/${entryId}`).get(), approvalEntry=approvalSnap.val();
-      fyMap[entryId]={id:entryId,...approvalEntry};
-      detailId=entryId; detailFallback=fyMap[entryId]; detailReturnScreen='bookScreen';
-      markStage('会計承認画面'); await showScreen('detailScreen');
-      await waitFor(()=>$('detailScreen')?.classList.contains('active') && $('dApprove'),12000);
-      add('会計承認画面を開く','ok','会計テスト役割で承認ボタンを表示');
-      $('dApprove').click();
-      await waitFor(async()=>{const x=await R(`entries/${entryId}/status`).get();return x.val()==='approved';},8000);
-      const approvedSnap=await R(`entries/${entryId}`).get(), approved=approvedSnap.val();
-      add('会計承認ボタン','ok','実ボタンのclickイベントで承認');
-      add('承認状態→Firebase',approved?.status==='approved'?'ok':'fail',approved?.status||'取得不可');
-      add('承認者記録',!!approved?.approvedByName?'ok':'fail',approved?.approvedByName||'未記録');
-
-      // ---- 監査：承認済み伝票を監査役割の実ボタンで「問題なし」にする ----
-      await showScreen('bookScreen');
-      testProfile='auditor'; applyEffectiveProfile();
-      fyMap[entryId]={id:entryId,...approved};
-      detailId=entryId; detailFallback=fyMap[entryId]; detailReturnScreen='auditScreen';
-      markStage('監査画面'); await showScreen('detailScreen');
-      await waitFor(()=>$('detailScreen')?.classList.contains('active') && $('aOk'),12000);
-      add('監査画面を開く','ok','監査テスト役割で監査ボタンを表示');
-      $('aOk').click();
-      await waitFor(async()=>{const x=await R(`entries/${entryId}/audit/result`).get();return x.val()==='ok';},8000);
-      const auditSnap=await R(`entries/${entryId}/audit`).get(), audit=auditSnap.val();
-      add('監査「問題なし」ボタン','ok','実ボタンのclickイベントで監査');
-      add('監査結果→Firebase',audit?.result==='ok'?'ok':'fail',audit?.result||'取得不可');
-      add('監査者記録',!!audit?.byName?'ok':'fail',audit?.byName||'未記録');
-
-      // ---- AI読取後修正履歴：外部APIは呼ばず、AI読取結果を診断データとして再現 ----
+      // ---- AI読取後修正履歴：承認・監査前の実運用順序で記録 ----
       // 外部Claude APIの疎通は通知・AI診断で別確認し、ここではアプリ内の差分・履歴ロジックを検証する。
       const aiBase={
         date:approved.date||localDate(), amount:320, payee:'AI読取テスト店',
@@ -4513,6 +4482,24 @@ async function renderAdmin(){
       add('AI原判定の保持',!!aiCheck?.aiReceiptOriginal?'ok':'fail','AI読取時点の値を保持');
       add('AI修正項目の記録',Array.isArray(aiCheck?.aiReceiptChangedFields)&&aiCheck.aiReceiptChangedFields.length===3?'ok':'fail',`${aiCheck?.aiReceiptChangedFields?.length||0}項目`);
       add('AI修正履歴の保存',aiCheck?.aiReceiptEditHistory&&Object.keys(aiCheck.aiReceiptEditHistory).length?'ok':'fail','原判定→修正後を構造化保存');
+
+      // ---- 会計承認：支払者が実画面で作成したsubmitted伝票を、会計役割の実ボタンで承認 ----
+      await showScreen('bookScreen');
+      testProfile='treasurer'; applyEffectiveProfile();
+      const approvalSnap=await R(`entries/${entryId}`).get(), approvalEntry=approvalSnap.val();
+      fyMap[entryId]={id:entryId,...approvalEntry};
+      detailId=entryId; detailFallback=fyMap[entryId]; detailReturnScreen='bookScreen';
+      markStage('会計承認画面'); await showScreen('detailScreen');
+      await waitFor(()=>$('detailScreen')?.classList.contains('active') && $('dApprove'),12000);
+      add('会計承認画面を開く','ok','会計テスト役割で承認ボタンを表示');
+      $('dApprove').click();
+      await waitFor(async()=>{const x=await R(`entries/${entryId}/status`).get();return x.val()==='approved';},8000);
+      const approvedSnap=await R(`entries/${entryId}`).get(), approved=approvedSnap.val();
+      add('会計承認ボタン','ok','実ボタンのclickイベントで承認');
+      add('承認状態→Firebase',approved?.status==='approved'?'ok':'fail',approved?.status||'取得不可');
+      add('承認者記録',!!approved?.approvedByName?'ok':'fail',approved?.approvedByName||'未記録');
+
+      // AI差分は承認後・監査前に監査画面で確認する。監査完了後の伝票を書き換えない。
       // Firebaseへ直接updateしたAI差分は、attachDataのonValue反映より先に次の画面確認へ進むことがある。
       // ここでは診断で取得済みの最新値をfyMapへ即時反映し、renderAll/openDetailの二重非同期遷移も避ける。
       fyMap[entryId]={id:entryId,...aiCheck};
@@ -4524,6 +4511,22 @@ async function renderAdmin(){
         && $('detailScreen')?.textContent.includes('AIレシート読取の確認')
         && $('detailScreen')?.textContent.includes('AI読取後の修正'),5000);
       add('AI差分の監査表示','ok','監査詳細画面で差分を表示');
+
+
+      // ---- 監査：承認済み伝票を監査役割の実ボタンで「問題なし」にする ----
+      await showScreen('bookScreen');
+      testProfile='auditor'; applyEffectiveProfile();
+      fyMap[entryId]={id:entryId,...approved};
+      detailId=entryId; detailFallback=fyMap[entryId]; detailReturnScreen='auditScreen';
+      markStage('監査画面'); await showScreen('detailScreen');
+      await waitFor(()=>$('detailScreen')?.classList.contains('active') && $('aOk'),12000);
+      add('監査画面を開く','ok','監査テスト役割で監査ボタンを表示');
+      $('aOk').click();
+      await waitFor(async()=>{const x=await R(`entries/${entryId}/audit/result`).get();return x.val()==='ok';},8000);
+      const auditSnap=await R(`entries/${entryId}/audit`).get(), audit=auditSnap.val();
+      add('監査「問題なし」ボタン','ok','実ボタンのclickイベントで監査');
+      add('監査結果→Firebase',audit?.result==='ok'?'ok':'fail',audit?.result||'取得不可');
+      add('監査者記録',!!audit?.byName?'ok':'fail',audit?.byName||'未記録');
 
       // ---- 精算：監査済み伝票とは分離した専用診断伝票を作り、会計の精算画面から実ボタンで記録 ----
       // 監査済み伝票を書き換えると auditStale / Rules の整合性に影響するため、精算専用伝票を使用する。
@@ -4822,6 +4825,8 @@ async function renderAdmin(){
       add('実画面：会計設定から年度決算へ進める',!!fiscalMenuBtn?'ok':'fail',fiscalMenuBtn?'年度決算・年度切り替えの常設導線を確認':'会計設定に年度決算の導線がない');
       const fiscalReadonly=/alreadyClosed\?`<div class=\"audit-box\">/.test(bindFiscalClose.toString()) && bindFiscalClose.toString().includes('再度の年度切り替え操作は行いません');
       add('年度決算UI：確定後は再実行させない',fiscalReadonly?'ok':'fail','確定済み年度は内容確認のみ表示');
+      const aiOrderOk=runUIScreenTest.toString().indexOf('AI読取後修正履歴：承認・監査前') < runUIScreenTest.toString().indexOf('監査：承認済み伝票');
+      add('総合テスト：AI差分は監査完了前に記録',aiOrderOk?'ok':'fail','監査済み伝票を書き換えない順序を確認');
       add('実画面：①②③固定フローなし',noStepFlow?'ok':'fail','固定3ステップ表示を廃止');
 
       // 現預金残高照合を、診断専用年度で実際のボタン押下まで確認する。
@@ -5684,15 +5689,30 @@ function bindFiscalClose(){
       ups[`settings/fiscalTransitions/${key}`]={fromFY,toFY,preparedAt:TS(),preparedBy:me.uid,preparedByName:me.name||'',openingCarried:carryOpening,budgetCarried:carryBudget,closingBalance:fresh.closing,appVersion:APP_VERSION,fiscalEndDate:fiscalYearEndDate(fromFY)};
       const sig=statsSignatureFromList(fromFY,Object.values(fyMap||{}));
       ups[`yearClosures/${fromFY}`]={fy:fromFY,closedAt:TS(),closedBy:me.uid,closedByName:me.name||'',sourceVersion:APP_VERSION,fiscalStartMonth:startMonth(),fiscalEndDate:fiscalYearEndDate(fromFY),auditAt:auditReports[fromFY]?.at||null,closingBalance:fresh.closing,pendingAdvanceCountAtClose:fresh.pendingAdvances.length,pendingAdvanceAmountAtClose:fresh.pendingAdvanceAmount,...sig};
-      await db.ref(ROOT).update(ups);
+      try{
+        await db.ref(ROOT).update(ups);
+      }catch(err){
+        console.error('年度決算確定・切り替え保存エラー',err);
+        showToast(`年度切り替えを保存できませんでした：${err?.message||String(err)}`);
+        return;
+      }
       // Firebase の購読反映を待たず、画面側も直ちに「切り替え済み」に同期する。
       settings.fiscalTransitions = settings.fiscalTransitions || {};
       settings.fiscalTransitions[key] = ups[`settings/fiscalTransitions/${key}`];
+      settings.opening = settings.opening || {};
+      if(carryOpening) settings.opening[toFY]=fresh.closing;
+      if(carryBudget) accounts.forEach(a=>{a.budget=a.budget||{};a.budget[toFY]=Number((a.budget||{})[fromFY])||0;});
       yearClosures[fromFY] = ups[`yearClosures/${fromFY}`];
-      writeLog('年度決算確定・切り替え',null,`${fromFY}年度（${fiscalYearEndDate(fromFY)}締め）→${toFY}年度／繰越 ${carryOpening?'あり':'なし'}／予算引継 ${carryBudget?'あり':'なし'}`);
+      try{await writeLog('年度決算確定・切り替え',null,`${fromFY}年度（${fiscalYearEndDate(fromFY)}締め）→${toFY}年度／繰越 ${carryOpening?'あり':'なし'}／予算引継 ${carryBudget?'あり':'なし'}`);}catch(_){ }
 
-      // 「OKを押したのに同じ年度切り替え画面へ戻る」状態をなくす。
-      // 完了後は次年度を選択し、その年度のホームへ移動する。
+      // 保存成功をFirebaseから再確認してから、次年度ホームへ進む。
+      try{
+        const verify=await R(`yearClosures/${fromFY}`).get();
+        if(!verify.exists()) throw new Error('決算確定データの再読込に失敗しました');
+      }catch(err){
+        showToast(`年度切り替えの保存確認に失敗しました：${err?.message||String(err)}`);
+        return;
+      }
       curFY = toFY;
       subscribeFY();
       await showScreen('homeScreen');
