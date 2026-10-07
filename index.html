@@ -880,7 +880,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.07-154';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.07-155';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -4461,8 +4461,8 @@ async function renderAdmin(){
       // ---- AI読取後修正履歴：承認・監査前の実運用順序で記録 ----
       // 外部Claude APIの疎通は通知・AI診断で別確認し、ここではアプリ内の差分・履歴ロジックを検証する。
       const aiBase={
-        date:approved.date||localDate(), amount:320, payee:'AI読取テスト店',
-        purpose:'AI読取テスト用途', accountId:approved.accountId||'', addressee:''
+        date:e.date||localDate(), amount:320, payee:'AI読取テスト店',
+        purpose:'AI読取テスト用途', accountId:e.accountId||'', addressee:''
       };
       await R(`entries/${entryId}`).update({
         aiReceiptOriginal:aiBase,
@@ -4475,7 +4475,7 @@ async function renderAdmin(){
       await aiHistRef.set({
         at:firebase.database.ServerValue.TIMESTAMP,by:me.uid,byName:me.name,
         changedFields:['amount','payee','purpose'],original:aiBase,
-        current:{date:approved.date||localDate(),amount:321,payee:'実画面操作テスト',purpose:`自動UIテスト ${runId}`,accountId:approved.accountId||'',addressee:''},
+        current:{date:e.date||localDate(),amount:321,payee:'実画面操作テスト',purpose:`自動UIテスト ${runId}`,accountId:e.accountId||'',addressee:''},
         testMode:true,diagnosticRunId:runId
       });
       const aiCheck=(await R(`entries/${entryId}`).get()).val();
