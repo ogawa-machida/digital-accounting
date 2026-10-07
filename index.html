@@ -880,7 +880,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.08-168';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.08-169';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1865,6 +1865,20 @@ function roleNextAction(){
   if(ret.length)return{kind:'waiting',tone:'navy',title:`申請者の修正待ちが ${ret.length}件あります`,sub:'差戻し済みです。申請者から再申請されるまで、会計担当者の操作は不要です。',secondaryLabel:'差戻し中の伝票を確認',go:'bookScreen',filter:'returned'};
   const ready=settlePeople().filter(p=>p.ready);
   if(ready.length)return{kind:'required',tone:'navy',title:`精算できる人が ${ready.length}人います`,sub:'承認済みの立替・仮払があります。支払額を確認して精算を記録してください。',label:'精算を処理',go:'settleScreen'};
+  // 年度末は、監査完了を待つ前に会計担当が年度末残高を確定する必要がある。
+  // 監査側が「会計担当者の残高確認待ち」になっている間、会計側にも同じ作業を明示する。
+  if(!isFYClosed(curFY) && fiscalYearCanClose(curFY)){
+    const sum=fiscalYearClosingSummary(curFY);
+    const fiscalEndMs=fiscalYearEndDateObj(curFY).getTime();
+    const balanceChecks=Object.values((((settings.balanceChecks||{})[curFY])||{}));
+    const yearEndBalance=balanceChecks.some(x=>Number(x?.at||0)>fiscalEndMs && Number(x?.diff||0)===0);
+    if(!yearEndBalance){
+      return{kind:'required',tone:'amber',title:'年度末の現金・預金等の残高確認が必要です',sub:`${curFY}年度の締め日を過ぎています。監査を完了するため、会計担当者が締め日後の実残高と帳簿残高を照合してください。`,label:'年度末残高を確認する',action:'fiscalClose'};
+    }
+    if(!auditReports[curFY]){
+      return{kind:'waiting',tone:'moss',title:'年度末残高の確認は完了しています',sub:'会計側の年度末残高確認は完了しました。現在は監査担当者の監査完了待ちです。',secondaryLabel:'年度末処理の進み具合を確認',action:'fiscalClose'};
+    }
+  }
   if(auditReports[curFY] && !isFYClosed(curFY)){
     const sum=fiscalYearClosingSummary(curFY);
     if(!fiscalYearCanClose(curFY))return{kind:'waiting',tone:'navy',title:'監査は完了しています',sub:`会計年度の締め日（${fiscalYearEndDate(curFY)}）を過ぎると、年度決算を確定できます。`,secondaryLabel:'年度決算の準備を確認',action:'fiscalClose'};
@@ -4285,6 +4299,8 @@ async function renderAdmin(){
       add('役割別UI：次にやること',typeof roleNextAction==='function'&&typeof nextActionHtml==='function'?'ok':'fail','ホームで役割と状態から次の操作を1つ提示');
       const nextSrc=roleNextAction.toString(), bindSrc=bindNextAction.toString();
       add('役割別UI：監査完了後の年度決算導線',nextSrc.includes('監査が完了しました。年度決算を確定してください')&&bindSrc.includes("a.action==='fiscalClose'")?'ok':'fail','監査完了後はホームから年度決算・切り替えへ案内');
+      add('年度末UI：会計側に残高確認を明示',nextSrc.includes('年度末の現金・預金等の残高確認が必要です')&&nextSrc.includes('年度末残高を確認する')&&bindSrc.includes("a.action==='fiscalClose'")?'ok':'fail','監査完了前でも、締め日後かつ年度末残高未確認なら会計ホームにSTEP 2を表示');
+      add('年度末UI：残高確認後は監査待ちを明示',nextSrc.includes('現在は監査担当者の監査完了待ちです')?'ok':'fail','会計と監査の待ち合わせ状態を相互に分かるようにする');
       add('総合テストUI：実行中表示',!!$('uiTestRunningBanner')&&document.head.textContent.includes('v148: 総合実画面テスト実行中表示')?'ok':'fail','実行中表示のCSSが実際のhead内にある');
       add('総合テストUI：通常時は非表示',$('uiTestRunningBanner')?.style.display==='none'||$('uiTestRunningBanner')?.classList.contains('show')?'ok':'fail','通常時はフェイルセーフで非表示');
       add('総合テストUI：終了時復元設計',/curFY=oldFY/.test(runUIScreenTest.toString())&&/banner\?\.classList\.remove\('show'\)/.test(runUIScreenTest.toString())?'ok':'fail','全テスト終了後に年度・役割・実行中表示を復元');
