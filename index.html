@@ -880,7 +880,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.07-159';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.07-160';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -5706,7 +5706,8 @@ function bindFiscalClose(){
       const runBtn=$('fySwitchRun'), status=$('fySwitchStatus');
       if(runBtn){runBtn.disabled=true;runBtn.textContent='年度切り替えを保存しています…';}
       if(status){status.style.display='block';status.className='notice amber';status.innerHTML='<b>年度切り替え処理中です</b><br>Firebaseへ決算確定・繰越情報を保存しています。画面を閉じずにお待ちください。';status.scrollIntoView({behavior:'smooth',block:'center'});}
-      await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+      // v160: Android/PWA環境で requestAnimationFrame が再開せず、ここで永久停止するケースがあった。
+      // Firebase update 自体が await でイベントループを返すため、描画待ちの二重RAFは不要。
       const fresh=fiscalYearClosingSummary(fromFY);
       const stopSwitch=(msg)=>{if(runBtn){runBtn.disabled=false;runBtn.textContent=`${fromFY}年度を決算確定し、${toFY}年度へ切り替える`;}if(status){status.className='notice warn';status.innerHTML=`<b>年度切り替えを中止しました</b><br>${esc(msg)}`;}showToast(msg);};
       if(!fiscalYearCanClose(fromFY))return stopSwitch(`会計年度の締め日（${fiscalYearEndDate(fromFY)}）を過ぎるまで決算確定できません`);
