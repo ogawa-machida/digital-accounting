@@ -880,7 +880,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.08-165';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.08-166';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -4403,7 +4403,7 @@ async function renderAdmin(){
     const updateBanner=()=>{uiTestStageGlobal=uiTestStage;if(bannerStage)bannerStage.textContent=`${uiTestStage}　確認済み ${rows.length}項目`;};
     const add=(n,s,d)=>{rows.push([n,s,d]);updateBanner();};
     const markStage=name=>{uiTestStage=name;updateBanner();};
-    const waitFor=async(fn,ms=5000)=>{const end=Date.now()+ms;while(Date.now()<end){try{const v=fn();if(v)return v;}catch(_){}await sleep(80);}throw new Error(`「${uiTestStage}」で画面の応答がタイムアウトしました`);};
+    const waitFor=async(fn,ms=5000)=>{const end=Date.now()+ms;while(Date.now()<end){try{const v=await Promise.resolve(fn());if(v)return v;}catch(_){}await sleep(80);}throw new Error(`「${uiTestStage}」で画面の応答がタイムアウトしました`);};
     const oldProfile=testProfile, oldMe=me;
     // v151: 9996〜9999 は総合テスト専用年度。前回の異常終了で残っていても復元先にはしない。
     const isDiagnosticFY = fy => Number(fy)>=9996 && Number(fy)<=9999;
