@@ -880,7 +880,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.08-166';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.08-167';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -5271,7 +5271,7 @@ function renderSettings(){
     html += `<h2 class="section-title">団体の情報</h2><div class="form-card">
       <div class="field"><label>団体名</label><input type="text" id="sOrg" value="${esc(settings.orgName||'')}"></div>
       <div class="field"><label>会計年度の締め</label><select id="sClose">${Array.from({length:12},(_,i)=>{const close=i+1,start=close===12?1:close+1;return `<option value="${close}" ${startMonth()===start?'selected':''}>${close}月末締め（翌${start}月から新年度）</option>`}).join('')}</select>
-      <div class="hint">小川自治会は「1月末締め」を選択すると、2026年度は2026/2/1～2027/1/31として扱います。過去データ取込、出納帳、予算・決算、監査で共通して使用します。</div></div>
+      <div class="hint">例えば「1月末締め」を選択すると、2026年度は2026/2/1～2027/1/31として扱います。過去データ取込、出納帳、予算・決算、監査で共通して使用します。</div></div>
       <div class="field"><label>${curFY}年度の前年度繰越金</label><input type="number" id="sOpening" class="amount-input" value="${opening}" inputmode="numeric"></div>
       <button class="btn btn-primary full" id="sSaveOrg">団体・年度設定を保存する</button></div>`;
 
@@ -5625,7 +5625,7 @@ function organizeTreasurerSettings(){
   const defs=[
     {id:'people', icon:'👥', title:'関係者・権限', sub:'役割、立替・仮払、支部・班', heads:['関係者・権限管理']},
     {id:'money', icon:'💰', title:'会計の基本設定', sub:'団体情報、会費徴収期間、科目・予算、支払方法', heads:['団体の情報','会費徴収期間','現預金残高の確認',`科目と${curFY}年度の予算`,'支払方法']},
-    {id:'fiscal', icon:'📅', title:'年度決算・年度切り替え', sub:'決算内容の確認、次年度への繰越・年度更新', heads:[], action:'fiscalClose'},
+    {id:'fiscal', icon:'📅', title:'年度末・年度開始処理', sub:'残高確認、決算・監査、次年度予算、年度確定を順に実施', heads:[], action:'fiscalClose'},
     {id:'report', icon:'📊', title:'会員向け会計報告', sub:'公開内容の設定・報告の更新', heads:['会員向けの会計報告']},
     {id:'diagnostic', icon:'🩺', title:'日常の自動診断', sub:'動かない・おかしいと感じたときの確認', heads:['日常の自動診断']}
   ];
@@ -5687,19 +5687,32 @@ function renderFiscalCloseScreen(){
   if(!isT()){el.innerHTML='<div class="notice warn">年度決算・年度切り替えは会計担当者・管理者が行います。</div>';return;}
   const fromFY=curFY,toFY=curFY+1,sum=fiscalYearClosingSummary(fromFY),bp=nextYearBudgetPreview(fromFY,toFY);
   const hasAudit=!!auditReports[fromFY],dateOk=fiscalYearCanClose(fromFY),alreadyClosed=isFYClosed(fromFY);
-  const blockers=sum.unresolved.length+sum.pendingSettlement.length+sum.pendingAdvances.length+(hasAudit?0:1)+(dateOk?0:1);
   const switched=!!settings.fiscalTransitions?.[`${fromFY}-${toFY}`];
   const draftRows=budgetDraftRows(fromFY,toFY), nextBudgetCount=draftRows.filter(x=>x.confirmed).length, budgetReady=draftRows.length>0&&draftRows.every(x=>x.confirmed);
-  const balance=Object.entries((((settings.balanceChecks||{})[fromFY])||{})).map(([id,v])=>({id,...v})).sort((a,b)=>(b.at||0)-(a.at||0))[0]||null;
-  el.innerHTML=`<div class="hint" style="margin:0 0 10px;color:var(--navy);font-weight:800">会計設定 ＞ 年度決算・年度切り替え</div><h2 class="section-title">${fromFY}年度 年度決算・年度切り替え</h2><div class="form-card">
+  const balanceChecks=Object.entries((((settings.balanceChecks||{})[fromFY])||{})).map(([id,v])=>({id,...v})).sort((a,b)=>(b.at||0)-(a.at||0));
+  const fiscalEndMs=fiscalYearEndDateObj(fromFY).getTime();
+  const balance=balanceChecks[0]||null;
+  const yearEndBalance=balanceChecks.find(x=>Number(x.at||0)>fiscalEndMs && Number(x.diff||0)===0)||null;
+  const blockers=sum.unresolved.length+sum.pendingSettlement.length+sum.pendingAdvances.length+(hasAudit?0:1)+(dateOk?0:1)+(yearEndBalance?0:1);
+  const step1ok=sum.unresolved.length===0&&sum.pendingSettlement.length===0&&sum.pendingAdvances.length===0;
+  const step3ok=hasAudit, step4ok=budgetReady, step5ok=alreadyClosed;
+  el.innerHTML=`<div class="hint" style="margin:0 0 10px;color:var(--navy);font-weight:800">会計設定 ＞ 年度末・年度開始処理</div><h2 class="section-title">${fromFY}年度 年度末・年度開始処理</h2>
+  <div class="form-card"><div style="font-weight:800;margin-bottom:8px">年度末処理の進み具合</div>
+    <div class="total-check"><span>STEP 1　未処理・未精算の確認</span><b>${step1ok?'✓ 完了':'要対応'}</b></div>
+    <div class="total-check"><span>STEP 2　年度末の現金・預金等の残高確認</span><b>${yearEndBalance?'✓ 一致・確認済み':dateOk?'要確認':'締め日前'}</b></div>
+    <div class="total-check"><span>STEP 3　年度決算・監査の確認</span><b>${step3ok?'✓ 完了':'未完了'}</b></div>
+    <div class="total-check"><span>STEP 4　${toFY}年度予算案の確認</span><b>${step4ok?'✓ 完了':`${nextBudgetCount}/${draftRows.length}科目`}</b></div>
+    <div class="total-check"><span>STEP 5　年度確定・${toFY}年度開始</span><b>${step5ok?'✓ 完了':'未実施'}</b></div>
+    ${dateOk&&!yearEndBalance?`<button class="btn btn-primary full" id="fyGoRecon" style="margin-top:10px">STEP 2　年度末残高を確認する</button><p class="hint">締め日後の実残高を入力し、帳簿残高との差額が0円になるとSTEP 2が完了します。</p>`:''}
+  </div><div class="form-card">
     <div class="total-check"><span>対象年度</span><b>${fromFY}年度 → ${toFY}年度</b></div>
     <div class="total-check"><span>締め日</span><b>${fiscalYearEndDate(fromFY)} ${dateOk?'✓ 経過':'（まだ確定不可）'}</b></div>
-    <div class="total-check"><span>現預金残高照合</span><b>${balance?'✓ 記録済み':'未確認'}</b></div>
+    <div class="total-check"><span>年度末の現預金残高照合</span><b>${yearEndBalance?'✓ 締め日後に一致確認済み':balance?'通常照合あり・年度末確認は未完了':'未確認'}</b></div>
     <div class="total-check"><span>監査</span><b>${hasAudit?'✓ 完了':'未完了'}</b></div>
     <div class="total-check"><span>未完了申請</span><b>${sum.unresolved.length}件</b></div>
     <div class="total-check"><span>未精算</span><b>${sum.pendingSettlement.length}件</b></div>
     <div class="total-check"><span>未精算仮払金</span><b style="color:${sum.pendingAdvances.length?'var(--stamp-red)':'var(--moss)'}">${sum.pendingAdvances.length}件・${yen(sum.pendingAdvanceAmount)}</b></div>
-    ${alreadyClosed?`<div class="notice ok"><b>✓ ${fromFY}年度 → ${toFY}年度　切り替え済み</b><br>${fromFY}年度の決算は確定済みです。通常の追加・修正・承認・監査はロックされています。</div>`:(blockers?`<div class="notice warn"><b>まだ決算確定できません</b><br>締め日経過・監査完了・未完了申請0件・未精算0件・未精算仮払金0件のすべてが必要です。</div>`:`<div class="notice ok"><b>✓ 決算確定できます</b><br>確定すると${fromFY}年度の通常の追加・修正・承認・監査をロックします。</div>`)}
+    ${alreadyClosed?`<div class="notice ok"><b>✓ ${fromFY}年度 → ${toFY}年度　切り替え済み</b><br>${fromFY}年度の決算は確定済みです。通常の追加・修正・承認・監査はロックされています。</div>`:(blockers?`<div class="notice warn"><b>まだ決算確定できません</b><br>締め日経過・年度末残高一致・監査完了・未完了申請0件・未精算0件・未精算仮払金0件のすべてが必要です。</div>`:`<div class="notice ok"><b>✓ 決算確定できます</b><br>確定すると${fromFY}年度の通常の追加・修正・承認・監査をロックします。</div>`)}
     <div class="total-check"><span>年度末残高</span><b>${yen(sum.closing)}</b></div>
     <div class="total-check"><span>${toFY}年度の予算案</span><b>${nextBudgetCount}/${draftRows.length}科目 確定${budgetReady?' ✓':''}</b></div>
     ${!alreadyClosed?`<button class="btn btn-ghost full" id="fyBudgetDraft" style="margin-top:8px">${toFY}年度の予算案を作成・確認</button><div id="fyBudgetDraftBox"></div>`:''}
@@ -5712,6 +5725,7 @@ function renderFiscalCloseScreen(){
   bindFiscalClose();
 }
 function bindFiscalClose(){
+  if($('fyGoRecon')) $('fyGoRecon').onclick=async()=>{ await showScreen('settingsScreen'); setTimeout(()=>{ const b=document.querySelector('[data-settings-open="money"]'); if(b)b.click(); setTimeout(()=>document.querySelector('#reconSave')?.scrollIntoView({behavior:'smooth',block:'center'}),50); },50); };
   if($('fySettlementDocs')) $('fySettlementDocs').onclick=()=>printSettlementDocuments(curFY);
   if($('fyBudgetDraft')) $('fyBudgetDraft').onclick=()=>{
     const fromFY=curFY,toFY=curFY+1,rows=budgetDraftRows(fromFY,toFY),box=$('fyBudgetDraftBox');
@@ -5729,7 +5743,9 @@ function bindFiscalClose(){
   if($('fySwitchPreview')) $('fySwitchPreview').onclick=()=>{
     const fromFY=curFY,toFY=curFY+1,sum=fiscalYearClosingSummary(fromFY);
     const box=$('fySwitchBox'),hasAudit=!!auditReports[fromFY],dateOk=fiscalYearCanClose(fromFY),alreadyClosed=isFYClosed(fromFY);
-    const blockers=sum.unresolved.length+sum.pendingSettlement.length+sum.pendingAdvances.length+(hasAudit?0:1)+(dateOk?0:1)+(budgetDraftComplete(toFY)?0:1);
+    const endMs=fiscalYearEndDateObj(fromFY).getTime();
+    const yearEndBalance=Object.values((((settings.balanceChecks||{})[fromFY])||{})).some(x=>Number(x?.at||0)>endMs && Number(x?.diff||0)===0);
+    const blockers=sum.unresolved.length+sum.pendingSettlement.length+sum.pendingAdvances.length+(hasAudit?0:1)+(dateOk?0:1)+(yearEndBalance?0:1)+(budgetDraftComplete(toFY)?0:1);
     box.innerHTML=alreadyClosed?`<div class="audit-box">
       <div style="font-weight:800;margin-bottom:8px">✓ ${fromFY}年度の決算確定内容</div>
       <div class="total-check"><span>年度末残高</span><b>${yen(sum.closing)}</b></div>
@@ -5769,6 +5785,9 @@ function bindFiscalClose(){
       const fresh=fiscalYearClosingSummary(fromFY);
       const stopSwitch=(msg)=>{if(runBtn){runBtn.disabled=false;runBtn.textContent=`${fromFY}年度を決算確定し、${toFY}年度へ切り替える`;}if(status){status.className='notice warn';status.innerHTML=`<b>年度切り替えを中止しました</b><br>${esc(msg)}`;}showToast(msg);};
       if(!fiscalYearCanClose(fromFY))return stopSwitch(`会計年度の締め日（${fiscalYearEndDate(fromFY)}）を過ぎるまで決算確定できません`);
+      const endMs=fiscalYearEndDateObj(fromFY).getTime();
+      const yearEndBalance=Object.values((((settings.balanceChecks||{})[fromFY])||{})).some(x=>Number(x?.at||0)>endMs && Number(x?.diff||0)===0);
+      if(!yearEndBalance)return stopSwitch('締め日後に現金・預金等の年度末残高を照合し、帳簿との差額0円を確認してください');
       if(!auditReports[fromFY])return stopSwitch('監査完了後に決算確定してください');
       if(fresh.unresolved.length||fresh.pendingSettlement.length)return stopSwitch('未完了の申請または未精算があるため確定できません');
       if(fresh.pendingAdvances.length)return stopSwitch(`未精算の仮払金が ${fresh.pendingAdvances.length}件（${yen(fresh.pendingAdvanceAmount)}）あるため決算確定できません`);
