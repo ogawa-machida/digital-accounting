@@ -880,7 +880,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.07-162';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.07-163';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -5691,7 +5691,7 @@ function bindFiscalClose(){
       <div style="font-weight:800;margin-bottom:8px">${fromFY}年度 → ${toFY}年度</div>
       <div class="total-check"><span>年度末残高</span><b>${yen(sum.closing)}</b></div>
       <label class="check-line" style="margin-top:10px"><input type="checkbox" id="fyCarryOpening" checked> ${toFY}年度の前年度繰越金に ${yen(sum.closing)} を設定</label>
-      <label class="check-line"><input type="checkbox" id="fyCarryBudget" checked> ${fromFY}年度の予算額を${toFY}年度の予算案として引き継ぐ</label>
+      <label class="check-line"><input type="checkbox" id="fyCarryBudget" checked> ${toFY}年度で未設定の科目だけ、${fromFY}年度の予算額を引き継ぐ（入力済み予算は保持）</label>
       <details style="margin-top:10px"><summary>総会資料用の摘要を設定</summary><div style="margin-top:8px">
         ${accounts.filter(a=>a.active!==false).map(a=>`<label>${esc(a.name)}<input class="input fy-remark" data-account="${esc(a.id)}" value="${esc(String((a.remarks||{})[toFY]||''))}" placeholder="例：自治会、自主防災、公園管理"></label>`).join('')}
         <button class="btn btn-ghost full" id="fySaveRemarks" type="button">摘要を保存</button></div></details>
@@ -5724,7 +5724,13 @@ function bindFiscalClose(){
       if(isFYClosed(fromFY))return stopSwitch(`${fromFY}年度はすでに決算確定済みです`);
       const ups={};
       if(carryOpening)ups[`settings/opening/${toFY}`]=fresh.closing;
-      if(carryBudget)accounts.forEach(a=>{ups[`accounts/${a.id}/budget/${toFY}`]=Number((a.budget||{})[fromFY])||0;});
+      if(carryBudget)accounts.forEach(a=>{
+        // v163: 次年度予算がすでに入力済みなら絶対に上書きしない。
+        // 未設定の科目だけ前年度予算を引き継ぐ。0 は明示設定として保持する。
+        const nextRaw=(a.budget||{})[toFY];
+        const hasNextBudget=nextRaw!==undefined && nextRaw!==null && String(nextRaw).trim()!=='';
+        if(!hasNextBudget) ups[`accounts/${a.id}/budget/${toFY}`]=Number((a.budget||{})[fromFY])||0;
+      });
       const key=`${fromFY}-${toFY}`;
       ups[`settings/fiscalTransitions/${key}`]={fromFY,toFY,preparedAt:TS(),preparedBy:me.uid,preparedByName:me.name||'',openingCarried:carryOpening,budgetCarried:carryBudget,closingBalance:fresh.closing,appVersion:APP_VERSION,fiscalEndDate:fiscalYearEndDate(fromFY)};
       // 年度切替の確定と同じ atomic update で、運用中の年度も次年度へ更新する。
@@ -5765,7 +5771,12 @@ function bindFiscalClose(){
       settings.fiscalTransitions[key] = ups[`settings/fiscalTransitions/${key}`];
       settings.opening = settings.opening || {};
       if(carryOpening) settings.opening[toFY]=fresh.closing;
-      if(carryBudget) accounts.forEach(a=>{a.budget=a.budget||{};a.budget[toFY]=Number((a.budget||{})[fromFY])||0;});
+      if(carryBudget) accounts.forEach(a=>{
+        a.budget=a.budget||{};
+        const nextRaw=a.budget[toFY];
+        const hasNextBudget=nextRaw!==undefined && nextRaw!==null && String(nextRaw).trim()!=='';
+        if(!hasNextBudget) a.budget[toFY]=Number((a.budget||{})[fromFY])||0;
+      });
       yearClosures[fromFY] = ups[`yearClosures/${fromFY}`];
       settings.currentFiscalYear = toFY;
       fiscalSwitchCompletion={fromFY,toFY,opening:carryOpening?fresh.closing:0,at:Date.now()};
@@ -5774,8 +5785,8 @@ function bindFiscalClose(){
 
       // update() が成功した時点で確定済み。購読の再読込を待たず、利用者へ完了を明示する。
       // （Rules/通信状態によって直後の get() が遅延・失敗しても、保存済みなのに画面が無反応になるのを防ぐ）
-      const doneMsg=`${fromFY}年度の決算を確定しました。\n\n${toFY}年度へ切り替えます。\n・前年度繰越金：${carryOpening?yen(fresh.closing):'引き継がない'}\n・予算案：${carryBudget?'前年度予算を引き継ぎ':'引き継がない'}`;
-      if(status){status.className='notice ok';status.innerHTML=`<b>✓ ${fromFY}年度の決算確定・年度切り替えが完了しました</b><br>${toFY}年度へ移動します。<br>前年度繰越金：${carryOpening?yen(fresh.closing):'引き継がない'}／予算案：${carryBudget?'引き継ぎ済み':'引き継がない'}`;status.scrollIntoView({behavior:'smooth',block:'center'});}
+      const doneMsg=`${fromFY}年度の決算を確定しました。\n\n${toFY}年度へ切り替えます。\n・前年度繰越金：${carryOpening?yen(fresh.closing):'引き継がない'}\n・予算案：${carryBudget?'入力済み予算を保持し、未設定科目のみ前年度から補完':'引き継がない'}`;
+      if(status){status.className='notice ok';status.innerHTML=`<b>✓ ${fromFY}年度の決算確定・年度切り替えが完了しました</b><br>${toFY}年度へ移動します。<br>前年度繰越金：${carryOpening?yen(fresh.closing):'引き継がない'}／予算案：${carryBudget?'入力済み予算を保持・未設定のみ補完':'引き継がない'}`;status.scrollIntoView({behavior:'smooth',block:'center'});}
       if(runBtn)runBtn.textContent='✓ 年度切り替え完了';
       await new Promise(r=>setTimeout(r,900));
       curFY = toFY;
