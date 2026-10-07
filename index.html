@@ -880,7 +880,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.07-155';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.07-156';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -4464,21 +4464,33 @@ async function renderAdmin(){
         date:e.date||localDate(), amount:320, payee:'AI読取テスト店',
         purpose:'AI読取テスト用途', accountId:e.accountId||'', addressee:''
       };
-      await R(`entries/${entryId}`).update({
-        aiReceiptOriginal:aiBase,
-        amount:321,payee:'実画面操作テスト',purpose:`自動UIテスト ${runId}`,
-        aiReceiptEditedAt:firebase.database.ServerValue.TIMESTAMP,
-        aiReceiptEditedBy:me.uid,aiReceiptEditedByName:me.name,
-        aiReceiptChangedFields:['amount','payee','purpose']
-      });
-      const aiHistRef=R(`entries/${entryId}/aiReceiptEditHistory`).push();
-      await aiHistRef.set({
-        at:firebase.database.ServerValue.TIMESTAMP,by:me.uid,byName:me.name,
-        changedFields:['amount','payee','purpose'],original:aiBase,
-        current:{date:e.date||localDate(),amount:321,payee:'実画面操作テスト',purpose:`自動UIテスト ${runId}`,accountId:e.accountId||'',addressee:''},
-        testMode:true,diagnosticRunId:runId
-      });
-      const aiCheck=(await R(`entries/${entryId}`).get()).val();
+      // v156: AI原判定・変更項目・履歴を1回のatomic updateで保存する。
+      // 個別update→pushの間にonValue再描画が入って中間状態を読む競合を防ぐ。
+      const aiHistKey=R(`entries/${entryId}/aiReceiptEditHistory`).push().key;
+      const aiCurrent={date:e.date||localDate(),amount:321,payee:'実画面操作テスト',purpose:`自動UIテスト ${runId}`,accountId:e.accountId||'',addressee:''};
+      const aiUpdates={
+        [`entries/${entryId}/aiReceiptOriginal`]:aiBase,
+        [`entries/${entryId}/amount`]:321,
+        [`entries/${entryId}/payee`]:'実画面操作テスト',
+        [`entries/${entryId}/purpose`]:`自動UIテスト ${runId}`,
+        [`entries/${entryId}/aiReceiptEditedAt`]:firebase.database.ServerValue.TIMESTAMP,
+        [`entries/${entryId}/aiReceiptEditedBy`]:me.uid,
+        [`entries/${entryId}/aiReceiptEditedByName`]:me.name,
+        [`entries/${entryId}/aiReceiptChangedFields`]:['amount','payee','purpose'],
+        [`entries/${entryId}/aiReceiptEditHistory/${aiHistKey}`]:{
+          at:firebase.database.ServerValue.TIMESTAMP,by:me.uid,byName:me.name,
+          changedFields:['amount','payee','purpose'],original:aiBase,current:aiCurrent,
+          testMode:true,diagnosticRunId:runId
+        }
+      };
+      await db.ref(ROOT).update(aiUpdates);
+      // 保存直後の一時的なキャッシュ差では失敗させず、必要項目が揃うまで実データを再読取する。
+      let aiCheck=null;
+      await waitFor(async()=>{
+        const x=(await R(`entries/${entryId}`).get()).val();
+        if(x?.aiReceiptOriginal && Array.isArray(x?.aiReceiptChangedFields) && x.aiReceiptChangedFields.length===3 && x?.aiReceiptEditHistory && Object.keys(x.aiReceiptEditHistory).length){aiCheck=x;return true;}
+        return false;
+      },8000);
       add('AI原判定の保持',!!aiCheck?.aiReceiptOriginal?'ok':'fail','AI読取時点の値を保持');
       add('AI修正項目の記録',Array.isArray(aiCheck?.aiReceiptChangedFields)&&aiCheck.aiReceiptChangedFields.length===3?'ok':'fail',`${aiCheck?.aiReceiptChangedFields?.length||0}項目`);
       add('AI修正履歴の保存',aiCheck?.aiReceiptEditHistory&&Object.keys(aiCheck.aiReceiptEditHistory).length?'ok':'fail','原判定→修正後を構造化保存');
@@ -4493,6 +4505,10 @@ async function renderAdmin(){
       await waitFor(()=>$('detailScreen')?.classList.contains('active') && $('dApprove'),12000);
       add('会計承認画面を開く','ok','会計テスト役割で承認ボタンを表示');
       $('dApprove').click();
+      // AI差分がある伝票は承認確認ダイアログが出る。総合テスト中だけ実ボタンを自動押下する。
+      await sleep(80);
+      const aiApprovalOk=document.getElementById('aiApprovalOk');
+      if(aiApprovalOk) aiApprovalOk.click();
       await waitFor(async()=>{const x=await R(`entries/${entryId}/status`).get();return x.val()==='approved';},8000);
       const approvedSnap=await R(`entries/${entryId}`).get(), approved=approvedSnap.val();
       add('会計承認ボタン','ok','実ボタンのclickイベントで承認');
@@ -4502,14 +4518,18 @@ async function renderAdmin(){
       // AI差分は承認後・監査前に監査画面で確認する。監査完了後の伝票を書き換えない。
       // Firebaseへ直接updateしたAI差分は、attachDataのonValue反映より先に次の画面確認へ進むことがある。
       // ここでは診断で取得済みの最新値をfyMapへ即時反映し、renderAll/openDetailの二重非同期遷移も避ける。
-      fyMap[entryId]={id:entryId,...aiCheck};
+      // 承認後の最新データ（AI履歴を含む）をそのまま監査詳細へ渡す。
+      fyMap[entryId]={id:entryId,...approved};
       testProfile='auditor'; applyEffectiveProfile();
       detailId=entryId; detailFallback=fyMap[entryId]; detailReturnScreen='auditScreen';
       markStage('AI差分監査詳細画面');
       await showScreen('detailScreen');
-      await waitFor(()=>$('detailScreen')?.classList.contains('active')
-        && $('detailScreen')?.textContent.includes('AIレシート読取の確認')
-        && $('detailScreen')?.textContent.includes('AI読取後の修正'),5000);
+      await waitFor(()=>{
+        const t=$('detailScreen')?.textContent||'';
+        return $('detailScreen')?.classList.contains('active')
+          && t.includes('AIレシート読取の確認')
+          && (t.includes('AI読取後に人が修正') || t.includes('AI読取後の修正記録'));
+      },8000);
       add('AI差分の監査表示','ok','監査詳細画面で差分を表示');
 
 
@@ -4803,6 +4823,8 @@ async function renderAdmin(){
           residueCount
         });
       }catch(e){add('テストセッション終了処理','fail',e?.message||String(e));}
+      // v156: 途中停止時もAI確認オーバーレイを残さない。
+      document.querySelectorAll('.ai-confirm-overlay').forEach(x=>x.remove());
       uiAutoTestContext=null; testProfile=oldProfile; me=oldMe; curFY=isDiagnosticFY(oldFY)?fyOf(localDate()):oldFY; applyEffectiveProfile();
       try{subscribeFY();}catch(_){}
       try{renderAll();}catch(_){}
