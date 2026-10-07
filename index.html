@@ -880,7 +880,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.07-156';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.07-157';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -5695,6 +5695,11 @@ function bindFiscalClose(){
     </div>`;
     if($('fyPreviewClose')) $('fyPreviewClose').onclick=()=>{box.innerHTML='';};
     if($('fySaveRemarks'))$('fySaveRemarks').onclick=async()=>{const ups={};document.querySelectorAll('.fy-remark').forEach(x=>{ups[`accounts/${x.dataset.account}/remarks/${toFY}`]=x.value.trim();});await db.ref(ROOT).update(ups);showToast(`${toFY}年度の摘要を保存しました`);};
+    // 確認ボタン押下後は、次の操作（年度切り替え）まで自動でスクロールする。
+    requestAnimationFrame(()=>{
+      const target=$('fySwitchRun') || box;
+      target?.scrollIntoView({behavior:'smooth',block:'center'});
+    });
     if($('fySwitchRun'))$('fySwitchRun').onclick=async()=>{
       const carryOpening=$('fyCarryOpening').checked,carryBudget=$('fyCarryBudget').checked;
       if(!confirm(`${fromFY}年度から${toFY}年度への切り替え準備を確定しますか？\n\n過去データは削除しません。次年度の繰越金・予算を準備します。`))return;
@@ -5727,18 +5732,14 @@ function bindFiscalClose(){
       yearClosures[fromFY] = ups[`yearClosures/${fromFY}`];
       try{await writeLog('年度決算確定・切り替え',null,`${fromFY}年度（${fiscalYearEndDate(fromFY)}締め）→${toFY}年度／繰越 ${carryOpening?'あり':'なし'}／予算引継 ${carryBudget?'あり':'なし'}`);}catch(_){ }
 
-      // 保存成功をFirebaseから再確認してから、次年度ホームへ進む。
-      try{
-        const verify=await R(`yearClosures/${fromFY}`).get();
-        if(!verify.exists()) throw new Error('決算確定データの再読込に失敗しました');
-      }catch(err){
-        showToast(`年度切り替えの保存確認に失敗しました：${err?.message||String(err)}`);
-        return;
-      }
+      // update() が成功した時点で確定済み。購読の再読込を待たず、利用者へ完了を明示する。
+      // （Rules/通信状態によって直後の get() が遅延・失敗しても、保存済みなのに画面が無反応になるのを防ぐ）
+      const doneMsg=`${fromFY}年度の決算を確定しました。\n\n${toFY}年度へ切り替えます。\n・前年度繰越金：${carryOpening?yen(fresh.closing):'引き継がない'}\n・予算案：${carryBudget?'前年度予算を引き継ぎ':'引き継がない'}`;
+      alert(doneMsg);
       curFY = toFY;
       subscribeFY();
       await showScreen('homeScreen');
-      showToast(`${fromFY}年度の決算を確定し、${toFY}年度へ切り替えました`);
+      showToast(`${toFY}年度へ切り替えました`);
     };
   };
 }
