@@ -880,7 +880,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.07-163';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.07-164';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -3786,11 +3786,20 @@ async function clearClosingDemoData(){
     ups[`settings/balanceChecks/${fy}`]=null;
     ups[`yearClosures/${fy}`]=null;
     ups[`settings/fiscalTransitions/${fy}-${next}`]=null;
-    ups[`settings/opening/${fy}`]=d.previousOpening===null?null:d.previousOpening;
-    ups[`settings/opening/${next}`]=d.nextOpening===null?null:d.nextOpening;
-    Object.entries(d.budgetSnapshot||{}).forEach(([aid,b])=>{
-      ups[`accounts/${aid}/budget/${fy}`]=b?.fy===null?null:b?.fy;
-      ups[`accounts/${aid}/budget/${next}`]=b?.next===null?null:b?.next;
+    // 旧バージョンで作成したデモには previousOpening / nextOpening / budgetSnapshot が
+    // 保存されていない場合がある。Firebase update() に undefined を渡すと全体が失敗するため、
+    // スナップショットが存在する項目だけ復元する。
+    if(Object.prototype.hasOwnProperty.call(d||{},'previousOpening')){
+      ups[`settings/opening/${fy}`]=d.previousOpening==null?null:Number(d.previousOpening);
+    }
+    if(Object.prototype.hasOwnProperty.call(d||{},'nextOpening')){
+      ups[`settings/opening/${next}`]=d.nextOpening==null?null:Number(d.nextOpening);
+    }
+    Object.entries(d?.budgetSnapshot||{}).forEach(([aid,b])=>{
+      if(b && Object.prototype.hasOwnProperty.call(b,'fy'))
+        ups[`accounts/${aid}/budget/${fy}`]=b.fy==null?null:Number(b.fy);
+      if(b && Object.prototype.hasOwnProperty.call(b,'next'))
+        ups[`accounts/${aid}/budget/${next}`]=b.next==null?null:Number(b.next);
     });
     ups[`closingDemoRuns/${owner}/${fy}`]=null;
   });
