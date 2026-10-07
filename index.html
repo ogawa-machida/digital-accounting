@@ -880,7 +880,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.07-164';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.08-165';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1082,6 +1082,31 @@ function fiscalYearClosingSummary(fy,list=Object.values(fyMap||{})){
 }
 function nextYearBudgetPreview(fromFY,toFY){
   return accounts.map(a=>({id:a.id,name:a.name,type:a.type,active:a.active!==false,from:Number((a.budget||{})[fromFY])||0,to:Number((a.budget||{})[toFY])||0}));
+}
+
+// 次年度予算案：前年度実績の上位2桁を残し、それ以下を切り捨てた額を初期候補とする。
+// 例）573,000→570,000、12,345→12,000、987→980。0円は0円のまま。
+function budgetDefaultFromActual(amount){
+  const n=Math.max(0,Math.floor(Number(amount)||0));
+  if(n<10)return n;
+  const digits=Math.floor(Math.log10(n))+1;
+  const unit=Math.pow(10,Math.max(0,digits-2));
+  return Math.floor(n/unit)*unit;
+}
+function budgetDraftRows(fromFY,toFY){
+  const approved=Object.values(fyMap||{}).filter(e=>e.status==='approved');
+  const draft=(settings.budgetDrafts||{})[toFY]||{};
+  return accounts.filter(a=>a.active!==false).map(a=>{
+    const actual=approved.filter(e=>e.accountId===a.id).reduce((n,e)=>n+(Number(e.amount)||0),0);
+    const saved=(a.budget||{})[toFY];
+    const d=draft.items?.[a.id]||{};
+    const value=d.value!==undefined?Number(d.value):(saved!==undefined&&saved!==null&&String(saved).trim()!==''?Number(saved):budgetDefaultFromActual(actual));
+    return {id:a.id,name:a.name,type:a.type,prevBudget:Number((a.budget||{})[fromFY])||0,actual,defaultValue:budgetDefaultFromActual(actual),value:Number(value)||0,confirmed:!!d.confirmed};
+  });
+}
+function budgetDraftComplete(toFY){
+  const rows=budgetDraftRows(curFY,toFY), d=(settings.budgetDrafts||{})[toFY]||{};
+  return rows.length>0 && rows.every(r=>d.items?.[r.id]?.confirmed===true);
 }
 
 function isStaff(){ return me && ['admin','treasurer','auditor','viewer'].includes(me.role); }
@@ -4727,7 +4752,7 @@ async function renderAdmin(){
       const [sg,cg]=await Promise.all([R(`statistics/${publicTestFY}`).get(),R(`yearClosures/${publicTestFY}`).get()]);
       add('年度処理テストデータの撤去',!sg.exists()&&!cg.exists()?'ok':'fail','統計・年度確定を撤去');
 
-      // ---- 年度切り替え：計算・ブロック条件・繰越・予算引継・記録・撤去 ----
+      // ---- 年度切り替え：計算・ブロック条件・繰越・予算案確定・記録・撤去 ----
       const docData=settlementDocumentData(curFY);
       const docMathOk=docData.carry===docData.opening+docData.income.actual-docData.expense.actual;
       add('決算書類の収支計算',docMathOk?'ok':'fail',`収入 ${yen(docData.totalIncome)}／支出 ${yen(docData.totalExpense)}／繰越 ${yen(docData.carry)}`);
@@ -4756,12 +4781,15 @@ async function renderAdmin(){
       add('年度切替の繰越計算',transClosing===850?'ok':'fail',`100＋1,200－450＝${transClosing}`);
       const blocked=[...transList,{fy:transFrom,status:'submitted',type:'expense',amount:10}].some(e=>e.status!=='approved'&&e.status!=='rejected');
       add('年度切替の未完了ブロック',blocked?'ok':'fail','未承認申請がある場合は確定不可');
+      add('予算案初期候補：上位2桁切り捨て',budgetDefaultFromActual(573000)===570000&&budgetDefaultFromActual(12345)===12000&&budgetDefaultFromActual(987)===980?'ok':'fail','573,000→570,000／12,345→12,000／987→980');
+      add('予算案：自動確定しない',bindFiscalClose.toString().includes('この科目を確定')&&bindFiscalClose.toString().includes('budgetDraftComplete')?'ok':'fail','科目ごとの確認・確定を必須化');
       const testAcc=accounts[0];
       const oldNextBudget=testAcc?((testAcc.budget||{})[transTo]):undefined;
       const oldNextOpening=(settings.opening||{})[transTo];
       const ups={};
       ups[`settings/opening/${transTo}`]=transClosing;
-      if(testAcc)ups[`accounts/${testAcc.id}/budget/${transTo}`]=Number((testAcc.budget||{})[curFY])||0;
+      const proposedBudget=testAcc?budgetDefaultFromActual(12345):0;
+      if(testAcc){ups[`accounts/${testAcc.id}/budget/${transTo}`]=proposedBudget;ups[`settings/budgetDrafts/${transTo}/items/${testAcc.id}`]={value:proposedBudget,confirmed:true,confirmedAt:Date.now(),confirmedBy:me.uid};}
       ups[`settings/fiscalTransitions/${transKey}`]={fromFY:transFrom,toFY:transTo,preparedAt:Date.now(),preparedBy:me.uid,preparedByName:me.name||'',openingCarried:true,budgetCarried:!!testAcc,closingBalance:transClosing,testMode:true,diagnosticRunId:runId,appVersion:APP_VERSION};
       await db.ref(ROOT).update(ups); transitionTestCreated=true;
       const [opSnap,trSnap]=await Promise.all([R(`settings/opening/${transTo}`).get(),R(`settings/fiscalTransitions/${transKey}`).get()]);
@@ -4769,12 +4797,12 @@ async function renderAdmin(){
       add('年度切替履歴の保存',trSnap.exists()&&Number(trSnap.val()?.fromFY)===transFrom?'ok':'fail','切替元・切替先・実行者・バージョンを保存');
       if(testAcc){
         const b=await R(`accounts/${testAcc.id}/budget/${transTo}`).get();
-        add('次年度予算の引き継ぎ',Number(b.val())===(Number((testAcc.budget||{})[curFY])||0)?'ok':'fail',`${testAcc.name} の予算を引継`);
-      }else add('次年度予算の引き継ぎ','ok','科目未登録のため対象なし');
+        add('確認済み次年度予算案の保存',Number(b.val())===proposedBudget?'ok':'fail',`${testAcc.name} ${yen(proposedBudget)} を保存`);
+      }else add('確認済み次年度予算案の保存','ok','科目未登録のため対象なし');
       const restore={};
       restore[`settings/opening/${transTo}`]=oldNextOpening===undefined?null:oldNextOpening;
       restore[`settings/fiscalTransitions/${transKey}`]=null;
-      if(testAcc)restore[`accounts/${testAcc.id}/budget/${transTo}`]=oldNextBudget===undefined?null:oldNextBudget;
+      if(testAcc){restore[`accounts/${testAcc.id}/budget/${transTo}`]=oldNextBudget===undefined?null:oldNextBudget;restore[`settings/budgetDrafts/${transTo}`]=null;}
       await db.ref(ROOT).update(restore); transitionTestCreated=false;
       const [opGone,trGone]=await Promise.all([R(`settings/opening/${transTo}`).get(),R(`settings/fiscalTransitions/${transKey}`).get()]);
       add('年度切替テストデータの撤去',!opGone.exists()&&!trGone.exists()?'ok':'fail','診断用の次年度設定を原状復帰');
@@ -5661,7 +5689,7 @@ function renderFiscalCloseScreen(){
   const hasAudit=!!auditReports[fromFY],dateOk=fiscalYearCanClose(fromFY),alreadyClosed=isFYClosed(fromFY);
   const blockers=sum.unresolved.length+sum.pendingSettlement.length+sum.pendingAdvances.length+(hasAudit?0:1)+(dateOk?0:1);
   const switched=!!settings.fiscalTransitions?.[`${fromFY}-${toFY}`];
-  const nextBudgetCount=bp.filter(x=>x.to!==0).length;
+  const draftRows=budgetDraftRows(fromFY,toFY), nextBudgetCount=draftRows.filter(x=>x.confirmed).length, budgetReady=draftRows.length>0&&draftRows.every(x=>x.confirmed);
   const balance=Object.entries((((settings.balanceChecks||{})[fromFY])||{})).map(([id,v])=>({id,...v})).sort((a,b)=>(b.at||0)-(a.at||0))[0]||null;
   el.innerHTML=`<div class="hint" style="margin:0 0 10px;color:var(--navy);font-weight:800">会計設定 ＞ 年度決算・年度切り替え</div><h2 class="section-title">${fromFY}年度 年度決算・年度切り替え</h2><div class="form-card">
     <div class="total-check"><span>対象年度</span><b>${fromFY}年度 → ${toFY}年度</b></div>
@@ -5673,7 +5701,8 @@ function renderFiscalCloseScreen(){
     <div class="total-check"><span>未精算仮払金</span><b style="color:${sum.pendingAdvances.length?'var(--stamp-red)':'var(--moss)'}">${sum.pendingAdvances.length}件・${yen(sum.pendingAdvanceAmount)}</b></div>
     ${alreadyClosed?`<div class="notice ok"><b>✓ ${fromFY}年度 → ${toFY}年度　切り替え済み</b><br>${fromFY}年度の決算は確定済みです。通常の追加・修正・承認・監査はロックされています。</div>`:(blockers?`<div class="notice warn"><b>まだ決算確定できません</b><br>締め日経過・監査完了・未完了申請0件・未精算0件・未精算仮払金0件のすべてが必要です。</div>`:`<div class="notice ok"><b>✓ 決算確定できます</b><br>確定すると${fromFY}年度の通常の追加・修正・承認・監査をロックします。</div>`)}
     <div class="total-check"><span>年度末残高</span><b>${yen(sum.closing)}</b></div>
-    <div class="total-check"><span>${toFY}年度の予算案</span><b>${nextBudgetCount}科目設定済</b></div>
+    <div class="total-check"><span>${toFY}年度の予算案</span><b>${nextBudgetCount}/${draftRows.length}科目 確定${budgetReady?' ✓':''}</b></div>
+    ${!alreadyClosed?`<button class="btn btn-ghost full" id="fyBudgetDraft" style="margin-top:8px">${toFY}年度の予算案を作成・確認</button><div id="fyBudgetDraftBox"></div>`:''}
     ${switched?`<p class="hint" style="color:var(--moss);font-weight:700">✓ ${toFY}年度の切り替え設定済みです。</p>`:''}
     <button class="btn btn-navy full" id="fySwitchPreview" style="margin-top:10px">${alreadyClosed?'年度確定内容を確認':'決算内容・次年度繰越を確認'}</button>
     <button class="btn btn-ghost full" id="fySettlementDocs" style="margin-top:8px">総会報告用決算書類を出力</button>
@@ -5684,10 +5713,23 @@ function renderFiscalCloseScreen(){
 }
 function bindFiscalClose(){
   if($('fySettlementDocs')) $('fySettlementDocs').onclick=()=>printSettlementDocuments(curFY);
+  if($('fyBudgetDraft')) $('fyBudgetDraft').onclick=()=>{
+    const fromFY=curFY,toFY=curFY+1,rows=budgetDraftRows(fromFY,toFY),box=$('fyBudgetDraftBox');
+    const rowHtml=rows.map((r,i)=>`<div class="audit-box budget-draft-row" data-id="${esc(r.id)}" style="margin-top:8px"><div style="font-weight:800">${i+1}. ${esc(r.name)} <small>（${r.type==='income'?'収入':'支出'}）</small></div><div class="total-check"><span>${fromFY}年度予算</span><b>${yen(r.prevBudget)}</b></div><div class="total-check"><span>${fromFY}年度実績</span><b>${yen(r.actual)}</b></div><div class="total-check"><span>実績ベース初期候補</span><b>${yen(r.defaultValue)}</b></div><label>${toFY}年度予算案<input class="input budget-draft-value" type="number" min="0" step="1" value="${r.value}"></label><button class="btn ${r.confirmed?'btn-ghost':'btn-primary'} full budget-draft-confirm" type="button">${r.confirmed?'✓ この科目は確定済み（再確定）':'この科目を確定'}</button></div>`).join('');
+    box.innerHTML=`<div class="notice" style="margin-top:10px"><b>${toFY}年度 一般会計予算（案）</b><br>前年度予算と前年度実績を見ながら、科目ごとに確認します。初期候補は前年度実績の上位2桁を残し、それ以下を切り捨てた額です。自動確定はしません。</div>${rowHtml}<p class="hint">全科目を1項目ずつ確定すると、年度切り替えが可能になります。</p>`;
+    box.querySelectorAll('.budget-draft-confirm').forEach(btn=>btn.onclick=async()=>{
+      const row=btn.closest('.budget-draft-row'),aid=row.dataset.id,input=row.querySelector('.budget-draft-value');
+      const value=Math.max(0,Math.floor(Number(input.value)||0));
+      btn.disabled=true;btn.textContent='保存しています…';
+      const ups={};ups[`accounts/${aid}/budget/${toFY}`]=value;ups[`settings/budgetDrafts/${toFY}/items/${aid}`]={value,confirmed:true,confirmedAt:TS(),confirmedBy:me.uid};ups[`settings/budgetDrafts/${toFY}/fromFY`]=fromFY;ups[`settings/budgetDrafts/${toFY}/status`]='draft';ups[`settings/budgetDrafts/${toFY}/updatedAt`]=TS();
+      try{await db.ref(ROOT).update(ups);settings.budgetDrafts=settings.budgetDrafts||{};settings.budgetDrafts[toFY]=settings.budgetDrafts[toFY]||{items:{}};settings.budgetDrafts[toFY].items=settings.budgetDrafts[toFY].items||{};settings.budgetDrafts[toFY].items[aid]=ups[`settings/budgetDrafts/${toFY}/items/${aid}`];const a=accounts.find(x=>x.id===aid);if(a){a.budget=a.budget||{};a.budget[toFY]=value;}btn.disabled=false;btn.className='btn btn-ghost full budget-draft-confirm';btn.textContent='✓ この科目は確定済み（再確定）';showToast(`${a?.name||'科目'}の予算案を確定しました`);renderFiscalCloseScreen();setTimeout(()=>{$('fyBudgetDraft')?.click();},0);}catch(e){btn.disabled=false;btn.textContent='この科目を確定';showToast(`保存できませんでした：${e?.message||e}`);}
+    });
+    box.scrollIntoView({behavior:'smooth',block:'start'});
+  };
   if($('fySwitchPreview')) $('fySwitchPreview').onclick=()=>{
     const fromFY=curFY,toFY=curFY+1,sum=fiscalYearClosingSummary(fromFY);
     const box=$('fySwitchBox'),hasAudit=!!auditReports[fromFY],dateOk=fiscalYearCanClose(fromFY),alreadyClosed=isFYClosed(fromFY);
-    const blockers=sum.unresolved.length+sum.pendingSettlement.length+sum.pendingAdvances.length+(hasAudit?0:1)+(dateOk?0:1);
+    const blockers=sum.unresolved.length+sum.pendingSettlement.length+sum.pendingAdvances.length+(hasAudit?0:1)+(dateOk?0:1)+(budgetDraftComplete(toFY)?0:1);
     box.innerHTML=alreadyClosed?`<div class="audit-box">
       <div style="font-weight:800;margin-bottom:8px">✓ ${fromFY}年度の決算確定内容</div>
       <div class="total-check"><span>年度末残高</span><b>${yen(sum.closing)}</b></div>
@@ -5700,7 +5742,7 @@ function bindFiscalClose(){
       <div style="font-weight:800;margin-bottom:8px">${fromFY}年度 → ${toFY}年度</div>
       <div class="total-check"><span>年度末残高</span><b>${yen(sum.closing)}</b></div>
       <label class="check-line" style="margin-top:10px"><input type="checkbox" id="fyCarryOpening" checked> ${toFY}年度の前年度繰越金に ${yen(sum.closing)} を設定</label>
-      <label class="check-line"><input type="checkbox" id="fyCarryBudget" checked> ${toFY}年度で未設定の科目だけ、${fromFY}年度の予算額を引き継ぐ（入力済み予算は保持）</label>
+      <div class="total-check"><span>${toFY}年度予算案</span><b>${budgetDraftComplete(toFY)?'✓ 全科目確認済み':'未確定科目あり'}</b></div>
       <details style="margin-top:10px"><summary>総会資料用の摘要を設定</summary><div style="margin-top:8px">
         ${accounts.filter(a=>a.active!==false).map(a=>`<label>${esc(a.name)}<input class="input fy-remark" data-account="${esc(a.id)}" value="${esc(String((a.remarks||{})[toFY]||''))}" placeholder="例：自治会、自主防災、公園管理"></label>`).join('')}
         <button class="btn btn-ghost full" id="fySaveRemarks" type="button">摘要を保存</button></div></details>
@@ -5715,7 +5757,7 @@ function bindFiscalClose(){
       target?.scrollIntoView({behavior:'smooth',block:'center'});
     });
     if($('fySwitchRun'))$('fySwitchRun').onclick=async()=>{
-      const carryOpening=$('fyCarryOpening').checked,carryBudget=$('fyCarryBudget').checked;
+      const carryOpening=$('fyCarryOpening').checked,carryBudget=budgetDraftComplete(toFY);
       if(!confirm(`${fromFY}年度から${toFY}年度への切り替え準備を確定しますか？\n\n過去データは削除しません。次年度の繰越金・予算を準備します。`))return;
       const runBtn=$('fySwitchRun'), status=$('fySwitchStatus');
       if(runBtn){runBtn.disabled=true;runBtn.textContent='年度切り替えを保存しています…';}
@@ -5731,15 +5773,13 @@ function bindFiscalClose(){
       if(fresh.unresolved.length||fresh.pendingSettlement.length)return stopSwitch('未完了の申請または未精算があるため確定できません');
       if(fresh.pendingAdvances.length)return stopSwitch(`未精算の仮払金が ${fresh.pendingAdvances.length}件（${yen(fresh.pendingAdvanceAmount)}）あるため決算確定できません`);
       if(isFYClosed(fromFY))return stopSwitch(`${fromFY}年度はすでに決算確定済みです`);
+      if(!budgetDraftComplete(toFY))return stopSwitch(`${toFY}年度の予算案を全科目1項目ずつ確認・確定してください`);
       const ups={};
       if(carryOpening)ups[`settings/opening/${toFY}`]=fresh.closing;
-      if(carryBudget)accounts.forEach(a=>{
-        // v163: 次年度予算がすでに入力済みなら絶対に上書きしない。
-        // 未設定の科目だけ前年度予算を引き継ぐ。0 は明示設定として保持する。
-        const nextRaw=(a.budget||{})[toFY];
-        const hasNextBudget=nextRaw!==undefined && nextRaw!==null && String(nextRaw).trim()!=='';
-        if(!hasNextBudget) ups[`accounts/${a.id}/budget/${toFY}`]=Number((a.budget||{})[fromFY])||0;
-      });
+      // 次年度予算は年度切り替え時に生成しない。事前に1科目ずつ確認・確定した予算案をそのまま使用する。
+      ups[`settings/budgetDrafts/${toFY}/status`]='approved';
+      ups[`settings/budgetDrafts/${toFY}/approvedAt`]=TS();
+      ups[`settings/budgetDrafts/${toFY}/approvedBy`]=me.uid;
       const key=`${fromFY}-${toFY}`;
       ups[`settings/fiscalTransitions/${key}`]={fromFY,toFY,preparedAt:TS(),preparedBy:me.uid,preparedByName:me.name||'',openingCarried:carryOpening,budgetCarried:carryBudget,closingBalance:fresh.closing,appVersion:APP_VERSION,fiscalEndDate:fiscalYearEndDate(fromFY)};
       // 年度切替の確定と同じ atomic update で、運用中の年度も次年度へ更新する。
@@ -5780,22 +5820,17 @@ function bindFiscalClose(){
       settings.fiscalTransitions[key] = ups[`settings/fiscalTransitions/${key}`];
       settings.opening = settings.opening || {};
       if(carryOpening) settings.opening[toFY]=fresh.closing;
-      if(carryBudget) accounts.forEach(a=>{
-        a.budget=a.budget||{};
-        const nextRaw=a.budget[toFY];
-        const hasNextBudget=nextRaw!==undefined && nextRaw!==null && String(nextRaw).trim()!=='';
-        if(!hasNextBudget) a.budget[toFY]=Number((a.budget||{})[fromFY])||0;
-      });
+      settings.budgetDrafts=settings.budgetDrafts||{}; settings.budgetDrafts[toFY]=settings.budgetDrafts[toFY]||{}; settings.budgetDrafts[toFY].status='approved';
       yearClosures[fromFY] = ups[`yearClosures/${fromFY}`];
       settings.currentFiscalYear = toFY;
       fiscalSwitchCompletion={fromFY,toFY,opening:carryOpening?fresh.closing:0,at:Date.now()};
       // 操作ログは年度切替の画面遷移を止めない。失敗しても決算確定・年度更新は既に atomic update 済み。
-      Promise.resolve(writeLog('年度決算確定・切り替え',null,`${fromFY}年度（${fiscalYearEndDate(fromFY)}締め）→${toFY}年度／繰越 ${carryOpening?'あり':'なし'}／予算引継 ${carryBudget?'あり':'なし'}`)).catch(e=>console.warn('年度切替ログ保存エラー',e));
+      Promise.resolve(writeLog('年度決算確定・切り替え',null,`${fromFY}年度（${fiscalYearEndDate(fromFY)}締め）→${toFY}年度／繰越 ${carryOpening?'あり':'なし'}／次年度予算 ${carryBudget?'確定済み':'未確定'}`)).catch(e=>console.warn('年度切替ログ保存エラー',e));
 
       // update() が成功した時点で確定済み。購読の再読込を待たず、利用者へ完了を明示する。
       // （Rules/通信状態によって直後の get() が遅延・失敗しても、保存済みなのに画面が無反応になるのを防ぐ）
-      const doneMsg=`${fromFY}年度の決算を確定しました。\n\n${toFY}年度へ切り替えます。\n・前年度繰越金：${carryOpening?yen(fresh.closing):'引き継がない'}\n・予算案：${carryBudget?'入力済み予算を保持し、未設定科目のみ前年度から補完':'引き継がない'}`;
-      if(status){status.className='notice ok';status.innerHTML=`<b>✓ ${fromFY}年度の決算確定・年度切り替えが完了しました</b><br>${toFY}年度へ移動します。<br>前年度繰越金：${carryOpening?yen(fresh.closing):'引き継がない'}／予算案：${carryBudget?'入力済み予算を保持・未設定のみ補完':'引き継がない'}`;status.scrollIntoView({behavior:'smooth',block:'center'});}
+      const doneMsg=`${fromFY}年度の決算を確定しました。\n\n${toFY}年度へ切り替えます。\n・前年度繰越金：${carryOpening?yen(fresh.closing):'引き継がない'}\n・予算：${carryBudget?'確認・確定済みの予算案を使用':'未確定'}`;
+      if(status){status.className='notice ok';status.innerHTML=`<b>✓ ${fromFY}年度の決算確定・年度切り替えが完了しました</b><br>${toFY}年度へ移動します。<br>前年度繰越金：${carryOpening?yen(fresh.closing):'引き継がない'}／予算：${carryBudget?'確認・確定済み':'未確定'}`;status.scrollIntoView({behavior:'smooth',block:'center'});}
       if(runBtn)runBtn.textContent='✓ 年度切り替え完了';
       await new Promise(r=>setTimeout(r,900));
       curFY = toFY;
