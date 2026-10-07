@@ -880,7 +880,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.07-161';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.07-162';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -5711,8 +5711,10 @@ function bindFiscalClose(){
       const runBtn=$('fySwitchRun'), status=$('fySwitchStatus');
       if(runBtn){runBtn.disabled=true;runBtn.textContent='年度切り替えを保存しています…';}
       if(status){status.style.display='block';status.className='notice amber';status.innerHTML='<b>年度切り替え処理中です</b><br>Firebaseへ決算確定・繰越情報を保存しています。画面を閉じずにお待ちください。';status.scrollIntoView({behavior:'smooth',block:'center'});}
-      // v160: Android/PWA環境で requestAnimationFrame が再開せず、ここで永久停止するケースがあった。
-      // Firebase update 自体が await でイベントループを返すため、描画待ちの二重RAFは不要。
+      // v162: まず進捗表示を確定させ、Android/PWAでも次の処理へ確実に進める。
+      // 重い集計や補助情報生成より先に 1/3 を表示する。
+      if(status) status.innerHTML='<b>年度切り替え処理中です（1/3）</b><br>決算内容を確認しています。';
+      await new Promise(r=>setTimeout(r,0));
       const fresh=fiscalYearClosingSummary(fromFY);
       const stopSwitch=(msg)=>{if(runBtn){runBtn.disabled=false;runBtn.textContent=`${fromFY}年度を決算確定し、${toFY}年度へ切り替える`;}if(status){status.className='notice warn';status.innerHTML=`<b>年度切り替えを中止しました</b><br>${esc(msg)}`;}showToast(msg);};
       if(!fiscalYearCanClose(fromFY))return stopSwitch(`会計年度の締め日（${fiscalYearEndDate(fromFY)}）を過ぎるまで決算確定できません`);
@@ -5727,13 +5729,17 @@ function bindFiscalClose(){
       ups[`settings/fiscalTransitions/${key}`]={fromFY,toFY,preparedAt:TS(),preparedBy:me.uid,preparedByName:me.name||'',openingCarried:carryOpening,budgetCarried:carryBudget,closingBalance:fresh.closing,appVersion:APP_VERSION,fiscalEndDate:fiscalYearEndDate(fromFY)};
       // 年度切替の確定と同じ atomic update で、運用中の年度も次年度へ更新する。
       ups['settings/currentFiscalYear']=toFY;
-      const sig=statsSignatureFromList(fromFY,Object.values(fyMap||{}));
-      ups[`yearClosures/${fromFY}`]={fy:fromFY,closedAt:TS(),closedBy:me.uid,closedByName:me.name||'',sourceVersion:APP_VERSION,fiscalStartMonth:startMonth(),fiscalEndDate:fiscalYearEndDate(fromFY),auditAt:auditReports[fromFY]?.at||null,closingBalance:fresh.closing,pendingAdvanceCountAtClose:fresh.pendingAdvances.length,pendingAdvanceAmountAtClose:fresh.pendingAdvanceAmount,...sig};
+      // v162: 年度切替の本処理では別用途の統計関数に依存しない。
+      // 画面上ですでに算出済みの fresh.approved から必要な締め情報だけを直接生成する。
+      const approvedForClose=fresh.approved||[];
+      const closeIncome=approvedForClose.filter(e=>e.type==='income').reduce((n,e)=>n+(Number(e.amount)||0),0);
+      const closeExpense=approvedForClose.filter(e=>e.type==='expense').reduce((n,e)=>n+(Number(e.amount)||0),0);
+      ups[`yearClosures/${fromFY}`]={fy:fromFY,closedAt:TS(),closedBy:me.uid,closedByName:me.name||'',sourceVersion:APP_VERSION,fiscalStartMonth:startMonth(),fiscalEndDate:fiscalYearEndDate(fromFY),auditAt:auditReports[fromFY]?.at||null,closingBalance:fresh.closing,pendingAdvanceCountAtClose:fresh.pendingAdvances.length,pendingAdvanceAmountAtClose:fresh.pendingAdvanceAmount,approvedEntryCount:approvedForClose.length,totalIncome:closeIncome,totalExpense:closeExpense};
       // Firebase 応答が返らない場合でも「処理中」のまま永久停止させない。
       // 年度切替は同じ内容を再送しても同じキーへ上書きするため、再試行可能。
       let saveTimer=null;
       try{
-        if(status) status.innerHTML='<b>年度切り替え処理中です（1/2）</b><br>決算確定・繰越情報をFirebaseへ送信しています。';
+        if(status) status.innerHTML='<b>年度切り替え処理中です（2/3）</b><br>決算確定・繰越情報をFirebaseへ送信しています。';
         const savePromise=db.ref(ROOT).update(ups);
         const timeoutPromise=new Promise((_,reject)=>{
           saveTimer=setTimeout(()=>{
@@ -5743,7 +5749,7 @@ function bindFiscalClose(){
         });
         await Promise.race([savePromise,timeoutPromise]);
         clearTimeout(saveTimer);
-        if(status) status.innerHTML=`<b>年度切り替え処理中です（2/2）</b><br>保存を確認しました。画面を${toFY}年度へ切り替えています。`;
+        if(status) status.innerHTML=`<b>年度切り替え処理中です（3/3）</b><br>保存を確認しました。画面を${toFY}年度へ切り替えています。`;
       }catch(err){
         if(saveTimer) clearTimeout(saveTimer);
         console.error('年度決算確定・切り替え保存エラー',err);
