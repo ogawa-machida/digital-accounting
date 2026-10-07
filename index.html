@@ -880,7 +880,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.07-158';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.07-159';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -5721,13 +5721,28 @@ function bindFiscalClose(){
       ups[`settings/fiscalTransitions/${key}`]={fromFY,toFY,preparedAt:TS(),preparedBy:me.uid,preparedByName:me.name||'',openingCarried:carryOpening,budgetCarried:carryBudget,closingBalance:fresh.closing,appVersion:APP_VERSION,fiscalEndDate:fiscalYearEndDate(fromFY)};
       const sig=statsSignatureFromList(fromFY,Object.values(fyMap||{}));
       ups[`yearClosures/${fromFY}`]={fy:fromFY,closedAt:TS(),closedBy:me.uid,closedByName:me.name||'',sourceVersion:APP_VERSION,fiscalStartMonth:startMonth(),fiscalEndDate:fiscalYearEndDate(fromFY),auditAt:auditReports[fromFY]?.at||null,closingBalance:fresh.closing,pendingAdvanceCountAtClose:fresh.pendingAdvances.length,pendingAdvanceAmountAtClose:fresh.pendingAdvanceAmount,...sig};
+      // Firebase 応答が返らない場合でも「処理中」のまま永久停止させない。
+      // 年度切替は同じ内容を再送しても同じキーへ上書きするため、再試行可能。
+      let saveTimer=null;
       try{
-        await db.ref(ROOT).update(ups);
+        if(status) status.innerHTML='<b>年度切り替え処理中です（1/2）</b><br>決算確定・繰越情報をFirebaseへ送信しています。';
+        const savePromise=db.ref(ROOT).update(ups);
+        const timeoutPromise=new Promise((_,reject)=>{
+          saveTimer=setTimeout(()=>{
+            const e=new Error('Firebaseから15秒以内に応答がありませんでした');
+            e.code='FISCAL_SAVE_TIMEOUT'; reject(e);
+          },15000);
+        });
+        await Promise.race([savePromise,timeoutPromise]);
+        clearTimeout(saveTimer);
+        if(status) status.innerHTML='<b>年度切り替え処理中です（2/2）</b><br>保存を確認しました。画面を2026年度へ切り替えています。';
       }catch(err){
+        if(saveTimer) clearTimeout(saveTimer);
         console.error('年度決算確定・切り替え保存エラー',err);
-        const msg=`年度切り替えを保存できませんでした：${err?.message||String(err)}`;
+        const timedOut=err?.code==='FISCAL_SAVE_TIMEOUT';
+        const msg=timedOut?'Firebaseの応答を確認できませんでした。通信状態を確認して、もう一度「年度切り替え」を押してください。':`年度切り替えを保存できませんでした：${err?.message||String(err)}`;
         if(runBtn){runBtn.disabled=false;runBtn.textContent=`${fromFY}年度を決算確定し、${toFY}年度へ切り替える`;}
-        if(status){status.className='notice warn';status.innerHTML=`<b>保存できませんでした</b><br>${esc(msg)}`;}
+        if(status){status.className='notice warn';status.innerHTML=`<b>${timedOut?'保存確認がタイムアウトしました':'保存できませんでした'}</b><br>${esc(msg)}<br><small>「処理中」のまま停止することはありません。再実行しても同じ年度切替データを上書きするため重複登録にはなりません。</small>`;}
         showToast(msg);
         return;
       }
