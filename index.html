@@ -880,7 +880,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.08-167';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.08-168';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -3466,21 +3466,27 @@ function renderAudit(){
     <div class="hint">承認済み ${ap.length}件　確認済み ${ok.length}件　指摘 ${issue.length}件　未確認 ${todo.length}件</div></div></div>
   </div>`;
 
-  if(isA()){
-    html+=`<div class="panel"><h3>監査完了前チェック</h3>
-      <label style="display:flex;gap:9px;align-items:flex-start;margin:9px 0;font-size:13px"><input type="checkbox" class="audit-final-check" data-k="balance" ${checklist.balance?'checked':''} style="margin-top:3px">年度の収入・支出・帳簿残高を確認した</label>
-      <label style="display:flex;gap:9px;align-items:flex-start;margin:9px 0;font-size:13px"><input type="checkbox" class="audit-final-check" data-k="money" ${checklist.money?'checked':''} style="margin-top:3px">銀行口座・現金・仮払等の残高照合を確認した</label>
-      <label style="display:flex;gap:9px;align-items:flex-start;margin:9px 0;font-size:13px"><input type="checkbox" class="audit-final-check" data-k="evidence" ${checklist.evidence?'checked':''} style="margin-top:3px">必要な領収書類と未確認・例外伝票を確認した</label>
-      <label style="display:flex;gap:9px;align-items:flex-start;margin:9px 0;font-size:13px"><input type="checkbox" class="audit-final-check" data-k="issues" ${checklist.issues?'checked':''} style="margin-top:3px">監査指摘と会計担当の回答・対応を確認した</label>
-      <button class="btn ${report?'btn-ghost':'btn-navy'} full" id="auditDone" style="margin-top:12px">${report?'監査完了の記録を更新する':`${curFY}年度の監査を完了する`}</button>
-      <p class="hint" style="margin-bottom:0">4項目すべてを確認すると監査完了を記録できます。未確認伝票や残高差異がある場合は、完了前に内容を確認してください。</p>
-    </div>`;
-  }
-
   const f=auditFilter;
   const list=f==='todo'?todo:f==='issue'?issue:f==='ok'?ok:ap;
-  html+=`<div class="filter-bar">${[['todo','未確認',todo.length],['issue','指摘',issue.length],['ok','確認済み',ok.length],['all','すべて',ap.length]].map(([k,l,n])=>`<button class="chip ${f===k?'active':''}" data-f="${k}">${l}<span class="cnt">${n}</span></button>`).join('')}</div>`;
+  html+=`<div class="panel" style="padding-bottom:10px"><h3>監査対象伝票 <small>まず伝票を1件ずつ確認します</small></h3>
+    <div class="filter-bar" style="margin-bottom:0">${[['todo','未確認',todo.length],['issue','指摘',issue.length],['ok','確認済み',ok.length],['all','すべて',ap.length]].map(([k,l,n])=>`<button class="chip ${f===k?'active':''}" data-f="${k}">${l}<span class="cnt">${n}</span></button>`).join('')}</div>
+  </div>`;
   html+=list.length?list.map(slipHTML).join(''):`<div class="empty" style="padding:24px">該当する伝票はありません</div>`;
+
+  if(isA()){
+    const auditReady=todo.length===0;
+    html+=`<div class="panel" style="margin-top:16px;${auditReady?'':'opacity:.72'}"><h3>監査完了前チェック <small>${auditReady?'伝票確認が完了しました':'伝票確認後に実施します'}</small></h3>
+      ${auditReady?'':`<div class="notice amber" style="cursor:default"><span class="n-body"><b>まず監査対象伝票をすべて確認してください</b><span class="n-sub">未確認があと ${todo.length}件あります。上の「監査対象伝票」で確認または指摘を記録してください。</span></span></div>`}
+      <fieldset ${auditReady?'':'disabled'} style="border:0;padding:0;margin:0">
+      <label style="display:flex;gap:9px;align-items:flex-start;margin:9px 0;font-size:13px"><input type="checkbox" class="audit-final-check" data-k="balance" ${checklist.balance?'checked':''} style="margin-top:3px">年度の収入・支出・帳簿残高を確認した</label>
+      <label style="display:flex;gap:9px;align-items:flex-start;margin:9px 0;font-size:13px"><input type="checkbox" class="audit-final-check" data-k="money" ${checklist.money?'checked':''} style="margin-top:3px">銀行口座・現金・仮払等の残高照合を確認した</label>
+      <label style="display:flex;gap:9px;align-items:flex-start;margin:9px 0;font-size:13px"><input type="checkbox" class="audit-final-check" data-k="evidence" ${checklist.evidence?'checked':''} style="margin-top:3px">必要な領収書類と例外伝票を確認した</label>
+      <label style="display:flex;gap:9px;align-items:flex-start;margin:9px 0;font-size:13px"><input type="checkbox" class="audit-final-check" data-k="issues" ${checklist.issues?'checked':''} style="margin-top:3px">監査指摘と会計担当の回答・対応を確認した</label>
+      <button class="btn ${report?'btn-ghost':'btn-navy'} full" id="auditDone" style="margin-top:12px" ${auditReady?'':'disabled'}>${report?'監査完了の記録を更新する':`${curFY}年度の監査を完了する`}</button>
+      </fieldset>
+      <p class="hint" style="margin-bottom:0">${auditReady?'4項目すべてを確認すると監査完了を記録できます。残高差異や未回答の指摘がある場合は、完了前に内容を確認してください。':`未確認伝票が0件になると、このチェックと監査完了ボタンが有効になります。`}</p>
+    </div>`;
+  }
 
   html+=`<details class="panel" style="margin-top:16px"><summary style="font-family:'Shippori Mincho',serif;font-weight:700;cursor:pointer">データ出力・印刷（必要な場合のみ）</summary>
     <div class="btn-row" style="flex-wrap:wrap;margin-top:10px"><button class="btn btn-ghost sm" id="outCsv">出納帳CSV</button><button class="btn btn-ghost sm" id="outVouchers">領収書類台帳を印刷</button><button class="btn btn-ghost sm" id="outReport">総会報告書類を印刷・PDF保存</button></div>
@@ -3501,11 +3507,11 @@ function renderAudit(){
     if(!ensureFYOpen(curFY)) return;
     const final={};
     el.querySelectorAll('.audit-final-check').forEach(x=>final[x.dataset.k]=x.checked);
+    if(todo.length) return showToast(`未確認の伝票が${todo.length}件あります。先にすべての伝票を確認してください`);
     if(Object.values(final).filter(Boolean).length<4) return showToast('監査完了前チェックを4項目すべて確認してください');
     if(openingNeedsCheck) return showToast('期首繰越金の確認が必要です。会計担当者が年度設定を確認してください');
     if(!latestRecon) return showToast('現預金残高の照合待ちです。会計担当者が会計設定から照合を行ってください');
     if(Number(latestRecon.diff)!==0 && !confirm(`現預金照合に${yen(Number(latestRecon.diff)||0)}の差額があります。内容を確認済みとして監査完了しますか？`)) return;
-    if(todo.length && !confirm(`未確認の伝票が${todo.length}件あります。内容を確認済みとして監査完了しますか？`)) return;
     if(unresolvedIssue && !confirm(`会計担当の回答がない監査指摘が${unresolvedIssue}件あります。それでも完了しますか？`)) return;
     const comment=prompt('監査の所見（会員向け報告にも表示されます）','帳簿・領収書類・現預金残高を照合し、監査を実施しました。');
     if(comment===null)return;
