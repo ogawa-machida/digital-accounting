@@ -880,7 +880,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.07-151';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.07-152';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -4247,6 +4247,14 @@ async function renderAdmin(){
       add('総合テストUI：通常時は非表示',$('uiTestRunningBanner')?.style.display==='none'||$('uiTestRunningBanner')?.classList.contains('show')?'ok':'fail','通常時はフェイルセーフで非表示');
       add('総合テストUI：終了時復元設計',/curFY=oldFY/.test(runUIScreenTest.toString())&&/banner\?\.classList\.remove\('show'\)/.test(runUIScreenTest.toString())?'ok':'fail','全テスト終了後に年度・役割・実行中表示を復元');
       add('年度決算UI：専用画面',!!$('fiscalCloseScreen')&&renderFiscalCloseScreen.toString().includes('年度決算・年度切り替え')?'ok':'fail','会計設定と年度末業務を別画面化');
+      const fiscalBindSrc=bindFiscalClose.toString();
+      add('年度切替UI：完了後は次年度ホームへ遷移',
+        /curFY\s*=\s*toFY/.test(fiscalBindSrc)&&/showScreen\('homeScreen'\)/.test(fiscalBindSrc)&&/へ切り替えました/.test(fiscalBindSrc)?'ok':'fail',
+        '決算確定後は次年度を選択し、ホームへ自動遷移');
+      const fiscalRenderSrc=renderFiscalCloseScreen.toString();
+      add('年度切替UI：確定済み年度の再実行防止',
+        /切り替え済み/.test(fiscalRenderSrc)&&/blockers\|\|alreadyClosed\?'disabled'/.test(bindFiscalClose.toString())?'ok':'fail',
+        '確定済み年度は切り替え済み表示となり、再実行ボタンを無効化');
       add('画面遷移：伝票詳細の描画完了待ち',renderCurrent.toString().includes("await renderDetail(detailId)")?'ok':'fail','承認・監査ボタン描画前の競合を防止');
       add('年度決算UI：残高照合履歴の取得',!renderFiscalCloseScreen.toString().includes('latestBalanceCheck')?'ok':'fail','未定義関数を使用しない');
       add('会計設定UI：保存ボタン明確化',renderSettings.toString().includes('団体・年度設定を保存する')?'ok':'fail','設定保存の意味を明示');
@@ -5613,7 +5621,7 @@ function renderFiscalCloseScreen(){
     <div class="total-check"><span>未完了申請</span><b>${sum.unresolved.length}件</b></div>
     <div class="total-check"><span>未精算</span><b>${sum.pendingSettlement.length}件</b></div>
     <div class="total-check"><span>未精算仮払金</span><b style="color:${sum.pendingAdvances.length?'var(--stamp-red)':'var(--moss)'}">${sum.pendingAdvances.length}件・${yen(sum.pendingAdvanceAmount)}</b></div>
-    ${alreadyClosed?`<div class="notice ok"><b>✓ 決算確定済み</b><br>${fromFY}年度はロックされています。</div>`:(blockers?`<div class="notice warn"><b>まだ決算確定できません</b><br>締め日経過・監査完了・未完了申請0件・未精算0件・未精算仮払金0件のすべてが必要です。</div>`:`<div class="notice ok"><b>✓ 決算確定できます</b><br>確定すると${fromFY}年度の通常の追加・修正・承認・監査をロックします。</div>`)}
+    ${alreadyClosed?`<div class="notice ok"><b>✓ ${fromFY}年度 → ${toFY}年度　切り替え済み</b><br>${fromFY}年度の決算は確定済みです。通常の追加・修正・承認・監査はロックされています。</div>`:(blockers?`<div class="notice warn"><b>まだ決算確定できません</b><br>締め日経過・監査完了・未完了申請0件・未精算0件・未精算仮払金0件のすべてが必要です。</div>`:`<div class="notice ok"><b>✓ 決算確定できます</b><br>確定すると${fromFY}年度の通常の追加・修正・承認・監査をロックします。</div>`)}
     <div class="total-check"><span>年度末残高</span><b>${yen(sum.closing)}</b></div>
     <div class="total-check"><span>${toFY}年度の予算案</span><b>${nextBudgetCount}科目設定済</b></div>
     ${switched?`<p class="hint" style="color:var(--moss);font-weight:700">✓ ${toFY}年度の切り替え設定済みです。</p>`:''}
@@ -5659,9 +5667,18 @@ function bindFiscalClose(){
       const sig=statsSignatureFromList(fromFY,Object.values(fyMap||{}));
       ups[`yearClosures/${fromFY}`]={fy:fromFY,closedAt:TS(),closedBy:me.uid,closedByName:me.name||'',sourceVersion:APP_VERSION,fiscalStartMonth:startMonth(),fiscalEndDate:fiscalYearEndDate(fromFY),auditAt:auditReports[fromFY]?.at||null,closingBalance:fresh.closing,pendingAdvanceCountAtClose:fresh.pendingAdvances.length,pendingAdvanceAmountAtClose:fresh.pendingAdvanceAmount,...sig};
       await db.ref(ROOT).update(ups);
+      // Firebase の購読反映を待たず、画面側も直ちに「切り替え済み」に同期する。
+      settings.fiscalTransitions = settings.fiscalTransitions || {};
+      settings.fiscalTransitions[key] = ups[`settings/fiscalTransitions/${key}`];
+      yearClosures[fromFY] = ups[`yearClosures/${fromFY}`];
       writeLog('年度決算確定・切り替え',null,`${fromFY}年度（${fiscalYearEndDate(fromFY)}締め）→${toFY}年度／繰越 ${carryOpening?'あり':'なし'}／予算引継 ${carryBudget?'あり':'なし'}`);
-      showToast(`${fromFY}年度の決算を確定し、${toFY}年度への切り替えを準備しました`);
-      setTimeout(renderFiscalCloseScreen,250);
+
+      // 「OKを押したのに同じ年度切り替え画面へ戻る」状態をなくす。
+      // 完了後は次年度を選択し、その年度のホームへ移動する。
+      curFY = toFY;
+      subscribeFY();
+      await showScreen('homeScreen');
+      showToast(`${fromFY}年度の決算を確定し、${toFY}年度へ切り替えました`);
     };
   };
 }
