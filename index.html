@@ -880,7 +880,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.07-160';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.07-161';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -963,6 +963,7 @@ let accounts = [], methods = [], payers = [], members = [], storageTags = [];
 let fyMap = {}, pendingMap = {}, mineMap = {};
 let advances = [], settlements = [], logs = [], auditReports = {}, yearClosures = {};
 let curFY = null;
+let fiscalSwitchCompletion = null; // 年度切替直後のホーム完了表示（画面内セッション）
 let listeners = [];
 let currentScreen = 'homeScreen';
 let bookFilter = { status:'all', q:'', account:'', method:'', payer:'' };
@@ -1728,7 +1729,7 @@ function attachData(){
   if (curFY===null) curFY = null; // 設定読込後に決定
   onData(R('settings'), s => {
     settings = { ...settings, ...(s.val()||{}) };
-    if (curFY===null) { curFY = fyOf(localDate()); subscribeFY(); }
+    if (curFY===null) { const savedFY=Number(settings.currentFiscalYear); curFY = Number.isFinite(savedFY)&&savedFY>=2000&&savedFY<=9999 ? savedFY : fyOf(localDate()); subscribeFY(); }
     $('headerOrg').textContent = settings.orgName || '';
     renderAll();
     if(isRealAdmin() && !isTestMode()) setTimeout(maybeAutoBackup,500);
@@ -2075,7 +2076,8 @@ function renderHome(){
   const audited = ap.filter(e=>e.audit && !e.auditStale).length;
   const report = auditReports[curFY];
 
-  let html = nextActionHtml()+`<div class="summary-strip">
+  const switchDone = fiscalSwitchCompletion && Number(fiscalSwitchCompletion.toFY)===Number(curFY) ? `<div class="notice ok" id="fiscalSwitchDoneBanner" style="margin:0 0 12px"><span class="n-body"><b>✓ ${esc(fiscalSwitchCompletion.fromFY)}年度の決算を確定し、${esc(fiscalSwitchCompletion.toFY)}年度へ切り替えました</b><span class="n-sub">前年度繰越金 ${yen(fiscalSwitchCompletion.opening)} を反映済みです。${esc(fiscalSwitchCompletion.fromFY)}年度は決算確定済みとしてロックされています。</span></span></div>` : '';
+  let html = switchDone+nextActionHtml()+`<div class="summary-strip">
     <div><div class="lbl">前年度繰越</div><div class="val">${yen(opening)}</div></div>
     <div><div class="lbl">収入</div><div class="val" style="color:var(--stamp-navy)">${yen(inc)}</div></div>
     <div><div class="lbl">支出</div><div class="val" style="color:var(--stamp-red)">${yen(exp)}</div></div>
@@ -4252,6 +4254,9 @@ async function renderAdmin(){
         /curFY\s*=\s*toFY/.test(fiscalBindSrc)&&/showScreen\('homeScreen'\)/.test(fiscalBindSrc)&&/へ切り替えました/.test(fiscalBindSrc)?'ok':'fail',
         '決算確定後は次年度を選択し、ホームへ自動遷移');
       const fiscalRenderSrc=renderFiscalCloseScreen.toString();
+      add('年度切替：運用年度を同時保存',bindFiscalClose.toString().includes("settings/currentFiscalYear")?'ok':'fail','決算確定と同じFirebase atomic updateで次年度を運用年度に設定');
+      add('年度切替：操作ログ待ちで遷移停止しない',!/await writeLog\('年度決算確定・切り替え'/.test(bindFiscalClose.toString())?'ok':'fail','ログ保存を待たず次年度ホームへ遷移');
+      add('年度切替：ホームに完了状態を表示',renderHome.toString().includes('fiscalSwitchDoneBanner')?'ok':'fail','切替直後に完了・繰越反映・旧年度ロックを表示');
       add('年度切替UI：確定済み年度の再実行防止',
         /切り替え済み/.test(fiscalRenderSrc)&&/blockers\|\|alreadyClosed\?'disabled'/.test(bindFiscalClose.toString())?'ok':'fail',
         '確定済み年度は切り替え済み表示となり、再実行ボタンを無効化');
@@ -5720,6 +5725,8 @@ function bindFiscalClose(){
       if(carryBudget)accounts.forEach(a=>{ups[`accounts/${a.id}/budget/${toFY}`]=Number((a.budget||{})[fromFY])||0;});
       const key=`${fromFY}-${toFY}`;
       ups[`settings/fiscalTransitions/${key}`]={fromFY,toFY,preparedAt:TS(),preparedBy:me.uid,preparedByName:me.name||'',openingCarried:carryOpening,budgetCarried:carryBudget,closingBalance:fresh.closing,appVersion:APP_VERSION,fiscalEndDate:fiscalYearEndDate(fromFY)};
+      // 年度切替の確定と同じ atomic update で、運用中の年度も次年度へ更新する。
+      ups['settings/currentFiscalYear']=toFY;
       const sig=statsSignatureFromList(fromFY,Object.values(fyMap||{}));
       ups[`yearClosures/${fromFY}`]={fy:fromFY,closedAt:TS(),closedBy:me.uid,closedByName:me.name||'',sourceVersion:APP_VERSION,fiscalStartMonth:startMonth(),fiscalEndDate:fiscalYearEndDate(fromFY),auditAt:auditReports[fromFY]?.at||null,closingBalance:fresh.closing,pendingAdvanceCountAtClose:fresh.pendingAdvances.length,pendingAdvanceAmountAtClose:fresh.pendingAdvanceAmount,...sig};
       // Firebase 応答が返らない場合でも「処理中」のまま永久停止させない。
@@ -5736,7 +5743,7 @@ function bindFiscalClose(){
         });
         await Promise.race([savePromise,timeoutPromise]);
         clearTimeout(saveTimer);
-        if(status) status.innerHTML='<b>年度切り替え処理中です（2/2）</b><br>保存を確認しました。画面を2026年度へ切り替えています。';
+        if(status) status.innerHTML=`<b>年度切り替え処理中です（2/2）</b><br>保存を確認しました。画面を${toFY}年度へ切り替えています。`;
       }catch(err){
         if(saveTimer) clearTimeout(saveTimer);
         console.error('年度決算確定・切り替え保存エラー',err);
@@ -5754,7 +5761,10 @@ function bindFiscalClose(){
       if(carryOpening) settings.opening[toFY]=fresh.closing;
       if(carryBudget) accounts.forEach(a=>{a.budget=a.budget||{};a.budget[toFY]=Number((a.budget||{})[fromFY])||0;});
       yearClosures[fromFY] = ups[`yearClosures/${fromFY}`];
-      try{await writeLog('年度決算確定・切り替え',null,`${fromFY}年度（${fiscalYearEndDate(fromFY)}締め）→${toFY}年度／繰越 ${carryOpening?'あり':'なし'}／予算引継 ${carryBudget?'あり':'なし'}`);}catch(_){ }
+      settings.currentFiscalYear = toFY;
+      fiscalSwitchCompletion={fromFY,toFY,opening:carryOpening?fresh.closing:0,at:Date.now()};
+      // 操作ログは年度切替の画面遷移を止めない。失敗しても決算確定・年度更新は既に atomic update 済み。
+      Promise.resolve(writeLog('年度決算確定・切り替え',null,`${fromFY}年度（${fiscalYearEndDate(fromFY)}締め）→${toFY}年度／繰越 ${carryOpening?'あり':'なし'}／予算引継 ${carryBudget?'あり':'なし'}`)).catch(e=>console.warn('年度切替ログ保存エラー',e));
 
       // update() が成功した時点で確定済み。購読の再読込を待たず、利用者へ完了を明示する。
       // （Rules/通信状態によって直後の get() が遅延・失敗しても、保存済みなのに画面が無反応になるのを防ぐ）
