@@ -194,6 +194,7 @@ function sendEntryGroup_(list, user, to, targetRole, appUrl) {
   const who = (p.name || user.name || user.email || '利用者') + (p.post ? '（' + p.post + '）' : '');
   const total = list.reduce((s,e) => s + (Number(e.amount) || 0), 0);
   const isOfficerFallback = targetRole === 'viewer';
+  const isTreasurerOwn = user.role === 'treasurer' || user.role === 'admin';
 
   const lines = [
     who + 'さんから支出の承認依頼が' + list.length + '件届きました。',
