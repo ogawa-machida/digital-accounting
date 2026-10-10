@@ -879,7 +879,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.11-178';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.11-179';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -6528,6 +6528,18 @@ async function resetTrialData(){
     const photoSnap=await R('photos').get();
     const photoCount=photoSnap.exists() && typeof photoSnap.val()==='object' ? Object.keys(photoSnap.val()).length : 0;
     if(photoCount && !confirm(`領収書類が${photoCount}件あります。\n\n容量節約型バックアップでは画像そのものは複製しません。初期化すると、この${photoCount}件の画像も削除され復元できません。\n\nサンプル画像として削除してよい場合だけ続行してください。`)){ if(btn) btn.disabled=false; return; }
+    // v179: 本番Rulesでは承認済み伝票の削除は禁止されている。
+    // 更新全体が拒否される前に理由を明示し、保護条件は変更しない。
+    const preflightEntries=(await R('entries').get()).val()||{};
+    const protectedEntries=Object.entries(preflightEntries).filter(([id,v])=>v && v.status==='approved');
+    if(protectedEntries.length){
+      throw new Error(`承認済み伝票が${protectedEntries.length}件含まれています。本番Firebase Rulesが削除を禁止しています。データ保護のため初期化は中止しました。承認済み伝票を含む試行データの一括消去には、管理者によるバックアップ確認後の限定的なサーバー側削除が必要です。`);
+    }
+    // 操作履歴の削除はRules上、adminのみ許可。treasurerでは実行しない。
+    const preflightLogs=(await R('log').get()).val()||{};
+    if(Object.keys(preflightLogs).length && resetRole!=='admin'){
+      throw new Error('操作履歴の削除にはFirebase上のadmin権限が必要です。初期化は中止しました。');
+    }
     showToast('初期化前の会計データをバックアップしています…');
     await createFirebaseBackup('pre_reset',true);
 
