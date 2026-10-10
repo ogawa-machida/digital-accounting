@@ -880,7 +880,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.08-169';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.11-170';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -5758,7 +5758,19 @@ function bindFiscalClose(){
       const value=Math.max(0,Math.floor(Number(input.value)||0));
       btn.disabled=true;btn.textContent='保存しています…';
       const ups={};ups[`accounts/${aid}/budget/${toFY}`]=value;ups[`settings/budgetDrafts/${toFY}/items/${aid}`]={value,confirmed:true,confirmedAt:TS(),confirmedBy:me.uid};ups[`settings/budgetDrafts/${toFY}/fromFY`]=fromFY;ups[`settings/budgetDrafts/${toFY}/status`]='draft';ups[`settings/budgetDrafts/${toFY}/updatedAt`]=TS();
-      try{await db.ref(ROOT).update(ups);settings.budgetDrafts=settings.budgetDrafts||{};settings.budgetDrafts[toFY]=settings.budgetDrafts[toFY]||{items:{}};settings.budgetDrafts[toFY].items=settings.budgetDrafts[toFY].items||{};settings.budgetDrafts[toFY].items[aid]=ups[`settings/budgetDrafts/${toFY}/items/${aid}`];const a=accounts.find(x=>x.id===aid);if(a){a.budget=a.budget||{};a.budget[toFY]=value;}btn.disabled=false;btn.className='btn btn-ghost full budget-draft-confirm';btn.textContent='✓ この科目は確定済み（再確定）';showToast(`${a?.name||'科目'}の予算案を確定しました`);renderFiscalCloseScreen();setTimeout(()=>{$('fyBudgetDraft')?.click();},0);}catch(e){btn.disabled=false;btn.textContent='この科目を確定';showToast(`保存できませんでした：${e?.message||e}`);}
+      try{await db.ref(ROOT).update(ups);settings.budgetDrafts=settings.budgetDrafts||{};settings.budgetDrafts[toFY]=settings.budgetDrafts[toFY]||{items:{}};settings.budgetDrafts[toFY].items=settings.budgetDrafts[toFY].items||{};settings.budgetDrafts[toFY].items[aid]=ups[`settings/budgetDrafts/${toFY}/items/${aid}`];const a=accounts.find(x=>x.id===aid);if(a){a.budget=a.budget||{};a.budget[toFY]=value;}btn.disabled=false;btn.className='btn btn-ghost full budget-draft-confirm';btn.textContent='✓ この科目は確定済み（再確定）';showToast(`${a?.name||'科目'}の予算案を確定しました`);// 保存後は進捗を更新し、次の未確定科目へ自動スクロールする。
+      const currentIndex=Array.from(box.querySelectorAll('.budget-draft-row')).indexOf(row);
+      const nextId=Array.from(box.querySelectorAll('.budget-draft-row')).slice(currentIndex+1).find(el=>!el.querySelector('.budget-draft-confirm')?.textContent.includes('確定済み'))?.dataset.id;
+      const fallbackId=Array.from(box.querySelectorAll('.budget-draft-row')).find(el=>el.dataset.id!==aid&&!el.querySelector('.budget-draft-confirm')?.textContent.includes('確定済み'))?.dataset.id;
+      const targetId=nextId||fallbackId;
+      renderFiscalCloseScreen();
+      $('fyBudgetDraft')?.click();
+      requestAnimationFrame(()=>requestAnimationFrame(()=>{
+        const rows=Array.from(document.querySelectorAll('#fyBudgetDraftBox .budget-draft-row'));
+        const target=targetId?rows.find(el=>el.dataset.id===targetId):rows.find(el=>el.dataset.id===aid);
+        if(target){target.scrollIntoView({behavior:'smooth',block:'center'});}
+        if(!targetId)showToast('すべての科目の予算案を確定しました');
+      }));}catch(e){btn.disabled=false;btn.textContent='この科目を確定';showToast(`保存できませんでした：${e?.message||e}`);}
     });
     box.scrollIntoView({behavior:'smooth',block:'start'});
   };
