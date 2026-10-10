@@ -879,7 +879,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.11-175-production-diagnostic-stage';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.11-178';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -929,6 +929,27 @@ const CONFIGURED = !firebaseConfig.apiKey.startsWith('YOUR_');
 const ROOT = 'chokai-kaikei';
 const TEST_ROOT = 'chokai-kaikei-tests';
 const IS_PRODUCTION_TEST = new URLSearchParams(location.search).get('diagnostic') === '1';
+
+// v178: 管理者のワンタップ診断。画面遷移は内部で行い、終了後に元の管理画面へ戻す。
+const ADMIN_DIAG_FLOW_KEY = 'kaikei_admin_diag_flow_v178';
+const ADMIN_DIAG_RESULT_KEY = 'kaikei_admin_diag_result_v178';
+function adminDiagFlow(){
+  try { const v=JSON.parse(sessionStorage.getItem(ADMIN_DIAG_FLOW_KEY)||'null');
+    return v && v.startedAt && Date.now()-v.startedAt<30*60*1000 ? v : null;
+  } catch(_){return null;}
+}
+function adminDiagOverlay(message){
+  let el=document.getElementById('adminDiagProgressOverlay');
+  if(!el){el=document.createElement('div');el.id='adminDiagProgressOverlay';
+    el.style.cssText='position:fixed;inset:0;z-index:2147483646;background:#FBF6EC;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center';
+    document.body.appendChild(el);}
+  el.innerHTML='<div style="max-width:420px"><div style="font-size:20px;font-weight:800;margin-bottom:12px">管理者・総合実画面テスト</div><div style="line-height:1.8">'+message+'</div><div style="margin-top:14px;font-size:12px;opacity:.7">本番の会計データには書き込みません。完了後は管理画面に戻ります。</div></div>';
+}
+function adminDiagGoNormal(){
+  const target=new URL(location.href); target.searchParams.delete('diagnostic');
+  location.replace(target.href);
+}
+
 let auth = null, db = null;
 if (CONFIGURED) {
   firebase.initializeApp(firebaseConfig);
@@ -1023,6 +1044,26 @@ async function enterProductionTest(user) {
   $('roleBadge').textContent = '管理者・検証環境';
   $('userName').textContent = '総合実画面テスト';
   renderAll();
+  const flow=adminDiagFlow();
+  if(flow && !window.__adminDiagAutoStarted){
+    window.__adminDiagAutoStarted=true;
+    adminDiagOverlay('隔離テスト領域を準備しています…');
+    setTimeout(async()=>{
+      try{
+        await showScreen('adminScreen');
+        const el=document.getElementById('diagUIResult');
+        if(!el)throw new Error('テスト画面の準備に失敗しました');
+        await runUIScreenTest();
+      }catch(e){
+        console.error('管理者診断の自動開始',e);
+        sessionStorage.setItem(ADMIN_DIAG_RESULT_KEY,JSON.stringify({
+          html:'<div class="diag-summary fail">診断の開始に失敗しました。診断モードで状態を確認してください。</div>',
+          finishedAt:Date.now(),summary:null}));
+        const ov=document.getElementById('adminDiagProgressOverlay');if(ov)ov.remove();
+        // 異常時は隔離環境に留まり、未完了データの清掃を可能にする。
+      }
+    },350);
+  }
 }
 async function verifyProductionTestAdmin(user) {
   if (!user || !user.uid || !db) {
@@ -1781,6 +1822,26 @@ async function enterAs(user){
     $('roleBadge').textContent = testProfile ? `${me.testRoleLabel}・テスト` : (ROLES[me.role]?.name || '');
     $('userName').textContent = me.name || '';
     renderAll();
+    if(realMe.role==='admin' && !IS_PRODUCTION_TEST){
+      try{
+        const result=JSON.parse(sessionStorage.getItem(ADMIN_DIAG_RESULT_KEY)||'null');
+        if(result && Date.now()-result.finishedAt<30*60*1000 && !window.__adminDiagRestored){
+          window.__adminDiagRestored=true;
+          sessionStorage.removeItem(ADMIN_DIAG_RESULT_KEY);
+          sessionStorage.removeItem(ADMIN_DIAG_FLOW_KEY);
+          lastUiTestResultHtml=result.html||'';
+          lastUiTestSummary=result.summary||null;
+          adminActiveGroup='diagnostics';
+          testProfile=null;applyEffectiveProfile();
+          try{sessionStorage.setItem('kaikei_test_profile','admin');}catch(_){}
+          setTimeout(async()=>{if(!isRealAdmin())return;await showScreen('adminScreen');
+            const menu=document.getElementById('adminMenu');if(menu)menu.style.display='none';
+            document.querySelectorAll('#adminScreen .admin-group').forEach(x=>x.classList.remove('open'));
+            const grp=document.getElementById('adminGroupDiagnostics');if(grp)grp.classList.add('open');
+          },250);
+        }
+      }catch(e){console.warn('診断結果の復元',e);}
+    }
     if(realMe.role==='admin' && !window.__testRoleAsked){
       window.__testRoleAsked=true;
       let saved=''; try{saved=sessionStorage.getItem('kaikei_test_profile')||'';}catch(e){}
@@ -4173,7 +4234,7 @@ async function renderAdmin(){
         <p class="hint">アプリ更新後はこちらです。主要業務を実際の画面イベントで一括確認し、診断データは最後に自動撤去します。</p>
         ${IS_PRODUCTION_TEST
           ? `<button class="btn btn-navy full" id="diagUIRun">総合実画面テストを実行</button><button class="btn btn-ghost full" id="diagReturnNormal" style="margin-top:8px">通常の会計画面へ戻る</button>`
-          : `<p class="hint">管理者はこの画面から隔離診断モードへ移動して総合テストを実行できます。実際の会計データはテスト対象にしません。</p><button class="btn btn-navy full" id="diagEnterIsolated">隔離診断モードで総合テストを開く</button>`}
+          : `<p class="hint">管理者のまま診断を実行します。内部で隔離テスト領域へ切り替え、終了後に管理画面へ戻ります。</p><button class="btn btn-navy full" id="diagEnterIsolated">総合実画面テストを実行</button>`}
         <div id="diagSessionStatus" class="hint" style="margin-top:12px"></div>
         <button class="btn btn-ghost full" id="diagCleanup" style="margin-top:8px">中断したテストを確認・清掃</button><div id="diagCleanupResult" style="margin-top:8px"></div>
         <details style="margin-top:12px"><summary>総合実画面テストの対象範囲</summary><div class="hint" style="margin-top:8px">
@@ -5021,13 +5082,14 @@ async function renderAdmin(){
       out.innerHTML=diagRow('総合実画面テスト','fail','通常の会計領域では実行できません。専用テストモードで実行してください');
       return;
     }
+    const autoAdminFlow=isolatedProductionTest && !!adminDiagFlow();
     if(isolatedProductionTest){
-      if(!confirm('テスト専用領域 chokai-kaikei-tests で総合実画面テストを実行します。通常の会計データには書き込みません。終了後にテストデータの撤去と残存確認を行います。続けますか？'))return;
+      if(!autoAdminFlow && !confirm('テスト専用領域 chokai-kaikei-tests で総合実画面テストを実行します。通常の会計データには書き込みません。終了後にテストデータの撤去と残存確認を行います。続けますか？'))return;
     }else{
       if(!confirm('ローカルEmulator専用テストです。Emulator専用の管理APIで診断データのみ撤去します。続けますか？'))return;
     }
     const modeName='総合';
-    if(!confirm(`総合実画面テストを実行します。\n\n主要経路と異常系を実際の画面イベントで自動操作します。作成する診断専用伝票は終了時に削除し、通知メールと本番の伝票番号採番は行いません。`))return;
+    if(!autoAdminFlow && !confirm(`総合実画面テストを実行します。\n\n主要経路と異常系を実際の画面イベントで自動操作します。作成する診断専用伝票は終了時に削除し、通知メールと本番の伝票番号採番は行いません。`))return;
     const rows=[], runId=`ui_full_${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
     lastUiTestResultHtml='';
     lastUiTestSummary=null;
@@ -5038,7 +5100,9 @@ async function renderAdmin(){
     let uiTestStage='開始';
     uiTestStageGlobal=uiTestStage;
     uiTestCapturedErrors=[];
-    const updateBanner=()=>{uiTestStageGlobal=uiTestStage;if(bannerStage)bannerStage.textContent=`${uiTestStage}　確認済み ${rows.length}項目`;};
+    const updateBanner=()=>{uiTestStageGlobal=uiTestStage;if(bannerStage)bannerStage.textContent=`${uiTestStage}　確認済み ${rows.length}項目`;
+      if(autoAdminFlow)adminDiagOverlay(`テスト実行中：${uiTestStage}<div style="margin-top:8px;font-weight:700">確認済み ${rows.length}項目</div>`);
+    };
     const add=(n,s,d)=>{rows.push([n,s,d]);updateBanner();};
     const markStage=name=>{uiTestStage=name;updateBanner();};
     const waitFor=async(fn,ms=5000)=>{const end=Date.now()+ms;while(Date.now()<end){try{const v=await Promise.resolve(fn());if(v)return v;}catch(_){}await sleep(80);}throw new Error(`「${uiTestStage}」で画面の応答がタイムアウトしました`);};
@@ -5885,7 +5949,17 @@ async function renderAdmin(){
     out=document.getElementById('diagUIResult');
     if(out){
       out.innerHTML=lastUiTestResultHtml;
-      out.scrollIntoView({behavior:'smooth',block:'start'});
+      if(!autoAdminFlow)out.scrollIntoView({behavior:'smooth',block:'start'});
+    }
+    if(autoAdminFlow){
+      try{
+        sessionStorage.setItem(ADMIN_DIAG_RESULT_KEY,JSON.stringify({
+          html:lastUiTestResultHtml,summary:lastUiTestSummary,finishedAt:Date.now()
+        }));
+        adminDiagOverlay(`テスト終了：${lastUiTestSummary?.passed||0}/${lastUiTestSummary?.total||0} PASS。管理画面に戻ります…`);
+        adminDiagGoNormal();
+      }catch(e){console.error('診断結果の引継ぎ',e);
+        const ov=document.getElementById('adminDiagProgressOverlay');if(ov)ov.remove();}
     }
   }
   if($('diagRun'))$('diagRun').onclick=runSystemDiagnostics;
@@ -5894,7 +5968,13 @@ async function renderAdmin(){
     if(!isRealAdmin() || !auth.currentUser || IS_PRODUCTION_TEST || activeRoot!==ROOT){
       showToast('通常会計モードの実管理者のみ利用できます');return;
     }
-    if(!confirm('総合テスト専用領域に切り替えます。通常の会計データを使用せず、診断専用領域で実行します。続けますか？'))return;
+    if(!confirm('管理者として総合実画面テストを実行します。隔離領域だけを使用し、完了後にこの管理画面へ自動的に戻ります。続けますか？'))return;
+    try{
+      sessionStorage.setItem('kaikei_test_profile','admin');
+      sessionStorage.setItem(ADMIN_DIAG_FLOW_KEY,JSON.stringify({startedAt:Date.now()}));
+      sessionStorage.removeItem(ADMIN_DIAG_RESULT_KEY);
+    }catch(e){showToast('診断の一時状態を保存できません');return;}
+    adminDiagOverlay('隔離テスト領域へ接続しています…');
     const target=new URL(location.href);
     target.searchParams.set('diagnostic','1');
     location.assign(target.href);
