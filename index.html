@@ -880,7 +880,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.11-170';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.11-172';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -3123,6 +3123,7 @@ function renderSettle(){
 
   const people = settlePeople();
   let html = `<p class="hint" style="margin-top:0">支払った人ごとに、たまった立替と仮払金を相殺して一度に精算できます。会う日に合わせて、承認済みの分をまとめて清算してください。</p>`;
+  html += renderCashPreparation(people);
   html += `<h2 class="section-title">精算待ち</h2>`;
   html += people.length ? people.map(p=>{
     const py = payerById(p.pid) || {name:'（不明）'};
@@ -3145,7 +3146,45 @@ function renderSettle(){
   el.innerHTML = html;
   el.querySelectorAll('.person-row').forEach(b=>b.onclick=()=>{ settleView=b.dataset.pid; renderSettle(); window.scrollTo(0,0); });
   $('advAdd').onclick = addAdvance;
+  bindCashPreparation(el);
   bindSettlementCards(el);
+}
+
+/* 銀行での現金準備用。集計のみで、伝票・精算状態は一切変更しない。 */
+function cashPreparationData(people){
+  const rows=people.filter(p=>p.ready && p.net>0).map(p=>({
+    pid:p.pid, name:payerName(p.pid), count:p.approved.length,
+    spent:p.spent, advance:p.adv, amount:p.net
+  })).sort((a,b)=>a.name.localeCompare(b.name,'ja'));
+  const refunds=people.filter(p=>p.ready && p.net<0).reduce((sum,p)=>sum-p.net,0);
+  const pendingHandovers=settlements.filter(s=>!s.legacy && !s.payerConfirm && Number(s.net)>0);
+  return {rows,refunds,pendingHandovers,total:rows.reduce((sum,r)=>sum+r.amount,0)};
+}
+function renderCashPreparation(people){
+  const d=cashPreparationData(people);
+  let html=`<div class="panel" style="margin-top:14px" id="cashPreparationPanel">
+    <h3>現金準備リスト <small>銀行へ行く前に確認</small></h3>
+    <p class="hint">承認済み・未精算の立替額を支払者ごとに合計し、未精算の仮払金を差し引いています。確認待ち・差戻し中の申請は含みません。</p>
+    <div class="net-box"><div class="d">準備する現金の合計（${d.rows.length}人）</div><div class="v">${yen(d.total)}</div></div>`;
+  if(d.rows.length){
+    html+=`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr><th style="text-align:left;padding:9px 4px;border-bottom:1px solid var(--line)">支払者</th><th style="text-align:right;padding:9px 4px;border-bottom:1px solid var(--line)">件数</th><th style="text-align:right;padding:9px 4px;border-bottom:1px solid var(--line)">準備額</th></tr></thead><tbody>`;
+    html+=d.rows.map(r=>`<tr><td style="padding:11px 4px;border-bottom:1px solid var(--line)">${esc(r.name)}</td><td style="text-align:right;padding:11px 4px;border-bottom:1px solid var(--line)">${r.count}件</td><td style="text-align:right;padding:11px 4px;border-bottom:1px solid var(--line);font-weight:700">${yen(r.amount)}</td></tr>`).join('');
+    html+=`</tbody></table></div><div class="btn-row" style="margin-top:12px"><button class="btn btn-navy sm" id="cashPrepCopy">一覧をコピー</button></div>`;
+  }else html+=`<p class="hint">現時点で現金を準備する対象はありません。</p>`;
+  if(d.refunds)html+=`<p class="hint">※ 会計が返金を受け取る予定：${yen(d.refunds)}（現金準備額には含めません）</p>`;
+  if(d.pendingHandovers.length)html+=`<div class="notice warn" style="margin-top:12px">すでに精算記録があり、本人の受取確認待ちとなっている支払いが ${d.pendingHandovers.length}件・${yen(d.pendingHandovers.reduce((sum,s)=>sum+Number(s.net||0),0))} あります。上の準備額には含めていません。現金の手渡し状況を確認してください。</div>`;
+  html+=`<p class="hint">この一覧は現金準備のための参照情報です。コピーしても精算済みにはなりません。現金を手渡す際は下の支払者別画面から「精算を記録する」を実行してください。</p></div>`;
+  return html;
+}
+function bindCashPreparation(el){
+  const btn=el.querySelector('#cashPrepCopy');
+  if(!btn)return;
+  btn.onclick=async()=>{
+    const d=cashPreparationData(settlePeople());
+    const lines=['現金準備リスト（'+localDate()+'時点）',...d.rows.map(r=>`${r.name}\t${r.count}件\t${r.amount.toLocaleString()}円`),`合計\t${d.rows.length}人\t${d.total.toLocaleString()}円`,'※承認済み・未精算分のみ。手渡し・精算記録は別途必要。'];
+    try{await navigator.clipboard.writeText(lines.join('\n'));showToast('現金準備リストをコピーしました');}
+    catch(e){const ta=document.createElement('textarea');ta.value=lines.join('\n');ta.style.position='fixed';ta.style.top='10px';ta.style.left='10px';ta.style.width='90%';document.body.appendChild(ta);ta.focus();ta.select();try{document.execCommand('copy');showToast('現金準備リストをコピーしました');}catch(_){showToast('コピーできませんでした');}ta.remove();}
+  };
 }
 
 function settlementHistory(list){
@@ -5718,7 +5757,7 @@ function renderFiscalCloseScreen(){
   const blockers=sum.unresolved.length+sum.pendingSettlement.length+sum.pendingAdvances.length+(hasAudit?0:1)+(dateOk?0:1)+(yearEndBalance?0:1);
   const step1ok=sum.unresolved.length===0&&sum.pendingSettlement.length===0&&sum.pendingAdvances.length===0;
   const step3ok=hasAudit, step4ok=budgetReady, step5ok=alreadyClosed;
-  el.innerHTML=`<div class="hint" style="margin:0 0 10px;color:var(--navy);font-weight:800">会計設定 ＞ 年度末・年度開始処理</div><h2 class="section-title">${fromFY}年度 年度末・年度開始処理</h2>
+  el.innerHTML=`<button type="button" class="btn btn-ghost full" id="fyBackToSettingsMenu" style="margin:0 0 12px">← 設定メニューに戻る</button><div class="hint" style="margin:0 0 10px;color:var(--navy);font-weight:800">会計設定 ＞ 年度末・年度開始処理</div><h2 class="section-title">${fromFY}年度 年度末・年度開始処理</h2>
   <div class="form-card"><div style="font-weight:800;margin-bottom:8px">年度末処理の進み具合</div>
     <div class="total-check"><span>STEP 1　未処理・未精算の確認</span><b>${step1ok?'✓ 完了':'要対応'}</b></div>
     <div class="total-check"><span>STEP 2　年度末の現金・預金等の残高確認</span><b>${yearEndBalance?'✓ 一致・確認済み':dateOk?'要確認':'締め日前'}</b></div>
@@ -5747,6 +5786,7 @@ function renderFiscalCloseScreen(){
   bindFiscalClose();
 }
 function bindFiscalClose(){
+  if($('fyBackToSettingsMenu')) $('fyBackToSettingsMenu').onclick=()=>showScreen('settingsScreen');
   if($('fyGoRecon')) $('fyGoRecon').onclick=async()=>{ await showScreen('settingsScreen'); setTimeout(()=>{ const b=document.querySelector('[data-settings-open="money"]'); if(b)b.click(); setTimeout(()=>document.querySelector('#reconSave')?.scrollIntoView({behavior:'smooth',block:'center'}),50); },50); };
   if($('fySettlementDocs')) $('fySettlementDocs').onclick=()=>printSettlementDocuments(curFY);
   if($('fyBudgetDraft')) $('fyBudgetDraft').onclick=()=>{
