@@ -4171,7 +4171,9 @@ async function renderAdmin(){
       <h2 class="section-title">総合実画面テスト</h2>
       <div class="form-card" style="margin-top:12px;background:var(--tint)"><div style="font-weight:700;font-size:16px">総合実画面テスト</div>
         <p class="hint">アプリ更新後はこちらです。主要業務を実際の画面イベントで一括確認し、診断データは最後に自動撤去します。</p>
-        <button class="btn btn-navy full" id="diagUIRun">総合実画面テストを実行</button>
+        ${IS_PRODUCTION_TEST
+          ? `<button class="btn btn-navy full" id="diagUIRun">総合実画面テストを実行</button><button class="btn btn-ghost full" id="diagReturnNormal" style="margin-top:8px">通常の会計画面へ戻る</button>`
+          : `<p class="hint">管理者はこの画面から隔離診断モードへ移動して総合テストを実行できます。実際の会計データはテスト対象にしません。</p><button class="btn btn-navy full" id="diagEnterIsolated">隔離診断モードで総合テストを開く</button>`}
         <div id="diagSessionStatus" class="hint" style="margin-top:12px"></div>
         <button class="btn btn-ghost full" id="diagCleanup" style="margin-top:8px">中断したテストを確認・清掃</button><div id="diagCleanupResult" style="margin-top:8px"></div>
         <details style="margin-top:12px"><summary>総合実画面テストの対象範囲</summary><div class="hint" style="margin-top:8px">
@@ -5888,6 +5890,21 @@ async function renderAdmin(){
   }
   if($('diagRun'))$('diagRun').onclick=runSystemDiagnostics;
   if($('diagUIRun'))$('diagUIRun').onclick=()=>runUIScreenTest();
+  if($('diagEnterIsolated'))$('diagEnterIsolated').onclick=()=>{
+    if(!isRealAdmin() || !auth.currentUser || IS_PRODUCTION_TEST || activeRoot!==ROOT){
+      showToast('通常会計モードの実管理者のみ利用できます');return;
+    }
+    if(!confirm('総合テスト専用領域に切り替えます。通常の会計データを使用せず、診断専用領域で実行します。続けますか？'))return;
+    const target=new URL(location.href);
+    target.searchParams.set('diagnostic','1');
+    location.assign(target.href);
+  };
+  if($('diagReturnNormal'))$('diagReturnNormal').onclick=()=>{
+    if(uiAutoTestContext){showToast('テスト実行中は戻れません');return;}
+    const target=new URL(location.href);
+    target.searchParams.delete('diagnostic');
+    location.assign(target.href);
+  };
 
   // v84: データ保存期間・退任・匿名統計
   const retentionPolicy=()=>({
