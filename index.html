@@ -879,7 +879,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.11-179';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.11-180';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -950,6 +950,11 @@ function adminDiagGoNormal(){
   location.replace(target.href);
 }
 
+// v180: 遷移先でも先に進捗画面を出し、検証用アカウント表示を見せない。
+if(IS_PRODUCTION_TEST && adminDiagFlow()) {
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',()=>adminDiagOverlay('診断環境を準備しています…'),{once:true});
+  else adminDiagOverlay('診断環境を準備しています…');
+}
 let auth = null, db = null;
 if (CONFIGURED) {
   firebase.initializeApp(firebaseConfig);
@@ -1047,22 +1052,39 @@ async function enterProductionTest(user) {
   const flow=adminDiagFlow();
   if(flow && !window.__adminDiagAutoStarted){
     window.__adminDiagAutoStarted=true;
-    adminDiagOverlay('隔離テスト領域を準備しています…');
+    adminDiagOverlay('総合実画面テストを準備しています…');
+    // renderAdmin は非同期。診断用ボタンの生成を待ってからテストを直接起動する。
+    // 役割選択ダイアログやテスト実行ボタンへの再タップは不要。
     setTimeout(async()=>{
       try{
+        adminActiveGroup='diagnostics';
         await showScreen('adminScreen');
-        const el=document.getElementById('diagUIResult');
-        if(!el)throw new Error('テスト画面の準備に失敗しました');
+        await renderCurrent();
+        if(!document.getElementById('diagUIResult'))throw new Error('診断結果欄の生成に失敗しました');
+        adminDiagOverlay('総合実画面テストを開始しています…');
         await runUIScreenTest();
+        // 実行関数が早期 return した場合も検知し、通常画面へ復帰する。
+        if(sessionStorage.getItem(ADMIN_DIAG_FLOW_KEY) && !lastUiTestSummary){
+          const detail=document.getElementById('diagUIResult')?.textContent?.trim()||'診断が開始されませんでした';
+          throw new Error(detail.slice(0,300));
+        }
       }catch(e){
         console.error('管理者診断の自動開始',e);
-        sessionStorage.setItem(ADMIN_DIAG_RESULT_KEY,JSON.stringify({
-          html:'<div class="diag-summary fail">診断の開始に失敗しました。診断モードで状態を確認してください。</div>',
-          finishedAt:Date.now(),summary:null}));
-        const ov=document.getElementById('adminDiagProgressOverlay');if(ov)ov.remove();
-        // 異常時は隔離環境に留まり、未完了データの清掃を可能にする。
+        const detail=String(e?.message||e);
+        try{sessionStorage.setItem(ADMIN_DIAG_RESULT_KEY,JSON.stringify({
+          html:'<div class="diag-summary fail">総合テストを開始・完了できませんでした。'+esc(detail)+'</div>',
+          finishedAt:Date.now(),summary:null}));}catch(_){}
+        // テスト途中で例外が起きた場合は診断データが残る可能性がある。
+        // その場合は自動復帰せず清掃画面へ案内する。
+        if(uiAutoTestContext){
+          adminDiagOverlay('テストが中断しました。診断データの清掃が必要です。<div style="margin-top:12px"><button id="diagShowCleanup" class="btn btn-ghost">清掃画面を表示</button></div>');
+          document.getElementById('diagShowCleanup')?.addEventListener('click',()=>document.getElementById('adminDiagProgressOverlay')?.remove());
+        }else{
+          adminDiagOverlay('テストを開始できませんでした。通常の管理画面へ戻ります…');
+          adminDiagGoNormal();
+        }
       }
-    },350);
+    },250);
   }
 }
 async function verifyProductionTestAdmin(user) {
