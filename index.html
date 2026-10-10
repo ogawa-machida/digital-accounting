@@ -873,14 +873,13 @@ label[for="newMSettle"]{display:flex;align-items:center;justify-content:flex-sta
 const firebaseConfig = {
   apiKey: "AIzaSyCVbfpe_4HdY5J1_ccdAi6AFF-lS4pmZ6M",
   authDomain: "ogawa-machida.firebaseapp.com",
-  // ↓ Realtime Database のURL（Firebaseコンソール＞Realtime Database の画面上部に表示されるURLと一致させてください）
   databaseURL: "https://ogawa-machida-default-rtdb.asia-southeast1.firebasedatabase.app",
   projectId: "ogawa-machida",
   storageBucket: "ogawa-machida.firebasestorage.app",
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.08-169';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.11-175-production-diagnostic-stage';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -928,13 +927,116 @@ window.addEventListener('DOMContentLoaded',()=>{improveTypography(); setTimeout(
 window.addEventListener('resize',()=>requestAnimationFrame(()=>alignWrappedProse()));
 const CONFIGURED = !firebaseConfig.apiKey.startsWith('YOUR_');
 const ROOT = 'chokai-kaikei';
+const TEST_ROOT = 'chokai-kaikei-tests';
+const IS_PRODUCTION_TEST = new URLSearchParams(location.search).get('diagnostic') === '1';
 let auth = null, db = null;
 if (CONFIGURED) {
   firebase.initializeApp(firebaseConfig);
   auth = firebase.auth();
   db = firebase.database();
 }
-const R = p => db.ref(`${ROOT}/${p}`);
+let activeRoot = IS_PRODUCTION_TEST ? TEST_ROOT : ROOT;
+
+function setAccountingRoot(root) {
+  if (root !== ROOT && root !== TEST_ROOT) {
+    throw new Error('許可されていないデータ参照先です');
+  }
+  if (IS_PRODUCTION_TEST && root !== TEST_ROOT) {
+    throw new Error('本番隔離テスト中は本番会計データへ切り替えられません');
+  }
+  activeRoot = root;
+}
+
+const R = p => db.ref(`${activeRoot}/${p}`);
+
+function watchProductionTestAdmin(user) {
+  if (!IS_PRODUCTION_TEST || !user || !user.uid || !db) {
+    throw new Error('テストモードの管理者監視を開始できません');
+  }
+
+  const ref = db.ref(`${ROOT}/members/${user.uid}/role`);
+
+  const handler = ref.on('value', snap => {
+    if (snap.val() !== 'admin') {
+      detachAll();
+      setAccountingRoot(TEST_ROOT);
+      me = null;
+      realMe = null;
+      testProfile = null;
+      hideAllRoots();
+      $('loginScreen').style.display = 'block';
+      $('loginError').textContent =
+        '管理者権限が確認できなくなったため、総合実画面テストを停止しました。';
+    }
+  }, error => {
+    console.error('管理者権限の監視に失敗しました', error);
+    detachAll();
+    setAccountingRoot(TEST_ROOT);
+    me = null;
+    realMe = null;
+    testProfile = null;
+    hideAllRoots();
+    $('loginScreen').style.display = 'block';
+    $('loginError').textContent =
+      '管理者権限の監視に失敗したため、総合実画面テストを停止しました。';
+  });
+
+  listeners.push(() => ref.off('value', handler));
+}
+async function enterProductionTest(user) {
+  if (!IS_PRODUCTION_TEST) {
+    throw new Error('テスト専用モードではありません');
+  }
+
+  await verifyProductionTestAdmin(user);
+
+  detachAll();
+  setAccountingRoot(TEST_ROOT);
+
+  realMe = {
+    uid: user.uid,
+    name: '総合実画面テスト管理者',
+    role: 'admin',
+    testData: true
+  };
+
+  testProfile = null;
+  applyEffectiveProfile();
+
+  watchProductionTestAdmin(user);
+
+  curFY = null;
+  settings = {
+    orgName: '総合実画面テスト専用',
+    fiscalStartMonth: 4,
+    opening: {},
+    publicDetail: 'items'
+  };
+
+  await seedProductionTestDefaults();
+  await verifyProductionTestAdmin(user);
+  attachData();
+  buildNav();
+
+  hideAllRoots();
+  $('mainWrap').style.display = 'block';
+  $('roleBadge').textContent = '管理者・検証環境';
+  $('userName').textContent = '総合実画面テスト';
+  renderAll();
+}
+async function verifyProductionTestAdmin(user) {
+  if (!user || !user.uid || !db) {
+    throw new Error('ログイン情報を確認できません');
+  }
+
+  const snap = await db.ref(`${ROOT}/members/${user.uid}/role`).get();
+
+  if (snap.val() !== 'admin') {
+    throw new Error('総合実画面テストは本番の管理者のみ利用できます');
+  }
+
+  return true;
+}
 const TS = () => firebase.database.ServerValue.TIMESTAMP;
 
 /* ---------- 定数 ---------- */
@@ -1139,12 +1241,18 @@ function applyEffectiveProfile(){
 }
 async function ensureTestPayer(){
   if(!isRealAdmin() || !auth.currentUser) return;
+  if(IS_PRODUCTION_TEST && (!uiAutoTestContext?.runId || !/^ui_full_[A-Za-z0-9_]+$/.test(uiAutoTestContext.runId)))
+    throw new Error("診断実行IDが未確定のため、テスト支払者を作成できません");
   const pid=`test_${auth.currentUser.uid}`;
-  const ref=R(`payers/${pid}`), snap=await ref.get();
-  if(!snap.exists()) await ref.set({
+  const ref=R(`payers/${pid}`);
+  const newPayer={
     name:`${realMe.name}（テスト）`,post:'テスト用',branch:realMe.branch||'',group:realMe.group||'',
-    active:true,order:9999,testMode:true,testOwnerUid:auth.currentUser.uid,createdAt:TS()
-  });
+    active:true,order:9999,testMode:true,testOwnerUid:auth.currentUser.uid,
+    ...(IS_PRODUCTION_TEST && uiAutoTestContext?.runId ? {diagnosticRunId:uiAutoTestContext.runId} : {}),
+    createdAt:TS()
+  };
+  const result=await ref.transaction(current=>current===null?newPayer:undefined,undefined,false);
+  return {created:result.committed,payer:result.snapshot.val()};
 }
 function closeTestChooser(){
   const x=document.getElementById('testRoleOverlay'); if(x)x.remove();
@@ -1270,6 +1378,7 @@ function writeLog(action, e, detail){
    会計のGoogleアドレスへメールを送る。画面側から本文を渡さないので、なりすましや
    でたらめな内容の送信はできない。 */
 async function gasRequest(action, extra, url, timeoutMs=60000){
+  if(IS_PRODUCTION_TEST) return {ok:false,skipped:true,testMode:true,error:'本番隔離テスト中は外部GAS通信を禁止しています'};
   if(isTestMode()) return {ok:true, skipped:true, testMode:true};
   const target=String(url||settings.notifyUrl||'').trim();
   if(!target||!auth||!auth.currentUser) return {ok:false,error:'通知・AI共通Apps Script URLが未設定です'};
@@ -1351,6 +1460,7 @@ function notifySettlementConfirm(settlementId){
 /* 会計担当の一覧が変わったら、GAS側の送信先を更新する（会計のみ実行可能） */
 let lastRecipientKey = '';
 function syncRecipients(force){
+  if(IS_PRODUCTION_TEST) return;
   if (isTestMode() || !isT() || !settings.notifyUrl || !members.length) return;
   const key = members.filter(m=>m.role==='treasurer' || m.role==='viewer').map(m=>`${m.role}:${(m.email||'').trim().toLowerCase()}`).sort().join(',') + '|' + settings.notifyUrl;
   if (!force && key===lastRecipientKey) return;
@@ -1520,7 +1630,13 @@ window.addEventListener('online',()=>{ if(uiAutoTestContext) uiAutoTestContext.n
   auth.onAuthStateChanged(async user => {
     detachAll();
     if (!user) { me=null; hideAllRoots(); $('loginScreen').style.display='block'; handleInAppBrowser(); return; }
-    try { await enterAs(user); }
+    try {
+  if (IS_PRODUCTION_TEST) {
+    await enterProductionTest(user);
+  } else {
+    await enterAs(user);
+  }
+}
     catch(e){
       console.error(e);
       hideAllRoots(); $('loginScreen').style.display='block';
@@ -1738,9 +1854,68 @@ async function seedDefaults(){
     {name:'口座に入金', use:'income', settle:false}
   ];
   ms.forEach((m,i)=>{ ups[`methods/${R('methods').push().key}`] = {...m, active:true, order:i}; });
-  await db.ref(ROOT).update(ups);
+  await db.ref(activeRoot).update(ups);
 }
 
+function upsToTree(ups) {
+  const tree = {};
+  for (const [path, value] of Object.entries(ups)) {
+    const parts = path.split('/');
+    let node = tree;
+    for (let i=0; i<parts.length-1; i++) node = node[parts[i]] ||= {};
+    node[parts[parts.length-1]] = value;
+  }
+  return tree;
+}
+async function seedProductionTestDefaults() {
+  if (!IS_PRODUCTION_TEST || activeRoot !== TEST_ROOT || !isRealAdmin()) {
+    throw new Error('テスト専用データの初期化は許可されていません');
+  }
+
+
+
+  const fy = new Date().getFullYear();
+  const ups = {};
+
+  ups['settings'] = {
+    initialized: true,
+    orgName: '総合実画面テスト専用',
+    fiscalStartMonth: 4,
+    currentFiscalYear: fy,
+    publicDetail: 'items',
+    opening: { [fy]: 100000 },
+    testData: true,
+    createdAt: TS()
+  };
+
+  STANDARD_ACCOUNTS.forEach(x => {
+    ups[`accounts/${R('accounts').push().key}`] = {
+      ...standardAccountData(x),
+      budget: { [fy]: 10000 },
+      testData: true
+    };
+  });
+
+  const methods = [
+    {name:'テスト用現金',use:'expense',settle:false},
+    {name:'テスト用立替',use:'expense',settle:true},
+    {name:'テスト用入金',use:'income',settle:false}
+  ];
+
+  methods.forEach((m,i) => {
+    ups[`methods/${R('methods').push().key}`] = {
+      ...m, active:true, order:i, testData:true
+    };
+  });
+
+  const result = await db.ref(TEST_ROOT).transaction(current => {
+    if (current !== null) return;
+    return upsToTree(ups);
+  }, undefined, false);
+  if (!result.committed && !result.snapshot.child('settings/initialized').val()) {
+    throw new Error('テスト専用領域に既存データがあるため初期化を中止しました');
+  }
+}
 /* ---------- データ購読 ---------- */
 function on(ref, fn){ const h = ref.on('value', fn, err=>console.error(err)); listeners.push(()=>ref.off('value', h)); }
 let dataListeners = [];
@@ -1757,7 +1932,7 @@ function attachData(){
     if (curFY===null) { const savedFY=Number(settings.currentFiscalYear); curFY = Number.isFinite(savedFY)&&savedFY>=2000&&savedFY<=9999 ? savedFY : fyOf(localDate()); subscribeFY(); }
     $('headerOrg').textContent = settings.orgName || '';
     renderAll();
-    if(isRealAdmin() && !isTestMode()) setTimeout(maybeAutoBackup,500);
+    if(isRealAdmin() && !isTestMode() && !IS_PRODUCTION_TEST) setTimeout(maybeAutoBackup,500);
   });
   onData(R('accounts'), s => { accounts = toArr(s.val()).sort((a,b)=>(a.order||0)-(b.order||0)); renderAll(); });
   onData(R('methods'),  s => { methods  = toArr(s.val()).sort((a,b)=>(a.order||0)-(b.order||0)); renderAll(); });
@@ -3022,7 +3197,7 @@ async function approveGuest(pv, targetId, role='payer'){
     ups[`payers/${pv.id}/order`] = payers.filter(p=>!p.provisional).length;
   }
   if (uid) { ups[`members/${uid}/role`] = role==='viewer' ? 'viewer' : 'payer'; ups[`members/${uid}/payerId`] = finalId; }
-  await db.ref(ROOT).update(ups);
+  await db.ref(activeRoot).update(ups);
   writeLog('本登録', null, `${pv.name}（${pv.post||''}）${targetId?` → 名簿の${payerName(targetId)}に統合`:'を名簿に登録'}`);
   return finalId;
 }
@@ -3032,7 +3207,7 @@ async function rejectGuest(e){
   const ups = {};
   allEntries().filter(x=>x.payerId===pv.id && x.status==='submitted').forEach(x=>{ ups[`entries/${x.id}/status`]='returned'; ups[`entries/${x.id}/returnReason`]='利用が承認されませんでした。会計担当にお問い合わせください'; });
   if (pv.uid) ups[`members/${pv.uid}/role`] = 'removed';
-  await db.ref(ROOT).update(ups);
+  await db.ref(activeRoot).update(ups);
   writeLog('利用不承認', null, `${pv.name}（${pv.email||''}）`);
   showToast('利用停止にしました');
 }
@@ -3271,15 +3446,17 @@ async function doSettlement(pid, recalc){
       items: es.map(e=>({voucherNo:e.voucherNo, date:e.date, purpose:e.purpose||e.payee||'', method:methodById(e.methodId)?.name||'', amount:Number(e.amount)||0})),
       advItems: as.map(a=>({date:a.date, memo:a.memo||'仮払金', amount:Number(a.amount)||0})),
       createdBy:me.uid, createdByName:me.name, createdAt:TS(),
-      ...(isTestMode()?{testMode:true,testRole:testProfile,testOwnerUid:auth.currentUser.uid}:{})
+      ...(uiAutoTestContext?{testMode:true,testRole:'ui-auto',testOwnerUid:auth.currentUser.uid,diagnosticRunId:uiAutoTestContext.runId}:(isTestMode()?{testMode:true,testRole:testProfile,testOwnerUid:auth.currentUser.uid}:{}))
     };
     eIds.forEach(id=>{ ups[`entries/${id}/settleState`]='settled'; ups[`entries/${id}/settlementId`]=sid; });
     aIds.forEach(id=>{ ups[`advances/${id}/settleState`]='settled'; ups[`advances/${id}/settlementId`]=sid; });
-    await db.ref(ROOT).update(ups);
+    await db.ref(activeRoot).update(ups);
     writeLog('精算', null, `${no} ${payerName(pid)} ${directionText(spent-adv,'')} ${yen(Math.abs(spent-adv))}`);
-    await metricEnd('settled');
+    if(uiAutoTestContext) uiAutoTestContext.savedSettlementId=sid;
+    try { await metricEnd('settled'); } catch(metricError) {
+      console.warn('精算後の稼働指標記録に失敗（精算本体は保存済み）',metricError);
+    }
     if(uiAutoTestContext){
-      uiAutoTestContext.savedSettlementId=sid;
       showToast('診断用の精算を記録しました');
     } else {
       notifySettlementConfirm(sid);
@@ -3295,7 +3472,7 @@ async function cancelSettlement(s){
   Object.keys(s.entryIds||{}).forEach(id=>{ ups[`entries/${id}/settleState`]='pending'; ups[`entries/${id}/settlementId`]=null; });
   Object.keys(s.advanceIds||{}).forEach(id=>{ ups[`advances/${id}/settleState`]='pending'; ups[`advances/${id}/settlementId`]=null; });
   ups[`settlements/${s.id}`] = null;
-  await db.ref(ROOT).update(ups);
+  await db.ref(activeRoot).update(ups);
   writeLog('精算取消', null, `${s.no} ${payerName(s.payerId)} ${yen(Math.abs(s.net))}`);
   showToast('精算を取り消しました');
 }
@@ -3719,7 +3896,10 @@ async function metricEnd(result='completed'){
   const ended=Date.now(), active=Math.max(0,Math.round(workMetricActiveMs/1000)); workMetricActiveMs=0;
   const rec={uid:auth.currentUser.uid,role:me.role||'',testMode:isTestMode(),testRole:testProfile||null,eventType:x.eventType,refId:x.refId||null,
     startedAt:x.startedAt,endedAt:ended,elapsedSec:Math.max(0,Math.round((ended-x.startedAt)/1000)),
-    activeSec:active,result,fiscalYear:curFY,version:2};
+    activeSec:active,result,fiscalYear:curFY,version:2,
+    ...(uiAutoTestContext?.runId ? {diagnosticRunId:uiAutoTestContext.runId} : {})};
+  // 診断中の操作計測は永続化しない。通常運用の計測は従来どおり保存する。
+  if(IS_PRODUCTION_TEST && activeRoot===TEST_ROOT) return;
   try{await R('workMetrics').push().set(rec);}catch(e){console.warn('workMetrics',e);}
 }
 function metricCancel(){ if(workMetricSession) metricEnd('cancelled'); }
@@ -3812,7 +3992,7 @@ async function createClosingDemoData(){
     previousOpening:previousOpening===undefined?null:previousOpening,
     nextOpening:nextOpening===undefined?null:nextOpening,budgetSnapshot
   };
-  await db.ref(ROOT).update(ups);
+  await db.ref(activeRoot).update(ups);
   showToast(`${fy}年度の監査・年度更新デモを作成しました`);
 }
 async function clearClosingDemoData(){
@@ -3848,7 +4028,7 @@ async function clearClosingDemoData(){
     });
     ups[`closingDemoRuns/${owner}/${fy}`]=null;
   });
-  await db.ref(ROOT).update(ups);
+  await db.ref(activeRoot).update(ups);
   showToast('監査・年度更新デモを削除し、開始前の状態へ戻しました');
 }
 async function renderAdmin(){
@@ -4051,7 +4231,7 @@ async function renderAdmin(){
       Object.entries(lg.val()||{}).forEach(([id,v])=>{if(v?.testMode&&v.testOwnerUid===owner){ups[`log/${id}`]=null;}});
       Object.entries(wm.val()||{}).forEach(([id,v])=>{if(v?.testMode&&v.uid===owner){ups[`workMetrics/${id}`]=null;}});
       Object.entries(py.val()||{}).forEach(([id,v])=>{if(v?.testMode&&v.testOwnerUid===owner){ups[`payers/${id}`]=null;}});
-      if(Object.keys(ups).length) await db.ref(ROOT).update(ups);
+      if(Object.keys(ups).length) await db.ref(activeRoot).update(ups);
       showToast(`テストデータを削除しました（主要データ ${count}件）`);
     }catch(e){console.error(e);showToast('テストデータの削除に失敗しました');}
   };
@@ -4182,7 +4362,8 @@ async function renderAdmin(){
       const testEntry={fy:curFY,date:localDate(),amount:123,purpose:'システム診断用・自動削除',accountId:'__diagnostic__',payerId:'__diagnostic__',payerName:'システム診断',createdBy:'__diagnostic__',createdByName:'システム診断',status:'draft',testMode:true,diagnosticRunId:runId,createdAt:Date.now()};
       await step('テスト伝票の作成',async()=>{await R(`entries/${entryId}`).set(testEntry);entryCreated=true;const s=await R(`entries/${entryId}`).get();if(!s.exists()||s.val().diagnosticRunId!==runId)throw new Error('テスト伝票を確認できません');},'entriesに診断専用伝票を作成');
       await step('申請状態への遷移',async()=>{await R(`entries/${entryId}`).update({status:'submitted',submittedAt:Date.now()});const s=await R(`entries/${entryId}/status`).get();if(s.val()!=='submitted')throw new Error('submittedへ遷移できません');},'draft → submitted');
-      await step('承認状態への遷移',async()=>{await R(`entries/${entryId}`).update({status:'approved',approvedAt:Date.now(),approvedBy:uid,approvedByName:me.name||''});const s=await R(`entries/${entryId}/status`).get();if(s.val()!=='approved')throw new Error('approvedへ遷移できません');},'submitted → approved（管理者権限の実通信）');
+      // v171: 日常診断で承認済み伝票を生成すると、厳格Rulesでは削除できない。承認の実通信テストはEmulatorに移管する。
+      add('承認状態への遷移（Emulator専用）','warn','本番DBへの承認済み診断伝票の作成を禁止。承認の実通信はEmulatorで検証');
       const publicLeak={date:localDate(),account:'診断',purpose:'診断',amount:123};
       const forbidden=['payer','payerId','payerName','payee','receipt','photo','internalMemo','email'];
       const leak=Object.keys(publicLeak).some(k=>forbidden.some(x=>k.toLowerCase().includes(x.toLowerCase())));
@@ -4194,7 +4375,7 @@ async function renderAdmin(){
       add('物理削除ゲート',(!gate(false,true,true)&&!gate(true,false,true)&&!gate(true,true,false)&&gate(true,true,true))?'ok':'fail','期限・年度確定・匿名統計の3条件を再検証');
     }catch(e){/* 個別行に記録済み */}
     finally{
-      try{if(entryCreated)await R(`entries/${entryId}`).remove();add('テスト伝票の撤去','ok','診断伝票を削除');}catch(e){add('テスト伝票の撤去','fail',e?.code||e?.message||String(e));}
+      try{if(entryCreated){const cleanupSnap=await R(`entries/${entryId}`).get();if(cleanupSnap.val()?.status==='approved')throw new Error('承認済み診断伝票のため削除禁止。管理者による確認が必要');await R(`entries/${entryId}`).remove();}add('テスト伝票の撤去','ok','診断伝票を削除');}catch(e){add('テスト伝票の撤去','fail',e?.code||e?.message||String(e));}
       try{if(sandboxCreated)await R(sandbox).remove();add('診断領域の撤去','ok','診断データを削除');}catch(e){add('診断領域の撤去','fail',e?.code||e?.message||String(e));}
       try{const [a,b]=await Promise.all([R(`entries/${entryId}`).get(),R(sandbox).get()]);add('テストデータ残存確認',(!a.exists()&&!b.exists())?'ok':'fail',(!a.exists()&&!b.exists())?'残存データなし':'テストデータが残っています');}catch(e){add('テストデータ残存確認','fail',e?.code||e?.message||String(e));}
     }
@@ -4363,6 +4544,105 @@ async function renderAdmin(){
   }
   async function inspectAndCleanupInterruptedUiTest(auto=false){
     const out=$('diagCleanupResult');
+    if(IS_PRODUCTION_TEST){
+      if(auto)return;
+      try{
+        const sessionSnap=await R(uiTestSessionPath(auth.currentUser.uid)).get();
+        const session=sessionSnap.val();
+        if(session?.runId && /^ui_full_[A-Za-z0-9_]+$/.test(session.runId)){
+          const backupSnap=await R(`diagnosticTests/${auth.currentUser.uid}/${session.runId}/yearTransitionBackup`).get();
+          if(backupSnap.exists() && !backupSnap.val()?.restoredAt){
+            const answer=confirm('中断したテストの年度設定をバックアップから復元します。続行しますか？');
+            if(!answer)return;
+            const restored=await restoreProductionTestYearTransition(session.runId);
+            if(!restored.restored)throw new Error('年度設定の復元が完了しませんでした');
+          }
+        }
+        if(session?.runId && /^ui_full_[A-Za-z0-9_]+$/.test(session.runId)){
+          const artifacts=await inspectProductionTestRunArtifacts(session.runId);
+          const mismatched=Object.values(artifacts.unmatched).flat();
+          if(mismatched.length)
+            throw new Error('所有情報が一致しない診断データがあるため、削除を中止しました');
+          for(const id of artifacts.matched.entries)
+            await removeProductionTestPhotos(id,session.runId);
+          const entryTargets=artifacts.matched.entries.length+artifacts.matched.settlements.length;
+          const masterTargets=artifacts.matched.accounts.length+artifacts.matched.payers.length;
+          if(entryTargets || masterTargets){
+            if(!confirm(`診断実行ID ${session.runId} の伝票・精算 ${entryTargets}件、科目・支払者 ${masterTargets}件を撤去します。続行しますか？`))return;
+            if(entryTargets)await cleanupProductionTestRunEntries(session.runId);
+            await cleanupProductionTestRunMasterData(session.runId);
+          }
+        }
+        if(session?.runId && /^ui_full_[A-Za-z0-9_]+$/.test(session.runId)){
+          if(!['running','interrupted','completed'].includes(session.status))
+            throw new Error('診断セッションの状態が想定外のため完了処理を中止しました');
+          const uid=auth.currentUser.uid;
+          const sessionRef=R(uiTestSessionPath(uid));
+          const currentSnap=await sessionRef.get();
+          const current=currentSnap.val();
+          if(current?.runId!==session.runId ||
+             !['running','interrupted','completed'].includes(current?.status))
+            throw new Error('診断セッションが変更されたため完了処理を中止しました');
+          await cleanupProductionTestWorkMetrics(session.runId);
+          await verifyProductionTestCleanup(session.runId);
+          // 中断セッションの復旧は、親ノードの診断履歴と競合しやすい
+          // transaction を使わず、同一 runId を直前確認して対象子項目のみ更新する。
+          // 清掃完了検証は直前の verifyProductionTestCleanup で実施済み。
+          const beforeFinish=(await sessionRef.get()).val();
+          if(beforeFinish?.runId!==session.runId ||
+             !['running','interrupted','completed'].includes(beforeFinish?.status))
+            throw new Error('診断セッションが変更されたため終了状態を更新しませんでした');
+          const verifiedRecord=(await R(`diagnosticTests/${uid}/${session.runId}`).get()).val();
+          if(verifiedRecord?.runId!==session.runId || verifiedRecord?.cleanupVerified!==true)
+            throw new Error('診断履歴の清掃完了が未確認のため終了状態を更新しませんでした');
+          await sessionRef.update({
+            status:'completed',residueCount:0,cleanupVerified:true,
+            finishedAt:firebase.database.ServerValue.TIMESTAMP,
+            cleanedAt:firebase.database.ServerValue.TIMESTAMP
+          });
+          const afterFinish=(await sessionRef.get()).val();
+          if(afterFinish?.runId!==session.runId ||
+             afterFinish?.status!=='completed' ||
+             afterFinish?.cleanupVerified!==true ||
+             Number(afterFinish?.residueCount)!==0 ||
+             !(Number(afterFinish?.finishedAt)>0))
+            throw new Error('診断セッションの完了状態を再取得して確認できませんでした');
+        }
+        const r=await inspectProductionTestResidue();
+        const summary=Object.entries(r.counts).map(([k,n])=>`${k}: ${n}件`).join('／')||'データなし';
+        const years=[...r.diagnosticYears.opening,...r.diagnosticYears.transitions,...r.diagnosticYears.drafts];
+        let runDetail='実行ID別の調査対象なし';
+        if(session?.runId && /^ui_full_[A-Za-z0-9_]+$/.test(session.runId)){
+          const artifacts=await inspectProductionTestRunArtifacts(session.runId);
+          const matched=Object.entries(artifacts.matched).map(([k,v])=>`${k}: ${v.length}件`).join('／');
+          const unmatched=Object.entries(artifacts.unmatched).map(([k,v])=>`${k}: ${v.length}件`).join('／');
+          runDetail=`実行ID ${session.runId}／所有者一致 ${matched}／所有情報不一致 ${unmatched}`;
+        }
+        const detail=`${summary}／診断用科目: ${r.diagnosticAccounts.length}件／診断年度設定: ${years.length}件／セッション: ${r.sessions.length}件／追加データ種別: ${r.unexpectedRoots.join('、')||'なし'}／${runDetail}`;
+        if($('diagCleanupResult'))$('diagCleanupResult').innerHTML=diagRow('本番隔離テストの残存データ確認',r.unexpectedRoots.length || r.diagnosticAccounts.length || years.length ? 'warn' : 'ok',detail+'。診断データの撤去と清掃完了検証を実施しました。');
+      }catch(e){
+        let details=e?.message||String(e);
+        console.warn('[診断清掃] 安全停止:',e);
+        try{
+          const residue=await inspectProductionTestResidue();
+          const parts=[
+            `追加ルート: ${residue.unexpectedRoots.join('、')||'なし'}`,
+            `診断科目: ${residue.diagnosticAccounts.map(x=>x.id+'('+x.runId+')').join('、')||'なし'}`,
+            `年度開始: ${residue.diagnosticYears.opening.join('、')||'なし'}`,
+            `年度移行: ${residue.diagnosticYears.transitions.join('、')||'なし'}`,
+            `予算案: ${residue.diagnosticYears.drafts.join('、')||'なし'}`,
+            `領域件数: ${Object.entries(residue.counts).map(([k,v])=>k+'='+v).join('、')}`
+          ];
+          details+='／'+parts.join('／');
+        }catch(detailError){details+='／残存データの詳細取得に失敗: '+(detailError?.message||String(detailError));}
+        const currentOut=$('diagCleanupResult');
+        if(currentOut)currentOut.innerHTML=diagRow('本番隔離テストの残存データ確認','fail',details);
+      }
+      return;
+    }
+    // 安全性監査: 旧式の清掃処理は所有者照合が不十分なため実行禁止。
+    if(out&&!auto)out.innerHTML=diagRow('中断テストの清掃','warn','旧式清掃処理は安全性確認のため停止しています。診断データは削除していません。');
+    return;
     if(!auth.currentUser)return;
     const uid=auth.currentUser.uid;
     let session=null;
@@ -4380,7 +4660,8 @@ async function renderAdmin(){
       for(const id of unique){
         const es=await R(`entries/${id}`).get();
         if(es.exists() && es.val()?.diagnosticRunId===session.runId){
-          await R(`entries/${id}`).remove();
+          if(es.val()?.status==='approved') throw new Error('承認済み診断伝票が残っています。安全のため削除せず停止しました。管理者が記録を確認してください。');
+                    await R(`entries/${id}`).remove();
           await R(`photos/${id}`).remove();
         }
       }
@@ -4407,9 +4688,342 @@ async function renderAdmin(){
   refreshUiSessionStatus();
   if($('diagCleanup'))$('diagCleanup').onclick=async()=>{await inspectAndCleanupInterruptedUiTest(false);await refreshUiSessionStatus();};
 
+  // ローカル Firebase Emulator 専用の診断データ清掃。実DBでは決して実行しない。
+  // 本番隔離テスト専用。通常会計領域にはアクセスしない。
+  async function restoreProductionTestYearTransition(runId){
+    if(!IS_PRODUCTION_TEST || activeRoot!==TEST_ROOT ||
+       !/^ui_full_[A-Za-z0-9_]+$/.test(runId||'') || !auth.currentUser)
+      throw new Error('本番隔離テスト以外の年度復元を拒否しました');
+    await verifyProductionTestAdmin(auth.currentUser);
+    const uid=auth.currentUser.uid;
+    const backupRef=R(`diagnosticTests/${uid}/${runId}/yearTransitionBackup`);
+    const snap=await backupRef.get();
+    if(!snap.exists())return {restored:false,reason:'バックアップなし'};
+    const backup=snap.val();
+    if(backup.runId!==runId || backup.ownerUid!==uid ||
+       !backup.values || typeof backup.values!=='object')
+      throw new Error('年度復元バックアップの所有情報が一致しません');
+    const paths=Object.values(backup.values).map(item=>item?.path);
+    if(!paths.length)throw new Error('年度復元バックアップが空です');
+    const allowed=/^(settings\/opening\/9997|settings\/fiscalTransitions\/9996-9997|settings\/budgetDrafts\/9997|accounts\/[-A-Za-z0-9_]+\/budget\/9997)$/;
+    if(paths.some(p=>!allowed.test(p)))
+      throw new Error('年度復元対象に許可されていないパスがあります');
+    const updates={};
+    for(const path of paths){
+      const item=backup.values[path.replaceAll('/','__SLASH__')];
+      if(!item || typeof item.exists!=='boolean' ||
+         (item.exists && !Object.prototype.hasOwnProperty.call(item,'value')))
+        throw new Error('年度復元バックアップの形式が不正です');
+      updates[path]=item.exists?item.value:null;
+    }
+    await verifyProductionTestAdmin(auth.currentUser);
+    await db.ref(TEST_ROOT).update(updates);
+    for(const path of paths){
+      const actual=await R(path).get();
+      const expected=backup.values[path.replaceAll('/','__SLASH__')];
+      if(actual.exists()!==expected.exists ||
+         (expected.exists && JSON.stringify(actual.val())!==JSON.stringify(expected.value)))
+        throw new Error('年度設定の復元結果が一致しません: '+path);
+    }
+    await backupRef.update({restoredAt:firebase.database.ServerValue.TIMESTAMP});
+    return {restored:true,count:paths.length};
+  }
+  async function inspectProductionTestResidue(){
+    if(!IS_PRODUCTION_TEST || activeRoot!==TEST_ROOT || !auth.currentUser)
+      throw new Error('本番隔離テスト専用領域以外では検査できません');
+    await verifyProductionTestAdmin(auth.currentUser);
+    const snap=await db.ref(TEST_ROOT).get();
+    const v=snap.val()||{};
+    if(v.settings?.initialized!==true || v.settings?.testData!==true)
+      throw new Error('テスト専用領域の初期設定を確認できません');
+    const counts={};
+    for(const [key,value] of Object.entries(v)){
+      if(key==='settings')continue;
+      if(value && typeof value==='object')
+        counts[key]=Object.keys(value).length;
+      else counts[key]=value==null?0:1;
+    }
+    const diagnosticAccounts=Object.entries(v.accounts||{})
+      .filter(([,a])=>a?.testMode===true || !!a?.diagnosticRunId)
+      .map(([id,a])=>({id,runId:a.diagnosticRunId||'',owner:a.testOwnerUid||''}));
+    const diagnosticYears={
+      opening:Object.keys(v.settings.opening||{}).filter(y=>Number(y)>=9996),
+      transitions:Object.keys(v.settings.fiscalTransitions||{}),
+      drafts:Object.keys(v.settings.budgetDrafts||{}).filter(y=>Number(y)>=9996)
+    };
+    const sessions=Object.entries(v.diagnosticTests||{}).flatMap(([uid,x])=>
+      x?.uiSession?[{uid,...x.uiSession}]:[]);
+    return {counts,diagnosticAccounts,diagnosticYears,sessions,
+      unexpectedRoots:Object.keys(v).filter(k=>!['settings','accounts','methods','diagnosticTests'].includes(k))};
+  }
+  // 本番隔離領域内の作業記録のみ、診断実行IDを照合して個別に撤去する。
+  // workMetrics.uid はテストで模擬した支払者UIDとなるため、管理者UIDとの一致は要求しない。
+  async function cleanupProductionTestWorkMetrics(runId){
+    if(!IS_PRODUCTION_TEST || activeRoot!==TEST_ROOT ||
+       !auth.currentUser || !/^ui_full_[A-Za-z0-9_]+$/.test(runId||''))
+      throw new Error('診断用作業記録以外は削除できません');
+    await verifyProductionTestAdmin(auth.currentUser);
+    const adminUid=auth.currentUser.uid;
+    const session=(await R(uiTestSessionPath(adminUid)).get()).val();
+    if(session?.runId!==runId || !['running','interrupted','completed'].includes(session.status))
+      throw new Error('診断セッションと実行IDが一致しないため作業記録を削除できません');
+    const ref=R('workMetrics');
+    const records=(await ref.get()).val()||{};
+    const targets=Object.entries(records).filter(([,v])=>v?.diagnosticRunId===runId);
+    const invalid=targets.filter(([,v])=>v?.testMode!==true || !v?.uid ||
+      typeof v.uid!=='string');
+    if(invalid.length)
+      throw new Error(`作業記録のテスト識別情報不一致（対象${targets.length}件、不一致${invalid.length}件）。削除せず停止しました`);
+    let removed=0;
+    for(const [id] of targets){
+      if(!/^[-A-Za-z0-9_]{1,160}$/.test(id))throw new Error('作業記録IDが不正です');
+      await verifyProductionTestAdmin(auth.currentUser);
+      if(auth.currentUser.uid!==adminUid)
+        throw new Error('清掃中に管理者アカウントが切り替わりました');
+      const itemRef=R(`workMetrics/${id}`);
+      // 最新のサーバー値を取得してから削除。transaction の初回 null による
+      // 未確定を避ける。対象が変わっていたら安全のため削除を中止する。
+      const before=await itemRef.get();
+      if(!before.exists())continue;
+      const current=before.val();
+      if(current?.diagnosticRunId!==runId || current?.testMode!==true ||
+         !current?.uid || typeof current.uid!=='string')
+        throw new Error(`作業記録 ${id} のテスト識別情報が変わったため削除を中止しました`);
+      try{
+        await itemRef.remove();
+      }catch(e){
+        throw new Error(`作業記録 ${id} の削除に失敗しました: ${e?.code||e?.message||String(e)}`);
+      }
+      const check=await itemRef.get();
+      if(check.exists())
+        throw new Error(`作業記録 ${id} が削除後も存在します。別端末からの再書込を確認してください`);
+      removed++;
+    }
+    const after=(await ref.get()).val()||{};
+    const left=Object.values(after).filter(v=>v?.diagnosticRunId===runId).length;
+    if(left)throw new Error(`作業記録の削除後も${left}件残存しています`);
+    return removed;
+  }
+  async function inspectProductionTestRunArtifacts(runId){
+    if(!IS_PRODUCTION_TEST || activeRoot!==TEST_ROOT ||
+       !/^ui_full_[A-Za-z0-9_]+$/.test(runId||'') || !auth.currentUser)
+      throw new Error('本番隔離テスト以外の診断データ調査を拒否しました');
+    await verifyProductionTestAdmin(auth.currentUser);
+    const uid=auth.currentUser.uid;
+    const rootSnap=await db.ref(TEST_ROOT).get();
+    const root=rootSnap.val()||{};
+    if(root.settings?.initialized!==true || root.settings?.testData!==true)
+      throw new Error('テスト専用領域の初期化情報が一致しません');
+    const result={runId,ownerUid:uid,matched:{},unmatched:{}};
+    for(const kind of ['entries','settlements','accounts','payers']){
+      const matched=[],unmatched=[];
+      for(const [id,value] of Object.entries(root[kind]||{})){
+        const owned=value?.testMode===true &&
+          value?.testOwnerUid===uid &&
+          value?.diagnosticRunId===runId;
+        if(owned)matched.push(id);
+        else if(value?.diagnosticRunId===runId ||
+                (kind==='settlements' && String(value?.no||'').includes(runId)) ||
+                (value?.testOwnerUid===uid && value?.testMode===true &&
+                 !value?.diagnosticRunId))
+          unmatched.push(id);
+      }
+      result.matched[kind]=matched;
+      result.unmatched[kind]=unmatched;
+    }
+    return result;
+  }
+  async function removeProductionTestPhotos(entryId,runId){
+    if(!IS_PRODUCTION_TEST || activeRoot!==TEST_ROOT ||
+       !auth.currentUser || !/^[-A-Za-z0-9_]{1,160}$/.test(entryId||'') ||
+       !/^ui_full_[A-Za-z0-9_]+$/.test(runId||''))
+      throw new Error('本番隔離テスト以外の写真確認を拒否しました');
+    await verifyProductionTestAdmin(auth.currentUser);
+    const uid=auth.currentUser.uid;
+    const entrySnap=await R(`entries/${entryId}`).get();
+    if(!entrySnap.exists())
+      throw new Error('写真の所有情報を確認する伝票がありません');
+    const entry=entrySnap.val();
+    if(entry?.testMode!==true ||
+       entry?.testOwnerUid!==uid ||
+       entry?.diagnosticRunId!==runId)
+      throw new Error('写真に紐づく伝票の所有情報が一致しません');
+    const photoSnap=await R(`photos/${entryId}`).get();
+    if(photoSnap.exists())
+      throw new Error('診断伝票に写真が残っています。自動削除せず、清掃を停止しました');
+    return {removed:false,verifiedEmpty:true};
+  }
+  async function verifyProductionTestCleanup(runId){
+    if(!IS_PRODUCTION_TEST || activeRoot!==TEST_ROOT ||
+       !auth.currentUser || !/^ui_full_[A-Za-z0-9_]+$/.test(runId||''))
+      throw new Error('本番隔離診断以外では清掃完了を記録できません');
+    await verifyProductionTestAdmin(auth.currentUser);
+    const uid=auth.currentUser.uid;
+    const recordRef=R(`diagnosticTests/${uid}/${runId}`);
+    const recordSnap=await recordRef.get();
+    if(!recordSnap.exists())
+      throw new Error('診断記録が見つかりません');
+    const record=recordSnap.val();
+    if(record.yearTransitionBackup && !record.yearTransitionBackup.restoredAt)
+      throw new Error('年度設定の復元が完了していません');
+    const artifacts=await inspectProductionTestRunArtifacts(runId);
+    if(Object.values(artifacts.matched).some(ids=>ids.length) ||
+       Object.values(artifacts.unmatched).some(ids=>ids.length))
+      throw new Error('診断データが残っているため清掃完了を記録できません');
+    const residue=await inspectProductionTestResidue();
+    const payerSnap=await R('payers').get();
+    const diagnosticPayers=Object.values(payerSnap.val()||{})
+      .some(p=>p?.testMode===true || !!p?.diagnosticRunId);
+    if(residue.unexpectedRoots.length || residue.diagnosticAccounts.length ||
+       residue.diagnosticYears.opening.length ||
+       residue.diagnosticYears.transitions.length ||
+       residue.diagnosticYears.drafts.length || diagnosticPayers)
+      throw new Error('隔離領域に未撤去データがあります');
+    await recordRef.update({
+      cleanupVerified:true,
+      cleanupVerifiedAt:firebase.database.ServerValue.TIMESTAMP
+    });
+    return true;
+  }
+  async function cleanupProductionTestRunMasterData(runId){
+    if(!IS_PRODUCTION_TEST || activeRoot!=='chokai-kaikei-tests')
+      throw new Error('本番隔離診断以外ではマスタデータを撤去できません');
+    if(!auth.currentUser || !/^ui_full_[A-Za-z0-9_]+$/.test(runId))
+      throw new Error('診断実行IDまたは認証情報が不正です');
+    await verifyProductionTestAdmin(auth.currentUser);
+    const artifacts=await inspectProductionTestRunArtifacts(runId);
+    if(Object.values(artifacts.unmatched).some(ids=>ids.length))
+      throw new Error('所有情報の一致しない診断データがあるため撤去を中止しました');
+    if(artifacts.matched.entries.length || artifacts.matched.settlements.length)
+      throw new Error('診断伝票・精算が残っているためマスタデータは撤去できません');
+    const uid=auth.currentUser.uid;
+    const removed={accounts:0,payers:0};
+    for(const kind of ['accounts','payers']){
+      for(const id of artifacts.matched[kind]){
+        const ref=R(`${kind}/${id}`);
+        const tx=await ref.transaction(current=>
+          current?.testMode===true &&
+          current?.testOwnerUid===uid &&
+          current?.diagnosticRunId===runId ? null : undefined,
+          undefined,false);
+        if(!tx.committed && tx.snapshot.exists())
+          throw new Error(`${kind}/${id} の所有情報が変更されたため削除を中止しました`);
+        if(tx.committed)removed[kind]++;
+      }
+    }
+    return removed;
+  }
+  async function cleanupProductionTestRunEntries(runId){
+    if(!IS_PRODUCTION_TEST || activeRoot!==TEST_ROOT ||
+       !/^ui_full_[A-Za-z0-9_]+$/.test(runId||'') || !auth.currentUser)
+      throw new Error('本番隔離テスト以外の診断データ削除を拒否しました');
+    await verifyProductionTestAdmin(auth.currentUser);
+    const artifacts=await inspectProductionTestRunArtifacts(runId);
+    const mismatched=Object.values(artifacts.unmatched).flat();
+    if(mismatched.length)
+      throw new Error('所有情報が一致しない診断データがあります。自動削除を中止しました');
+    for(const id of artifacts.matched.entries){
+      await removeProductionTestPhotos(id,runId);
+    }
+    const removed={settlements:0,entries:0};
+    for(const kind of ['settlements','entries']){
+      for(const id of artifacts.matched[kind]){
+        await removeProductionTestDiagnostic(kind,id,runId);
+        removed[kind]++;
+      }
+    }
+    const after=await inspectProductionTestRunArtifacts(runId);
+    if(after.matched.settlements.length || after.matched.entries.length)
+      throw new Error('診断伝票・精算の残存を検出しました');
+    return removed;
+  }
+  async function removeProductionTestDiagnostic(kind, id, runId){
+    if(!IS_PRODUCTION_TEST || activeRoot !== TEST_ROOT || !isRealAdmin()
+      || !['entries','settlements'].includes(kind)
+      || !/^[-A-Za-z0-9_]{1,160}$/.test(id||'')
+      || !/^ui_full_[A-Za-z0-9_]+$/.test(runId||'')
+      || !auth.currentUser?.uid){
+      throw new Error('本番隔離テスト以外の削除を拒否しました');
+    }
+    await verifyProductionTestAdmin(auth.currentUser);
+    const ref=db.ref(`${TEST_ROOT}/${kind}/${id}`);
+    const snap=await ref.get();
+    if(!snap.exists())return;
+    const value=snap.val();
+    const owned=value?.testMode===true
+      && value?.testOwnerUid===auth.currentUser.uid
+      && value.diagnosticRunId===runId;
+    if(!owned)throw new Error('診断データの所有者・実行IDが一致しないため削除を拒否しました');
+    await verifyProductionTestAdmin(auth.currentUser);
+    const ownerUid=auth.currentUser.uid;
+    const result=await ref.transaction(current=>{
+      if(current===null)return;
+      const stillOwned=current?.testMode===true &&
+        current?.testOwnerUid===ownerUid &&
+        current.diagnosticRunId===runId;
+      if(!stillOwned)return;
+      return null;
+    },undefined,false);
+    if(!result.committed && result.snapshot.exists())
+      throw new Error('削除直前に診断データの所有情報が変化しました。削除を中止しました');
+  }
+  async function removeUiTestDiagnostic(kind, id, runId){
+    if(!IS_PRODUCTION_TEST || activeRoot !== TEST_ROOT)
+      throw new Error('診断専用領域以外での清掃を拒否しました');
+    return await removeProductionTestDiagnostic(kind,id,runId);
+  }
+
   async function runUIScreenTest(){
     let out=$('diagUIResult'); if(!out)return;
     if(!isRealAdmin()){out.innerHTML=diagRow('実画面操作テスト','fail','実管理者で実行してください');return;}
+    if(IS_PRODUCTION_TEST){
+      try{
+        if(activeRoot!==TEST_ROOT || !auth.currentUser) throw new Error('テスト専用領域ではありません');
+        await verifyProductionTestAdmin(auth.currentUser);
+        const snap=await db.ref(TEST_ROOT).get();
+        const v=snap.val()||{};
+        if(v.settings?.initialized!==true || v.settings?.testData!==true)
+          throw new Error('テスト専用領域の初期化状態を確認できません');
+        const existingPayer=v.payers?.[`test_${auth.currentUser.uid}`];
+        if(existingPayer!==undefined)
+          throw new Error('既存のテスト用支払者が残っています。所有情報と清掃状況を確認するまで実行できません');
+        const allowed=new Set(['settings','accounts','methods','diagnosticTests']);
+        const unexpected=Object.keys(v).filter(k=>!allowed.has(k));
+        const sessions=Object.values(v.diagnosticTests||{}).some(x=>
+          x && typeof x==='object' && (
+            x.uiSession?.status==='running' ||
+            x.uiSession?.status==='interrupted' ||
+            Object.entries(x).some(([k,record])=>k.startsWith('ui_full_') && (!record || record.cleanupVerified!==true || (record.yearTransitionBackup && !record.yearTransitionBackup.restoredAt)))
+          )
+        );
+        if(unexpected.length || sessions)
+          throw new Error('前回の診断データが残っています。清掃完了まで再実行できません');
+        if(Object.values(v.accounts||{}).some(a=>a?.testMode || a?.diagnosticRunId))
+          throw new Error('診断用科目が残っています');
+        if(v.settings?.fiscalTransitions || v.settings?.budgetDrafts ||
+           Object.keys(v.settings?.opening||{}).some(y=>Number(y)>=9996))
+          throw new Error('診断用年度設定が残っています');
+      }catch(e){
+        out.innerHTML=diagRow('本番隔離テストの事前検査','fail',e?.message||String(e));
+        return;
+      }
+    }
+    // Production diagnostic mode operates ONLY on the dedicated test root.
+    // Normal production mode must never execute this destructive UI test.
+    // Local emulator mode retains its separate cleanup implementation.
+    const localOnly = ['127.0.0.1','localhost'].includes(location.hostname)
+      && firebaseConfig.projectId === 'demo-no-project'
+      && /^http:\/\/127\.0\.0\.1:9000\?ns=demo-no-project-default-rtdb$/.test(firebaseConfig.databaseURL);
+    const isolatedProductionTest = IS_PRODUCTION_TEST && activeRoot === TEST_ROOT;
+    if(!localOnly && !isolatedProductionTest){
+      out.innerHTML=diagRow('総合実画面テスト','fail','通常の会計領域では実行できません。専用テストモードで実行してください');
+      return;
+    }
+    if(isolatedProductionTest){
+      if(!confirm('テスト専用領域 chokai-kaikei-tests で総合実画面テストを実行します。通常の会計データには書き込みません。終了後にテストデータの撤去と残存確認を行います。続けますか？'))return;
+    }else{
+      if(!confirm('ローカルEmulator専用テストです。Emulator専用の管理APIで診断データのみ撤去します。続けますか？'))return;
+    }
     const modeName='総合';
     if(!confirm(`総合実画面テストを実行します。\n\n主要経路と異常系を実際の画面イベントで自動操作します。作成する診断専用伝票は終了時に削除し、通知メールと本番の伝票番号採番は行いません。`))return;
     const rows=[], runId=`ui_full_${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
@@ -4430,27 +5044,43 @@ async function renderAdmin(){
     // v151: 9996〜9999 は総合テスト専用年度。前回の異常終了で残っていても復元先にはしない。
     const isDiagnosticFY = fy => Number(fy)>=9996 && Number(fy)<=9999;
     const oldFY = isDiagnosticFY(curFY) ? fyOf(localDate()) : curFY;
-    let entryId=null, incomeEntryId=null, settlementEntryId=null, settlementId=null, testPayerId=null, testPayerExisted=false, publicTestFY=9998, publicTestCreated=false, yearTestCreated=false, transitionTestCreated=false;
+    let entryId=null, incomeEntryId=null, settlementEntryId=null, settlementId=null, diagnosticIncomeAccountId=null, testPayerId=null, testPayerExisted=false, publicTestFY=9998, publicTestCreated=false, yearTestCreated=false, transitionTestCreated=false;
     // v103: finally でも参照するため try の外側で宣言する。
     const sandbox=`diagnosticTests/${auth.currentUser.uid}/${runId}`;
     let sandboxCreated=false;
     try{
       uiAutoTestContext={runId,savedEntryId:null,startedOnline:navigator.onLine,networkRecoveredAt:null};
       try{
-        await R(sandbox).set({runId,uid:auth.currentUser.uid,version:APP_VERSION,stage:'created',createdAt:Date.now(),testOnly:true}); sandboxCreated=true;
-        let ds=await R(sandbox).get(); add('Firebase診断領域の作成・読取',ds.exists()&&ds.val()?.runId===runId?'ok':'fail','診断専用領域で実通信');
-        await R(sandbox).update({stage:'updated',updatedAt:Date.now()}); ds=await R(`${sandbox}/stage`).get();
+        const uid=auth.currentUser.uid;
+        const parentRef=R(`diagnosticTests/${uid}`);
+        const createdAt=Date.now();
+        const registration=await parentRef.transaction(current=>{
+          const data=current||{};
+          if(data.uiSession && ['running','interrupted'].includes(data.uiSession.status))return;
+          if(Object.entries(data).some(([key,record])=>key.startsWith('ui_full_') && (!record || record.cleanupVerified!==true || (record.yearTransitionBackup && !record.yearTransitionBackup.restoredAt))))return;
+          if(Object.prototype.hasOwnProperty.call(data,runId))return;
+          return {...data,
+            [runId]:{runId,uid,version:APP_VERSION,stage:'created',createdAt,testOnly:true},
+            uiSession:{runId,status:'running',
+              startedAt:firebase.database.ServerValue.TIMESTAMP,
+              appVersion:APP_VERSION,entryId:null,payerId:null,payerCreated:false}};
+        },undefined,false);
+        if(!registration.committed)throw new Error('既存の診断セッションまたは履歴があるため登録を中止しました');
+        sandboxCreated=true;
+        let ds=await R(sandbox).get();
+        add('Firebase診断領域の作成・読取',ds.exists()&&ds.val()?.runId===runId?'ok':'fail','診断専用領域で実通信');
+        await R(sandbox).update({stage:'updated',updatedAt:Date.now()});
+        ds=await R(`${sandbox}/stage`).get();
         add('Firebase診断領域の更新',ds.val()==='updated'?'ok':'fail','更新→再読取');
         const gate=(expired,closed,statsOk)=>!!(expired&&closed&&statsOk);
         add('物理削除ゲートの模擬確認',(!gate(false,true,true)&&!gate(true,false,true)&&!gate(true,true,false)&&gate(true,true,true))?'ok':'fail','保存期限・年度確定・匿名統計の3条件');
-      }catch(e){add('Firebase診断領域','fail',e?.message||String(e));}
+      }catch(e){
+        add('Firebase診断領域','fail',e?.message||String(e));
+        if(!sandboxCreated)throw e;
+      }
       uiTestNetworkInterrupted=false;
-      await R(uiTestSessionPath(auth.currentUser.uid)).set({
-        runId,status:'running',startedAt:firebase.database.ServerValue.TIMESTAMP,
-        appVersion:APP_VERSION,entryId:null,payerId:null,payerCreated:false
-      });
       // 支払者の実画面経路を通すため、管理者の既存テストモードを利用する。
-      testProfile='payer'; applyEffectiveProfile(); testPayerId=me.payerId; testPayerExisted=(await R(`payers/${testPayerId}`).get()).exists(); await ensureTestPayer();
+      testProfile='payer'; applyEffectiveProfile(); testPayerId=me.payerId; const payerCreation=await ensureTestPayer(); testPayerExisted=!payerCreation?.created; if(IS_PRODUCTION_TEST&&!payerCreation?.created)throw new Error("診断用支払者を新規作成できませんでした。既存データを保護するため停止しました");
       await R(uiTestSessionPath(auth.currentUser.uid)).update({payerId:testPayerId,payerCreated:!testPayerExisted});
       add('テスト利用者への切替','ok',`${me.testRoleLabel||'支払者'}として画面操作`);
       // 実際の＋ボタンをクリックしてフォームを開く。
@@ -4544,7 +5174,7 @@ async function renderAdmin(){
           testMode:true,diagnosticRunId:runId
         }
       };
-      await db.ref(ROOT).update(aiUpdates);
+      await db.ref(activeRoot).update(aiUpdates);
       // 保存直後の一時的なキャッシュ差では失敗させず、必要項目が揃うまで実データを再読取する。
       let aiCheck=null;
       await waitFor(async()=>{
@@ -4646,13 +5276,29 @@ async function renderAdmin(){
       add('伝票の精算済み連携',settledEntry?.settleState==='settled'&&settledEntry?.settlementId===settlementId?'ok':'fail',settledEntry?.settleState||'取得不可');
       add('診断精算の本番採番分離',String(st?.no||'').startsWith('TEST-精-')?'ok':'fail',st?.no||'取得不可');
 
-      await R(`settlements/${settlementId}`).remove();
-      await R(`entries/${settlementEntryId}`).remove();
+      await removeUiTestDiagnostic('settlements',settlementId,runId);
+      if(IS_PRODUCTION_TEST) await removeProductionTestPhotos(settlementEntryId,runId);
+      await removeUiTestDiagnostic('entries',settlementEntryId,runId);
       delete fyMap[settlementEntryId];
       const [stGone,seGone]=await Promise.all([R(`settlements/${settlementId}`).get(),R(`entries/${settlementEntryId}`).get()]);
       add('精算テストデータの撤去',!stGone.exists()&&!seGone.exists()?'ok':'fail',!stGone.exists()&&!seGone.exists()?'撤去済み':'残存');
       settlementId=null; settlementEntryId=null; uiAutoTestContext.savedSettlementId=null;
 
+      // ローカルEmulatorに収入科目がない場合だけ、診断専用科目を一時作成する。
+      // 本番科目は変更せず、finallyで診断IDと所有者を照合して撤去する。
+      if(!accounts.some(a=>a.type==='income' && a.active===true)){
+        const incomeRef=R('accounts').push();
+        diagnosticIncomeAccountId=incomeRef.key;
+        const diagIncomeAccount={
+          name:'総合テスト専用・収入',type:'income',active:true,
+          color:'#2E5E7C',order:99999,testMode:true,testRole:'ui-auto',
+          testOwnerUid:auth.currentUser.uid,diagnosticRunId:runId
+        };
+        await incomeRef.set(diagIncomeAccount);
+        // onValueの反映前でも画面を確実に描画できるよう、ローカル一覧へ反映する。
+        if(!accounts.some(a=>a.id===diagnosticIncomeAccountId))
+          accounts.push({id:diagnosticIncomeAccountId,...diagIncomeAccount});
+      }
       // ---- 収入登録：会計役割で実際の登録フォーム→収入切替→入力→保存 ----
       testProfile='treasurer'; applyEffectiveProfile(); renderAll();
       markStage('収入登録画面'); $('fabAdd').click(); await waitFor(()=>$('formScreen')?.classList.contains('active'),5000);
@@ -4682,7 +5328,7 @@ async function renderAdmin(){
       add('収入保存後の詳細遷移','ok','収入伝票の詳細画面へ自動遷移');
 
       // 収入診断伝票はここで即時撤去し、セッション監視対象を元の支出伝票へ戻す。
-      await R(`entries/${incomeEntryId}`).remove(); await R(`photos/${incomeEntryId}`).remove();
+      await (IS_PRODUCTION_TEST?removeProductionTestPhotos(incomeEntryId,runId):R(`photos/${incomeEntryId}`).remove()); await removeUiTestDiagnostic('entries',incomeEntryId,runId);
       const incomeGone=await R(`entries/${incomeEntryId}`).get();
       add('収入テスト伝票の撤去',!incomeGone.exists()?'ok':'fail',!incomeGone.exists()?'撤去済み':'残存');
       incomeEntryId=null;
@@ -4808,12 +5454,31 @@ async function renderAdmin(){
       const testAcc=accounts[0];
       const oldNextBudget=testAcc?((testAcc.budget||{})[transTo]):undefined;
       const oldNextOpening=(settings.opening||{})[transTo];
+      if(IS_PRODUCTION_TEST){
+        await verifyProductionTestAdmin(auth.currentUser);
+        const backupPaths=[
+          `settings/opening/${transTo}`,
+          `settings/fiscalTransitions/${transKey}`,
+          `settings/budgetDrafts/${transTo}`,
+          ...(testAcc?[`accounts/${testAcc.id}/budget/${transTo}`]:[])
+        ];
+        const backupValues={};
+        for(const path of backupPaths){
+          const snap=await R(path).get();
+          backupValues[path.replaceAll('/','__SLASH__')]={path,exists:snap.exists(),value:snap.exists()?snap.val():null};
+        }
+        await R(`${sandbox}/yearTransitionBackup`).set({
+          runId,ownerUid:auth.currentUser.uid,
+          createdAt:firebase.database.ServerValue.TIMESTAMP,
+          values:backupValues
+        });
+      }
       const ups={};
       ups[`settings/opening/${transTo}`]=transClosing;
       const proposedBudget=testAcc?budgetDefaultFromActual(12345):0;
       if(testAcc){ups[`accounts/${testAcc.id}/budget/${transTo}`]=proposedBudget;ups[`settings/budgetDrafts/${transTo}/items/${testAcc.id}`]={value:proposedBudget,confirmed:true,confirmedAt:Date.now(),confirmedBy:me.uid};}
       ups[`settings/fiscalTransitions/${transKey}`]={fromFY:transFrom,toFY:transTo,preparedAt:Date.now(),preparedBy:me.uid,preparedByName:me.name||'',openingCarried:true,budgetCarried:!!testAcc,closingBalance:transClosing,testMode:true,diagnosticRunId:runId,appVersion:APP_VERSION};
-      await db.ref(ROOT).update(ups); transitionTestCreated=true;
+      await db.ref(activeRoot).update(ups); transitionTestCreated=true;
       const [opSnap,trSnap]=await Promise.all([R(`settings/opening/${transTo}`).get(),R(`settings/fiscalTransitions/${transKey}`).get()]);
       add('次年度繰越金の設定',Number(opSnap.val())===850?'ok':'fail',`${transTo}年度へ ${yen(opSnap.val())}`);
       add('年度切替履歴の保存',trSnap.exists()&&Number(trSnap.val()?.fromFY)===transFrom?'ok':'fail','切替元・切替先・実行者・バージョンを保存');
@@ -4825,7 +5490,13 @@ async function renderAdmin(){
       restore[`settings/opening/${transTo}`]=oldNextOpening===undefined?null:oldNextOpening;
       restore[`settings/fiscalTransitions/${transKey}`]=null;
       if(testAcc){restore[`accounts/${testAcc.id}/budget/${transTo}`]=oldNextBudget===undefined?null:oldNextBudget;restore[`settings/budgetDrafts/${transTo}`]=null;}
-      await db.ref(ROOT).update(restore); transitionTestCreated=false;
+      if(IS_PRODUCTION_TEST){
+        const restored=await restoreProductionTestYearTransition(runId);
+        if(!restored.restored)throw new Error('年度設定のバックアップ復元に失敗しました');
+      }else{
+        await db.ref(activeRoot).update(restore);
+      }
+      transitionTestCreated=false;
       const [opGone,trGone]=await Promise.all([R(`settings/opening/${transTo}`).get(),R(`settings/fiscalTransitions/${transKey}`).get()]);
       add('年度切替テストデータの撤去',!opGone.exists()&&!trGone.exists()?'ok':'fail','診断用の次年度設定を原状復帰');
 
@@ -4833,35 +5504,77 @@ async function renderAdmin(){
       showScreen('adminScreen');
     }catch(e){add(`実画面操作テスト：${uiTestStage}`,'fail',e?.message||String(e));}
     finally{
+      if(sandboxCreated){
       try{
         if(publicTestCreated){await R(`public/${publicTestFY}`).remove();await R(`public/index/years/${publicTestFY}`).remove();}
         if(yearTestCreated){await R(`statistics/${publicTestFY}`).remove();await R(`yearClosures/${publicTestFY}`).remove();}
-        if(transitionTestCreated){
-          // v151: 年度切替テストが途中で止まっても診断年度の設定を残さない。
+        if(IS_PRODUCTION_TEST){
+          const backupSnap=await R(`${sandbox}/yearTransitionBackup`).get();
+          if(backupSnap.exists()){
+            const restored=await restoreProductionTestYearTransition(runId);
+            if(!restored.restored)throw new Error('年度設定の復元が完了していません');
+            add('年度設定のバックアップ復元','ok',`${restored.count}項目を復元・照合`);
+            transitionTestCreated=false;
+          }else if(transitionTestCreated){
+            throw new Error('年度設定のバックアップが見つからないため、自動削除を停止しました');
+          }
+        }else if(transitionTestCreated){
+          // Emulator側の従来処理は変更しない。
           await R('settings/fiscalTransitions/9996-9997').remove();
           await R('settings/opening/9997').remove();
           if(accounts[0]?.id) await R(`accounts/${accounts[0].id}/budget/9997`).remove();
         }
       }catch(e){add('会員報告・年度処理・年度切替の後処理','fail',e?.message||String(e));}
       try{
-        if(settlementId) await R(`settlements/${settlementId}`).remove();
-        if(settlementEntryId){await R(`entries/${settlementEntryId}`).remove();await R(`photos/${settlementEntryId}`).remove();}
-        if(incomeEntryId){await R(`entries/${incomeEntryId}`).remove();await R(`photos/${incomeEntryId}`).remove();}
-        if(entryId){await R(`entries/${entryId}`).remove();await R(`photos/${entryId}`).remove();}
+        if(settlementId) await removeUiTestDiagnostic('settlements',settlementId,runId);
+        if(settlementEntryId){await (IS_PRODUCTION_TEST?removeProductionTestPhotos(settlementEntryId,runId):R(`photos/${settlementEntryId}`).remove());await removeUiTestDiagnostic('entries',settlementEntryId,runId);}
+        if(incomeEntryId){await (IS_PRODUCTION_TEST?removeProductionTestPhotos(incomeEntryId,runId):R(`photos/${incomeEntryId}`).remove());await removeUiTestDiagnostic('entries',incomeEntryId,runId);}
+        if(entryId){await (IS_PRODUCTION_TEST?removeProductionTestPhotos(entryId,runId):R(`photos/${entryId}`).remove());await removeUiTestDiagnostic('entries',entryId,runId);}
         await sleep(250);
         for(const rid of [entryId,incomeEntryId,settlementEntryId].filter(Boolean)){
           const rs=await R(`entries/${rid}`).get();
           if(rs.exists() && rs.val()?.diagnosticRunId===runId){
-            await R(`entries/${rid}`).remove(); await R(`photos/${rid}`).remove();
+            await (IS_PRODUCTION_TEST?removeProductionTestPhotos(rid,runId):R(`photos/${rid}`).remove()); await removeUiTestDiagnostic('entries',rid,runId);
           }
         }
         add('テスト伝票の撤去','ok',(entryId||incomeEntryId||settlementEntryId||settlementId)?'診断データを削除（遅延書込も再確認）':'作成済みデータなし');
       }catch(e){add('テスト伝票の撤去','fail',e?.message||String(e));}
-      try{if(testPayerId&&!testPayerExisted){const ps=await R(`payers/${testPayerId}`).get();if(ps.exists()&&ps.val()?.testMode)await R(`payers/${testPayerId}`).remove();}}catch(_){}
       try{
-        if(sandboxCreated) await R(sandbox).remove();
+        if(diagnosticIncomeAccountId){
+          const aRef=R(`accounts/${diagnosticIncomeAccountId}`);
+          const aSnap=await aRef.get(), a=aSnap.val();
+          if(aSnap.exists()){
+            if(a?.testMode!==true || a?.diagnosticRunId!==runId || a?.testOwnerUid!==auth.currentUser.uid)
+              throw new Error('診断収入科目の所有情報が一致しません。削除を中止しました');
+            if(IS_PRODUCTION_TEST){
+              const ownerUid=auth.currentUser.uid;
+              const result=await aRef.transaction(current=>
+                current?.testMode===true &&
+                current?.testOwnerUid===ownerUid &&
+                current?.diagnosticRunId===runId ? null : undefined,
+                undefined,false);
+              if(!result.committed && result.snapshot.exists())
+                throw new Error('診断収入科目の削除直前に所有情報が変化しました');
+            }else{
+              await aRef.remove();
+            }
+          }
+          accounts=accounts.filter(x=>x.id!==diagnosticIncomeAccountId);
+        }
+      }catch(e){add('診断収入科目の撤去','fail',e?.message||String(e));}
+      try{if(testPayerId&&!testPayerExisted){const ps=await R(`payers/${testPayerId}`).get();if(ps.exists()){const pv=ps.val();if(IS_PRODUCTION_TEST){const ownerUid=auth.currentUser.uid;if(pv?.testMode!==true||pv?.testOwnerUid!==ownerUid||pv?.diagnosticRunId!==runId)throw new Error("診断支払者の所有情報が確認できません。削除を中止しました");const result=await R(`payers/${testPayerId}`).transaction(current=>current?.testMode===true&&current?.testOwnerUid===ownerUid&&current?.diagnosticRunId===runId?null:undefined,undefined,false);if(!result.committed&&result.snapshot.exists())throw new Error("診断支払者の削除直前に所有情報が変化しました");}else{if(pv?.testMode!==true)throw new Error("テスト用支払者ではありません");await R(`payers/${testPayerId}`).remove();}}}}catch(e){add("診断支払者の撤去","fail",e?.message||String(e));}
+      try{
+        if(sandboxCreated && !IS_PRODUCTION_TEST) await R(sandbox).remove();
         const ds=await R(sandbox).get();
-        add('Firebase診断領域の撤去',!ds.exists()?'ok':'fail',!ds.exists()?'撤去済み':'残存');
+        if(IS_PRODUCTION_TEST){
+          const yearBackup=ds.val()?.yearTransitionBackup;
+          const backupOk=!yearBackup || !!yearBackup.restoredAt;
+          add('Firebase診断領域の保護',ds.exists()&&backupOk?'ok':'fail',
+            !ds.exists()?'診断記録が見つかりません':
+            backupOk?'復元用記録を保持':'年度設定の復元が未完了');
+        }else{
+          add('Firebase診断領域の撤去',!ds.exists()?'ok':'fail',!ds.exists()?'撤去済み':'残存');
+        }
       }catch(e){add('Firebase診断領域の撤去','fail',e?.message||String(e));}
       try{
         // 横断クエリを使わず、今回作成した entryId を直接確認する。
@@ -4881,12 +5594,116 @@ async function renderAdmin(){
         if(yr.exists())residueCount++;
         if(residueCount) add('テストデータ残存確認','fail',`${residueCount}件の診断伝票が残っています`);
         else add('テストデータ残存確認','ok','診断伝票の残存なし');
-        await R(uiTestSessionPath(auth.currentUser.uid)).update({
-          status:uiTestNetworkInterrupted?'interrupted':'completed',
-          finishedAt:firebase.database.ServerValue.TIMESTAMP,
-          residueCount
-        });
+        let productionCleanupPending=residueCount>0;
+        let cleanupVerified=false;
+        if(IS_PRODUCTION_TEST){
+
+          const ds=await R(sandbox).get();
+          const yearBackup=ds.val()?.yearTransitionBackup;
+          const yearRestored=!yearBackup || !!yearBackup.restoredAt;
+          await cleanupProductionTestWorkMetrics(runId);
+          const residue=await inspectProductionTestResidue();
+          const unexpected=residue.unexpectedRoots.length>0;
+          const diagnosticAccounts=residue.diagnosticAccounts.length>0;
+          const diagnosticYears=[
+            ...residue.diagnosticYears.opening,
+            ...residue.diagnosticYears.transitions,
+            ...residue.diagnosticYears.drafts
+          ].length>0;
+          const runArtifacts=await inspectProductionTestRunArtifacts(runId);
+          const remainingRunArtifacts=
+            Object.values(runArtifacts.matched).some(ids=>ids.length>0) ||
+            Object.values(runArtifacts.unmatched).some(ids=>ids.length>0);
+          const remainingDiagnosticPayers=(await R('payers').get()).val()||{};
+          const diagnosticPayers=Object.values(remainingDiagnosticPayers)
+            .some(p=>p?.testMode===true || !!p?.diagnosticRunId);
+          productionCleanupPending=!yearRestored || residueCount>0 ||
+            unexpected || diagnosticAccounts || diagnosticYears ||
+            diagnosticPayers || remainingRunArtifacts;
+          const cleanupDetail=productionCleanupPending ? [
+            !yearRestored?'年度設定未復元':'',residueCount?`残存件数=${residueCount}`:'',
+            unexpected?`想定外ルート=${residue.unexpectedRoots.join(',')}`:'',
+            diagnosticAccounts?`診断科目=${residue.diagnosticAccounts.map(a=>a.id).join(',')}`:'',
+            diagnosticYears?`診断年度設定=${JSON.stringify(residue.diagnosticYears)}`:'',
+            diagnosticPayers?'診断支払者が残存':'',
+            remainingRunArtifacts?`実行ID紐づけデータ=${JSON.stringify(runArtifacts)}`:''
+          ].filter(Boolean).join('／') : '診断データの残存なし';
+          add('本番隔離テストの終了時確認',productionCleanupPending?'fail':'ok',cleanupDetail);
+        }
+        const cleanupFailureLabels=['会員報告・年度処理・年度切替の後処理','年度設定のバックアップ復元','年度切替テストデータの撤去','テスト伝票の撤去','収入テスト伝票の撤去','診断収入科目の撤去','診断支払者の撤去','Firebase診断領域の撤去','Firebase診断領域の保護','テストデータ残存確認','本番隔離テストの終了時確認','診断履歴の清掃完了検証'];
+        const cleanupFailed=rows.some(x=>x[1]==='fail' && cleanupFailureLabels.includes(x[0]));
+        if(cleanupFailed)productionCleanupPending=true;
+        if(IS_PRODUCTION_TEST && !productionCleanupPending && !uiTestNetworkInterrupted){
+          try{
+            await verifyProductionTestCleanup(runId);
+            cleanupVerified=true;
+          }catch(e){
+            productionCleanupPending=true;
+            add('診断履歴の清掃完了検証','fail',e?.message||String(e));
+          }
+        }
+        const sessionRef=R(uiTestSessionPath(auth.currentUser.uid));
+        const completed=!uiTestNetworkInterrupted && !productionCleanupPending &&
+          (!IS_PRODUCTION_TEST || cleanupVerified);
+        // v176: 本番隔離テストでは親ノードの診断履歴更新と競合する
+        // transaction を使わず、実行ID・清掃記録を再確認して子項目だけ更新する。
+        if(IS_PRODUCTION_TEST){
+          const uid=auth.currentUser.uid;
+          const before=(await sessionRef.get()).val();
+          if(before?.runId!==runId || before?.status!=='running')
+            throw new Error('診断セッションが変更されたため終了状態を更新しませんでした');
+          if(completed){
+            const record=(await R(`diagnosticTests/${uid}/${runId}`).get()).val();
+            if(record?.runId!==runId || record?.uid!==uid || record?.cleanupVerified!==true)
+              throw new Error('診断履歴の清掃完了が未確認のため終了状態を更新しませんでした');
+          }
+          // completed にするのは清掃確認に成功した場合だけ。
+          // エラー時は interrupted とし、清掃ボタンによる復旧を可能にする。
+          const beforeWrite=(await sessionRef.get()).val();
+          if(beforeWrite?.runId!==runId || beforeWrite?.status!=='running')
+            throw new Error('終了直前に診断セッションが変更されました');
+          await sessionRef.update({
+            status:completed?'completed':'interrupted',
+            finishedAt:firebase.database.ServerValue.TIMESTAMP,
+            residueCount,
+            cleanupVerified:completed
+          });
+        }else{
+          // Emulator の従来動作を維持する。
+          let tx=null;
+          for(let attempt=0;attempt<3;attempt++){
+            tx=await sessionRef.transaction(current=>{
+              if(current?.runId!==runId || current?.status!=='running')return;
+              return {...current,
+                status:completed?'completed':'interrupted',
+                finishedAt:firebase.database.ServerValue.TIMESTAMP,
+                residueCount,
+                cleanupVerified:false};
+            },undefined,false);
+            if(tx.committed)break;
+            const observed=(await sessionRef.get()).val();
+            if(observed?.runId!==runId || observed?.status!=='running')break;
+          }
+          if(!tx?.committed){
+            const observed=(await sessionRef.get()).val();
+            if(!(observed?.runId===runId && observed?.status==='completed'))
+              throw new Error('診断セッション更新競合。無条件更新は行っていません');
+          }
+        }
+        // 終了状態はFirebaseから再取得して確認する。更新条件は緩和しない。
+        const finalSession=(await sessionRef.get()).val();
+        const sessionOk=finalSession?.runId===runId &&
+          finalSession?.status==='completed' &&
+          Number.isFinite(Number(finalSession?.finishedAt)) &&
+          Number(finalSession.finishedAt)>0 &&
+          finalSession?.cleanupVerified===true &&
+          Number(finalSession?.residueCount)===0;
+        add('テストセッション終了処理',sessionOk?'ok':'fail',
+          sessionOk?'終了状態・終了日時・清掃完了をFirebase再読取で確認':
+          `終了状態の確認に失敗（status=${finalSession?.status||'なし'}, cleanupVerified=${String(finalSession?.cleanupVerified)}, residueCount=${String(finalSession?.residueCount)}）`);
       }catch(e){add('テストセッション終了処理','fail',e?.message||String(e));}
+      } // 診断登録が成立した場合のみ清掃・終了処理を実行
+      if(!sandboxCreated) add('テストセッション終了処理','fail','診断セッションを開始できず、終了状態を確認できません');
       // v156: 途中停止時もAI確認オーバーレイを残さない。
       document.querySelectorAll('.ai-confirm-overlay').forEach(x=>x.remove());
       uiAutoTestContext=null; testProfile=oldProfile; me=oldMe; curFY=isDiagnosticFY(oldFY)?fyOf(localDate()):oldFY; applyEffectiveProfile();
@@ -5176,7 +5993,7 @@ async function renderAdmin(){
     if(!isRealAdmin())return 0;
     const snap=await R('backups').get(), now=Date.now(), ups={}; let n=0;
     Object.entries(snap.val()||{}).forEach(([id,b])=>{if(b?.expiresAt && Number(b.expiresAt)<=now){ups[`backups/${id}`]=null;n++;}});
-    if(n) await db.ref(ROOT).update(ups);
+    if(n) await db.ref(activeRoot).update(ups);
     return n;
   }
   async function createDeletionBackup(fy,kind='before-delete'){
@@ -5190,7 +6007,7 @@ async function renderAdmin(){
   async function purgeOlderBackupsAfterDeletion(keepId,deletedAt){
     const snap=await R('backups').get(), ups={};
     Object.entries(snap.val()||{}).forEach(([id,b])=>{if(id!==keepId && Number(b?.createdAt||0)<=Number(deletedAt))ups[`backups/${id}`]=null;});
-    if(Object.keys(ups).length)await db.ref(ROOT).update(ups);
+    if(Object.keys(ups).length)await db.ref(activeRoot).update(ups);
     // 通常バックアップ履歴に、既に削除したバックアップを残さない。
     await R('settings/autoBackup/history').remove();
   }
@@ -5233,7 +6050,7 @@ async function renderAdmin(){
           fresh.targets.settlementIds.forEach(id=>ups[`settlements/${id}`]=null);
           if(fresh.targets.auditReport)ups[`auditReports/${fy}`]=null;
           if(fresh.targets.publicReport){ups[`public/${fy}`]=null;ups[`public/index/years/${fy}`]=null;}
-          await db.ref(ROOT).update(ups);
+          await db.ref(activeRoot).update(ups);
           await purgeOlderBackupsAfterDeletion(backup.id,at);
           await R(`yearClosures/${fy}`).update({physicallyDeletedAt:TS(),physicallyDeletedBy:me.uid,physicallyDeletedByName:me.name||'',deletionBackupId:backup.id,deletionBackupExpiresAt:backup.expiresAt,deletedCounts:{entries:fresh.targets.entryIds.length,photos:fresh.targets.photoIds.length,advances:fresh.targets.advanceIds.length,settlements:fresh.targets.settlementIds.length}});
           await R('dataLifecycleRuns').push().set({at:TS(),by:me.uid,byName:me.name||'',kind:'physicalDeleteFiscalYear',fy:Number(fy),backupId:backup.id,backupExpiresAt:backup.expiresAt,deletedCounts:{entries:fresh.targets.entryIds.length,photos:fresh.targets.photoIds.length,advances:fresh.targets.advanceIds.length,settlements:fresh.targets.settlementIds.length}});
@@ -5250,7 +6067,7 @@ async function renderAdmin(){
       out.innerHTML=`<div class="total-check"><span>${p.logYears}年を超えた操作ログ</span><b>${old.length}件</b></div>${old.length?'<button class="btn btn-danger full" id="retDeleteLogs">期限超過ログを物理削除</button>':'<p class="hint">削除対象はありません。</p>'}`;
       if($('retDeleteLogs'))$('retDeleteLogs').onclick=async()=>{
         if(!confirm(`${old.length}件の期限超過ログを物理削除します。\n削除前に短期復旧バックアップを作成します。`))return;
-        try{const backup=await createDeletionBackup('logs','before-log-delete'),at=Date.now(),ups={};old.forEach(([id])=>ups[`log/${id}`]=null);await db.ref(ROOT).update(ups);await purgeOlderBackupsAfterDeletion(backup.id,at);await R('dataLifecycleRuns').push().set({at:TS(),by:me.uid,byName:me.name||'',kind:'physicalDeleteExpiredLogs',deletedCount:old.length,backupId:backup.id,backupExpiresAt:backup.expiresAt});showToast('期限超過ログを削除しました');out.innerHTML='<p class="hint">削除を完了しました。</p>';}catch(e){console.error(e);showToast('ログ削除に失敗しました');}
+        try{const backup=await createDeletionBackup('logs','before-log-delete'),at=Date.now(),ups={};old.forEach(([id])=>ups[`log/${id}`]=null);await db.ref(activeRoot).update(ups);await purgeOlderBackupsAfterDeletion(backup.id,at);await R('dataLifecycleRuns').push().set({at:TS(),by:me.uid,byName:me.name||'',kind:'physicalDeleteExpiredLogs',deletedCount:old.length,backupId:backup.id,backupExpiresAt:backup.expiresAt});showToast('期限超過ログを削除しました');out.innerHTML='<p class="hint">削除を完了しました。</p>';}catch(e){console.error(e);showToast('ログ削除に失敗しました');}
       };
     }catch(e){console.error(e);out.innerHTML='<p class="hint">操作ログを確認できませんでした</p>';}
   };
@@ -5546,7 +6363,7 @@ async function createFirebaseBackup(kind='manual', quiet=false){
   let cleanupFailed=false;
   if(remove.length){
     const ups={}; remove.forEach(x=>ups[`backups/${x.id}`]=null);
-    try{ await db.ref(ROOT).update(ups); }catch(e){ cleanupFailed=true; console.warn('古いバックアップの削除に失敗',e); }
+    try{ await db.ref(activeRoot).update(ups); }catch(e){ cleanupFailed=true; console.warn('古いバックアップの削除に失敗',e); }
   }
   const kept=regular.slice(0,3).map(x=>({id:x.id,at:x.createdAt||at,kind:x.kind||'auto',itemCount:x.itemCount||0,bytes:x.bytes||0,version:x.version||''}));
   await R('settings/autoBackup').update({lastAt:at,lastKind:kind,history:kept.reduce((o,x)=>(o[x.id]=x,o),{})});
@@ -5630,7 +6447,7 @@ async function resetTrialData(){
     addChildDeletes('photos',photoDeleteSnap);
     addChildDeletes('log',logSnap);
 
-    await db.ref(ROOT).update(ups);
+    await db.ref(activeRoot).update(ups);
     // 操作履歴を0件にするため、この初期化自体はlogへ書かず設定メタデータだけに残す。
     await R('settings/productionReset').set({at:TS(),by:me.uid,byName:me.name,version:APP_VERSION});
     showToast('試行データを初期化しました');
@@ -5758,7 +6575,7 @@ function bindFiscalClose(){
       const value=Math.max(0,Math.floor(Number(input.value)||0));
       btn.disabled=true;btn.textContent='保存しています…';
       const ups={};ups[`accounts/${aid}/budget/${toFY}`]=value;ups[`settings/budgetDrafts/${toFY}/items/${aid}`]={value,confirmed:true,confirmedAt:TS(),confirmedBy:me.uid};ups[`settings/budgetDrafts/${toFY}/fromFY`]=fromFY;ups[`settings/budgetDrafts/${toFY}/status`]='draft';ups[`settings/budgetDrafts/${toFY}/updatedAt`]=TS();
-      try{await db.ref(ROOT).update(ups);settings.budgetDrafts=settings.budgetDrafts||{};settings.budgetDrafts[toFY]=settings.budgetDrafts[toFY]||{items:{}};settings.budgetDrafts[toFY].items=settings.budgetDrafts[toFY].items||{};settings.budgetDrafts[toFY].items[aid]=ups[`settings/budgetDrafts/${toFY}/items/${aid}`];const a=accounts.find(x=>x.id===aid);if(a){a.budget=a.budget||{};a.budget[toFY]=value;}btn.disabled=false;btn.className='btn btn-ghost full budget-draft-confirm';btn.textContent='✓ この科目は確定済み（再確定）';showToast(`${a?.name||'科目'}の予算案を確定しました`);renderFiscalCloseScreen();setTimeout(()=>{$('fyBudgetDraft')?.click();},0);}catch(e){btn.disabled=false;btn.textContent='この科目を確定';showToast(`保存できませんでした：${e?.message||e}`);}
+      try{await db.ref(activeRoot).update(ups);settings.budgetDrafts=settings.budgetDrafts||{};settings.budgetDrafts[toFY]=settings.budgetDrafts[toFY]||{items:{}};settings.budgetDrafts[toFY].items=settings.budgetDrafts[toFY].items||{};settings.budgetDrafts[toFY].items[aid]=ups[`settings/budgetDrafts/${toFY}/items/${aid}`];const a=accounts.find(x=>x.id===aid);if(a){a.budget=a.budget||{};a.budget[toFY]=value;}btn.disabled=false;btn.className='btn btn-ghost full budget-draft-confirm';btn.textContent='✓ この科目は確定済み（再確定）';showToast(`${a?.name||'科目'}の予算案を確定しました`);renderFiscalCloseScreen();setTimeout(()=>{$('fyBudgetDraft')?.click();},0);}catch(e){btn.disabled=false;btn.textContent='この科目を確定';showToast(`保存できませんでした：${e?.message||e}`);}
     });
     box.scrollIntoView({behavior:'smooth',block:'start'});
   };
@@ -5788,7 +6605,7 @@ function bindFiscalClose(){
       <div id="fySwitchStatus" aria-live="polite" style="display:none;margin:10px 0"></div><button class="btn btn-primary full" id="fySwitchRun" ${blockers?'disabled':''}>${fromFY}年度を決算確定し、${toFY}年度へ切り替える</button>
     </div>`;
     if($('fyPreviewClose')) $('fyPreviewClose').onclick=()=>{box.innerHTML='';};
-    if($('fySaveRemarks'))$('fySaveRemarks').onclick=async()=>{const ups={};document.querySelectorAll('.fy-remark').forEach(x=>{ups[`accounts/${x.dataset.account}/remarks/${toFY}`]=x.value.trim();});await db.ref(ROOT).update(ups);showToast(`${toFY}年度の摘要を保存しました`);};
+    if($('fySaveRemarks'))$('fySaveRemarks').onclick=async()=>{const ups={};document.querySelectorAll('.fy-remark').forEach(x=>{ups[`accounts/${x.dataset.account}/remarks/${toFY}`]=x.value.trim();});await db.ref(activeRoot).update(ups);showToast(`${toFY}年度の摘要を保存しました`);};
     // 確認ボタン押下後は、次の操作（年度切り替え）まで自動でスクロールする。
     requestAnimationFrame(()=>{
       const target=$('fySwitchRun') || box;
@@ -5836,7 +6653,7 @@ function bindFiscalClose(){
       let saveTimer=null;
       try{
         if(status) status.innerHTML='<b>年度切り替え処理中です（2/3）</b><br>決算確定・繰越情報をFirebaseへ送信しています。';
-        const savePromise=db.ref(ROOT).update(ups);
+        const savePromise=db.ref(activeRoot).update(ups);
         const timeoutPromise=new Promise((_,reject)=>{
           saveTimer=setTimeout(()=>{
             const e=new Error('Firebaseから15秒以内に応答がありませんでした');
@@ -5901,7 +6718,7 @@ function bindSettings(){
     if(!validAffiliation(branch,group)) return showToast('支部と班を選択してください');
     const ups={}; ups[`members/${m.id}/branch`]=branch; ups[`members/${m.id}/group`]=group; ups[`members/${m.id}/updatedAt`]=TS();
     if(m.payerId){ ups[`payers/${m.payerId}/branch`]=branch; ups[`payers/${m.payerId}/group`]=group; }
-    await db.ref(ROOT).update(ups);
+    await db.ref(activeRoot).update(ups);
     writeLog('所属変更', null, `${m.name}：${branch} ${group}`); showToast(`${m.name}さんの所属を変更しました`);
   });
   q('[data-delmember]').forEach(b => b.onclick = async () => {
@@ -6053,7 +6870,7 @@ function bindSettings(){
         ups[`members/${m.id}/payerId`] = null;
       }
     }
-    await db.ref(ROOT).update(ups);
+    await db.ref(activeRoot).update(ups);
     writeLog('権限変更', null, `${m.name}：${ROLES[oldRole]?.name}→${ROLES[newRole]?.name}`);
     showToast(`${m.name}さんを「${ROLES[newRole].name}」にしました`);
     if (['treasurer','viewer'].includes(newRole) || ['treasurer','viewer'].includes(oldRole)) setTimeout(()=>syncRecipients(), 800);
@@ -6150,7 +6967,7 @@ async function applyStandardAccounts(){
   });
   extra.forEach(a => { ups[`accounts/${a.id}/active`] = false; });
   ups[`settings/opening/${STANDARD_FY}`] = STANDARD_OPENING;
-  await db.ref(ROOT).update(ups);
+  await db.ref(activeRoot).update(ups);
   writeLog('科目の一括設定', null, `${STANDARD_FY}年度 一般会計予算（案）の科目・予算・前期繰越金を適用`);
   showToast('科目と予算を揃えました');
   setTimeout(renderSettings, 300);
@@ -6571,7 +7388,7 @@ async function applyBudget(){
   });
   if (d.useOpening && d.opening!==null) ups[`settings/opening/${d.fy}`] = d.opening;
   try {
-    await db.ref(ROOT).update(ups);
+    await db.ref(activeRoot).update(ups);
     writeLog('予算取り込み', null, `${d.fy}年度 予算書画像から ${rows.length}科目（収入${yen(rows.filter(r=>r.type==='income').reduce((s,r)=>s+r.amount,0))}・支出${yen(rows.filter(r=>r.type==='expense').reduce((s,r)=>s+r.amount,0))}）`);
     showToast('予算を反映しました');
     curFY = d.fy; subscribeFY();
@@ -6774,7 +7591,7 @@ function renderKaihipayPreview(){
 async function saveKaihipayProcessed(items, meta){
   const updates={};
   items.forEach(x=>{ updates[`settings/kaihipayProcessed/${x.hash}`]={at:meta.at,fy:meta.fy,entryId:meta.entryId||'',amount:x.amount,date:x.date,kind:x.kind||''}; });
-  if(Object.keys(updates).length) await db.ref(ROOT).update(updates);
+  if(Object.keys(updates).length) await db.ref(activeRoot).update(updates);
 }
 async function seedKaihipayProcessed(){
   const d=kaihipayImport; if(!d) return;
@@ -7421,14 +8238,14 @@ async function runImport(list){
     // 通常規模の取り込みは一括更新し、途中失敗で「履歴だけ残る／一部だけ入る」を防ぐ。
     const keys = Object.keys(ups);
     if(keys.length<=500){
-      await db.ref(ROOT).update(ups);
+      await db.ref(activeRoot).update(ups);
     } else {
       // 大規模時は本体を先に分割し、取り込み履歴は最後に確定する。
       const importKey=`imports/${batchId}`, importMeta=ups[importKey]; delete ups[importKey];
       const bodyKeys=Object.keys(ups);
       for(let i=0;i<bodyKeys.length;i+=300){
         btn.textContent=`取り込み中… ${Math.min(i+300,bodyKeys.length)}／${bodyKeys.length}`;
-        await db.ref(ROOT).update(Object.fromEntries(bodyKeys.slice(i,i+300).map(k=>[k,ups[k]])));
+        await db.ref(activeRoot).update(Object.fromEntries(bodyKeys.slice(i,i+300).map(k=>[k,ups[k]])));
       }
       await R(importKey).set(importMeta);
     }
@@ -7459,7 +8276,7 @@ async function undoImport(id){
   alist.forEach(a => { ups[`advances/${a.id}`]=null; });
   slist.forEach(x => { ups[`settlements/${x.id}`]=null; });
   ups[`imports/${id}`] = null;
-  await db.ref(ROOT).update(ups);
+  await db.ref(activeRoot).update(ups);
   writeLog('CSV取込の取消', null, `${info.fileName}：${total}件を削除`);
   showToast(`${total}件を取り消しました`);
 }
@@ -7474,7 +8291,7 @@ async function openPublic(){
   if (!CONFIGURED) { body.innerHTML = '<div class="empty">まだ準備中です</div>'; return; }
   body.innerHTML = '<div class="empty">読み込み中…</div>';
   try {
-    const idx = (await db.ref(`${ROOT}/public/index`).get()).val();
+    const idx = (await db.ref(`${activeRoot}/public/index`).get()).val();
     const years = Object.keys((idx&&idx.years)||{}).map(Number).sort((a,b)=>b-a);
     if (!years.length) { body.innerHTML = `<div class="pub-head"><div class="org">${esc(idx?.orgName||'町内会')}</div></div><div class="empty">まだ会計報告は公開されていません</div>`; return; }
     const want = Number(params.get('fy')) || years[0];
@@ -7483,7 +8300,7 @@ async function openPublic(){
 }
 async function renderPublic(years, fy){
   const body = $('publicBody');
-  const d = (await db.ref(`${ROOT}/public/${fy}`).get()).val();
+  const d = (await db.ref(`${activeRoot}/public/${fy}`).get()).val();
   if (!d) { body.innerHTML = '<div class="empty">この年度の報告はありません</div>'; return; }
   const maxM = Math.max(1, ...asList(d.months).map(m=>m.expense));
   const accRows = t => asList(d.accounts).filter(a=>a.type===t).map(a=>{
