@@ -881,7 +881,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.11-174';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.11-175';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -2530,9 +2530,25 @@ function renderStorageChips(){
   wrap.querySelectorAll('.chip').forEach(c=>c.onclick=()=>{ $('fStorage').value = c.textContent; });
 }
 
+/* 撮影ボタンはスマホ・タブレットのみ。PCではファイル選択だけを表示する。 */
+function supportsReceiptCameraUI(){
+  const ua = navigator.userAgent || '';
+  const mobileUA = /Android|iPhone|iPad|iPod|Mobile/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const touchTablet = navigator.maxTouchPoints > 0 && window.matchMedia('(pointer: coarse)').matches && window.innerWidth < 1100;
+  return mobileUA || touchTablet;
+}
+function updateReceiptCameraButtons(){
+  const show = supportsReceiptCameraUI();
+  for (const id of ['cameraBtn','bCam']) {
+    const btn = $(id);
+    if (btn) btn.style.display = show ? '' : 'none';
+  }
+}
+window.addEventListener('resize', updateReceiptCameraButtons);
 /* ---------- 写真 ---------- */
 $('cameraBtn').onclick = () => $('cameraInput').click();
 $('fileBtn').onclick = () => $('fileInput').click();
+updateReceiptCameraButtons();
 $('cameraInput').onchange = e => { handlePhoto(e.target.files[0]); e.target.value=''; };
 $('fileInput').onchange = async e => { await handleDocument(e.target.files[0]); e.target.value=''; };
 function renderPhotoStrip(){
@@ -6323,6 +6339,7 @@ function renderBatch(){
   $('bBack').onclick = () => showScreen('homeScreen');
   $('bPick').onclick = () => $('batchInput').click();
   $('bCam').onclick = () => $('batchCamera').click();
+  updateReceiptCameraButtons();
   $('bcMethod').onchange = e => batchCommon.methodId = e.target.value;
   if ($('bcPayer')) $('bcPayer').onchange = e => batchCommon.payerId = e.target.value;
   $('bcPurpose').oninput = e => batchCommon.purpose = e.target.value;
