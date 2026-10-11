@@ -881,7 +881,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.11-177';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.11-178';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -2690,6 +2690,10 @@ function aiErrorText(e){
   if (m==='AITIMEOUT' || m.includes('90秒') || m.includes('60秒以内')) return 'AIの処理が時間内に完了しませんでした。画像を1ページずつに分けて再試行してください';
   if (m.includes('GAS応答の監視')) return 'AI応答を受信できませんでした。Firebaseへのアクセス権限を確認してください';
   if (m.includes('送信に失敗')) return 'AIへの送信に失敗しました。通信状態を確認してください';
+  if (m==='MULTI_PAGE_RANGE') return 'AIが示した書類のページ範囲を確認できませんでした。分割登録は行っていません';
+  if (m==='MULTI_MISSING_FIELDS') return '書類の日付または金額が不足しています。分割登録は行っていません';
+  if (m==='MULTI_METHOD_REQUIRED') return '支払方法と支払者を選択してからAI読取りをやり直してください';
+  if (m==='MULTI_EDIT_NOT_SUPPORTED') return '既存伝票の編集中は分割登録できません。新規登録画面を使ってください';
   if (m.startsWith('MULTI_DOCUMENT:')) return '複数の領収書類を検出しました。書類ごとにページを分けて読み込んでください（'+(Number(m.split(':')[1])||2)+'件）';
   if (m.includes('JSON') || m.includes('parse') || m.includes('FORMAT')) return 'AI応答の形式を読み取れませんでした';
   return 'AI読み取りエラー（'+m.slice(0,160)+'）';
@@ -2702,11 +2706,11 @@ function parseReceiptAiResponse(raw){
   for(let depth=0;depth<5;depth++){
     if(v && typeof v==='object' && !Array.isArray(v)){
       if(Array.isArray(v.documents)){
-        if(v.documents.length>1) throw new Error('MULTI_DOCUMENT:'+v.documents.length);
+        if(v.documents.length>1) return {__documents:v.documents};
         if(v.documents.length===1){v=v.documents[0];continue;}
       }
       if(Array.isArray(v.receipts)){
-        if(v.receipts.length>1) throw new Error('MULTI_DOCUMENT:'+v.receipts.length);
+        if(v.receipts.length>1) return {__documents:v.receipts};
         if(v.receipts.length===1){v=v.receipts[0];continue;}
       }
       if('date' in v || 'amount' in v || 'payee' in v) return v;
@@ -2721,7 +2725,8 @@ function parseReceiptAiResponse(raw){
       if(v.every(x=>x && typeof x==='object' && typeof x.text==='string')){
         v=v.map(x=>x.text).join('\n');continue;
       }
-      throw new Error('MULTI_DOCUMENT:'+v.length);
+      if(v.length>1 && v.every(x=>x && typeof x==='object')) return {__documents:v};
+      throw new Error('AI_RESPONSE_FORMAT');
     }
     if(typeof v==='string'){
       const t=v.trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,'').trim();
@@ -2753,10 +2758,11 @@ async function recognizeReceipt(dataUrls, type){
   const accNames = accounts.filter(a=>a.type===(type||'expense') && a.active).map(a=>a.desc?`${a.name}（${a.desc}）`:a.name);
   const response = await callClaude(images,
     'あなたは町内会・自治会の会計担当を手伝うアシスタントです。領収書類（レシート・振込控え等）・請求書の画像（PDFをページ画像化したものを含む）から情報を抽出し、JSONのみを出力します。前後の説明文やコードブロック記号は付けません。',
-    `画像に異なる請求書番号・発行者の独立した書類が複数含まれる場合、金額を合算せず {"documents":[{"date":"YYYY-MM-DD","payee":"発行者","amount":税込合計}, ...]} のJSONを返してください。同一請求書の続きページは1件として扱います。1件のみの場合は次の形式のJSONを返してください。
+    `画像に異なる請求書番号・発行者の独立した書類が複数含まれる場合、金額を合算せず {"documents":[{"date":"YYYY-MM-DD","payee":"発行者","amount":税込合計,"items":"品目","purpose":"用途","account":"科目名","payMethod":"cash / credit / qr / emoney / transfer / unknown","addressee":null,"docType":"receipt / invoice / transfer / other","pageStart":開始ページ番号(1始まり),"pageEnd":終了ページ番号(1始まり)}, ...]} のJSONを返してください。ページ範囲は必須です。同一請求書の続きページは1件として扱います。1件のみの場合は次の形式のJSONを返してください。
 {"date":"支払日 YYYY-MM-DD（不明ならnull）","payee":"店名・支払先（不明ならnull）","amount":税込合計の数値（不明なら0）,"items":"品目の簡潔なメモ（30文字程度）","purpose":"町内会の用途として自然な短い説明（例：役員会の茶菓子、防災倉庫の備品）","account":"次の科目名から最も近いものを1つ（括弧内は各科目に含まれる支出の例。科目名だけを出力）：${accNames.join('、')}","payMethod":"支払手段。cash / credit / qr / emoney / transfer / unknown のいずれか","addressee":"領収書類の宛名（上様・空欄ならその文字、なければnull）","docType":"receipt / invoice / transfer / other のいずれか"}
 和暦は西暦に変換してください。金額は値引き後・税込の支払総額です。お預り・お釣りの金額と取り違えないでください。`);
   const r = parseReceiptAiResponse(response);
+  if (r.__documents) return {__documents:r.__documents};
   return {
     date: nullish(r.date), payee: nullish(r.payee), amount: Math.round(Number(r.amount)||0),
     items: nullish(r.items), purpose: nullish(r.purpose), payMethod: nullish(r.payMethod)||'unknown',
@@ -2790,6 +2796,7 @@ async function runAi(dataUrls){
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> AIが読み取り中…';
   try {
     const r = await recognizeReceipt(dataUrls, formType);
+    if (r.__documents) { await openMultiReceiptReview(r.__documents, dataUrls); return; }
     formAiReceiptOriginal = {
       date:r.date||'', amount:Math.round(Number(r.amount)||0), payee:r.payee||'',
       purpose:r.purpose||'', accountId:r.accountId||'', addressee:r.addressee||'',
@@ -2815,6 +2822,74 @@ async function runAi(dataUrls){
     showToast(msg + '。必要なら手入力してください');
     alert('AI読み取りに失敗しました。\n\n'+msg+(String(e?.message||'').startsWith('MULTI_DOCUMENT:')?'':'\n\n※PDFに複数の請求書がある場合は、請求書ごとにページを分けて読み込んでください。'));
   } finally { btn.disabled=false; btn.textContent=orig; }
+}
+
+/* v178: 複数請求書PDFをページ単位で分割し、利用者確認後に複数伝票として登録する。
+   AIが示したページ範囲が不明・重複・欠落の場合は自動保存しない。 */
+function normalizedMultiReceipts(docs, images){
+  if(!Array.isArray(docs) || docs.length<2 || docs.length>images.length) throw new Error('MULTI_PAGE_RANGE');
+  const seen=new Set();
+  const rows=docs.map((d,i)=>{
+    const a=Number(d.pageStart??d.startPage??d.start_page??d.pages?.[0]);
+    const b=Number(d.pageEnd??d.endPage??d.end_page??d.pages?.[d.pages.length-1]??a);
+    if(!Number.isInteger(a)||!Number.isInteger(b)||a<1||b<a||b>images.length) throw new Error('MULTI_PAGE_RANGE');
+    for(let j=a;j<=b;j++){if(seen.has(j))throw new Error('MULTI_PAGE_RANGE');seen.add(j);}
+    const date=String(d.date||'').match(/\d{4}-\d{2}-\d{2}/)?.[0]||'';
+    const amount=Math.round(Number(String(d.amount??0).replace(/[,￥¥\s]/g,''))||0);
+    if(!date||amount<=0) throw new Error('MULTI_MISSING_FIELDS');
+    const account=accounts.filter(x=>x.type===formType&&x.active).sort((a,b)=>b.name.length-a.name.length).find(x=>String(d.account||'').startsWith(x.name));
+    return {pageStart:a,pageEnd:b,date,amount,payee:String(d.payee||''),purpose:String(d.purpose||''),items:String(d.items||''),accountId:account?.id||formAccount||'',payMethod:d.payMethod||'unknown',addressee:d.addressee||'',docType:d.docType||''};
+  });
+  if(seen.size!==images.length) throw new Error('MULTI_PAGE_RANGE');
+  return rows.sort((a,b)=>a.pageStart-b.pageStart);
+}
+function multiReviewOverlay(){
+  let el=document.getElementById('multiReceiptReview');
+  if(el)return el;
+  el=document.createElement('div');el.id='multiReceiptReview';
+  el.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:99999;display:none;overflow:auto;padding:16px;';
+  el.innerHTML='<div style="max-width:760px;margin:20px auto;background:#fff;color:#222;border-radius:14px;padding:20px"><h2>複数の領収書類を分割登録</h2><p>AIの判定を確認・修正してから登録してください。ページは各伝票に分けて保存します。</p><div id="multiReceiptRows"></div><p id="multiReceiptError" style="color:#a33"></p><div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap"><button type="button" id="multiReceiptCancel" class="btn btn-ghost">キャンセル</button><button type="button" id="multiReceiptSave" class="btn btn-primary">確認して一括登録</button></div></div>';
+  document.body.appendChild(el);return el;
+}
+async function openMultiReceiptReview(documents,images){
+  const rows=normalizedMultiReceipts(documents,images);
+  if(editing)throw new Error('MULTI_EDIT_NOT_SUPPORTED');
+  const payerId=canOwnSubmit()?me.payerId:($('fPayer').value||'');
+  const methodId=formMethod||suggestMethod(rows[0].payMethod,canOwnSubmit()||!!payerId);
+  const m=methodById(methodId);
+  if(!methodId||!m||m.settle&&!payerId)throw new Error('MULTI_METHOD_REQUIRED');
+  const opts=accounts.filter(a=>a.type===formType&&a.active).map(a=>`<option value="${esc(a.id)}">${esc(a.name)}</option>`).join('');
+  const overlay=multiReviewOverlay(), area=overlay.querySelector('#multiReceiptRows'), err=overlay.querySelector('#multiReceiptError');
+  err.textContent='';
+  area.innerHTML=rows.map((r,i)=>`<fieldset data-i="${i}" style="border:1px solid #ddd;border-radius:10px;padding:12px;margin:12px 0"><legend>書類 ${i+1}（PDF ${r.pageStart}〜${r.pageEnd}ページ）</legend><label>支払日 <input data-f="date" type="date" value="${esc(r.date)}" style="width:100%;padding:8px"></label><label>金額（税込） <input data-f="amount" type="number" min="1" value="${r.amount}" style="width:100%;padding:8px"></label><label>支払先 <input data-f="payee" value="${esc(r.payee)}" style="width:100%;padding:8px"></label><label>用途 <input data-f="purpose" value="${esc(r.purpose)}" style="width:100%;padding:8px"></label><label>科目 <select data-f="accountId" style="width:100%;padding:8px"><option value="">科目を選択</option>${opts}</select></label><small>品目：${esc(r.items)} ／ 宛名：${esc(r.addressee)}</small></fieldset>`).join('');
+  area.querySelectorAll('fieldset').forEach((f,i)=>{f.querySelector('[data-f="accountId"]').value=rows[i].accountId;});
+  overlay.style.display='block';
+  overlay.querySelector('#multiReceiptCancel').onclick=()=>{overlay.style.display='none';};
+  overlay.querySelector('#multiReceiptSave').onclick=async()=>{
+    const btn=overlay.querySelector('#multiReceiptSave');if(btn.disabled)return;
+    const data=[...area.querySelectorAll('fieldset')].map((f,i)=>({ ...rows[i], ...Object.fromEntries([...f.querySelectorAll('[data-f]')].map(el=>[el.dataset.f,el.value])) }));
+    for(const d of data){
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(d.date)||!Number.isFinite(Number(d.amount))||Number(d.amount)<=0||!d.accountId){err.textContent='日付・金額・科目をすべて確認してください';return;}
+      if(!ensureFYOpen(fyOf(d.date)))return;
+    }
+    const warnings=data.map((d,i)=>receiptFYWarning(d.date)?`書類${i+1}：${receiptFYWarning(d.date)}`:'').filter(Boolean);
+    if(warnings.length&&!confirm(warnings.join('\n')+'\n\n登録しますか？'))return;
+    if(!confirm(`${data.length}件の伝票を別々に登録します。\n合計 ${yen(data.reduce((n,d)=>n+Number(d.amount),0))}\n\nよろしいですか？`))return;
+    btn.disabled=true;btn.textContent='登録中…';err.textContent='';
+    const saved=[];
+    try{
+      for(let i=0;i<data.length;i++){
+        const d=data[i];const photos=images.slice(d.pageStart-1,d.pageEnd);
+        const original={date:d.date,amount:Number(d.amount),payee:d.payee,purpose:d.purpose,accountId:d.accountId,addressee:d.addressee,items:d.items,payMethod:d.payMethod,readAt:TS()};
+        const entry=await persistEntry(null,{type:formType,date:d.date,amount:Number(d.amount),payee:d.payee,purpose:d.purpose||d.items,memo:d.items,accountId:d.accountId,methodId,payerId:payerId||null,storageLocation:$('fStorage').value.trim(),noReceipt:false,noReceiptReason:'',excludePublic:$('fExclude').checked,addressee:d.addressee,aiReceiptOriginal:original,_via:'PDF自動分割'},photos,true);
+        saved.push(entry);
+      }
+      if(saved.some(x=>x.status==='submitted')&&!uiAutoTestContext)notifyEntries(saved.filter(x=>x.status==='submitted').map(x=>x.id));
+      overlay.style.display='none';showToast(`${saved.length}件を別々の伝票として登録しました`);
+      openDetail(saved[0].id,saved[0]);
+    }catch(e){console.error('PDF分割登録失敗',e);err.textContent=`${saved.length}件登録済みです。残りの登録に失敗しました。重複登録を防ぐため、伝票一覧を確認してください。`;}
+    finally{btn.disabled=false;btn.textContent='確認して一括登録';}
+  };
 }
 
 /* 宛名のチェック（上様・個人名など団体名以外） */
