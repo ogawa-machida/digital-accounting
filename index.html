@@ -881,7 +881,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.11-181';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.11-182';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -3207,6 +3207,10 @@ async function renderDetail(id){
   if (isViewer() && e.status==='submitted' && e.selfApprovalRequired===true && e.createdBy!==me.uid) {
     html += `<div class="audit-box" style="border-color:var(--amber);margin-bottom:10px"><div style="font-weight:700;font-size:13.5px;margin-bottom:4px">会計担当本人の支出です</div><p class="hint" style="margin:0 0 8px">自己承認を防ぐため、役員が内容と領収書類を確認して承認します。</p><div class="btn-row"><button class="btn btn-danger" id="dReturn">差し戻す</button><button class="btn btn-moss" id="dApprove">承認する</button></div></div>`;
   }
+  // 管理者による承認後差戻し（精算済み・年度確定済みは不可）
+  if (isRealAdmin() && e.status==='approved' && e.settleState!=='settled' && !isFYClosed(e.fy)) {
+    html += `<div class="audit-box" style="border-color:var(--amber);margin-bottom:12px"><b>管理者操作</b><p class="hint">承認後に誤りが見つかった場合、理由を記録して差し戻します。精算済み伝票は対象外です。</p><button class="btn btn-danger full" id="dAdminReturn">承認済み伝票を差し戻す</button></div>`;
+  }
   // 監査欄
   if (e.status==='approved' && (isStaff())) {
     html += `<div class="audit-box" style="margin-bottom:12px">
@@ -3237,6 +3241,7 @@ async function renderDetail(id){
   if ($('cashFeeResubmitBtn')) $('cashFeeResubmitBtn').onclick = () => resubmitCashFee(e);
   if ($('gReject')) $('gReject').onclick = () => rejectGuest(e);
   if ($('dReturn')) $('dReturn').onclick = () => e.cashFeeRequest ? openCashFeeForm('return',e) : returnEntry(e);
+  if ($('dAdminReturn')) $('dAdminReturn').onclick = () => adminReturnApprovedEntry(e);
   if ($('aOk')) $('aOk').onclick = () => { metricBegin('audit',e.id); auditEntry(e, 'ok'); };
   if ($('aIssue')) $('aIssue').onclick = () => { metricBegin('audit',e.id); auditEntry(e, 'issue'); };
   if ($('aResp')) $('aResp').onclick = async () => { await R(`entries/${e.id}/audit/response`).set($('auditResp').value.trim()); writeLog('監査回答', e, $('auditResp').value.trim()); showToast('回答を記録しました'); };
@@ -3335,6 +3340,25 @@ async function returnEntry(e){
   writeLog('差戻し', e, reason);
   await metricEnd('returned');
   showToast('差し戻しました');
+}
+async function adminReturnApprovedEntry(e){
+  if(!isRealAdmin()) return showToast('管理者専用の操作です');
+  if(e.status!=='approved' || e.settleState==='settled' || !ensureFYOpen(e.fy)) return showToast('精算済み・年度確定済みの伝票は差し戻せません');
+  const reason=prompt('承認後に差し戻す理由を入力してください（必須）');
+  if(reason===null) return;
+  if(!reason.trim()) return showToast('差戻し理由を入力してください');
+  if(!confirm(`${e.voucherNo||'この伝票'} の承認を取り消し、申請者へ差し戻しますか？\n\n予算実績から除外され、再承認が必要になります。`)) return;
+  try{
+    const current=(await R(`entries/${e.id}`).get()).val();
+    if(!current || current.status!=='approved' || current.settleState==='settled') throw new Error('状態が変わりました。再読み込みしてください');
+    const now=TS();
+    const history=Array.isArray(current.postApprovalReturns)?current.postApprovalReturns:[];
+    history.push({at:now,by:me.uid,byName:me.name||'',reason:reason.trim(),previousApprovedBy:current.approvedBy||'',previousApprovedAt:current.approvedAt||null});
+    await R(`entries/${e.id}`).update({status:'returned',returnReason:reason.trim(),postApprovalReturns:history,returnedAfterApprovalAt:now,returnedAfterApprovalBy:me.uid,auditStale:true});
+    writeLog('承認後差戻し',e,reason.trim());
+    showToast('承認済み伝票を差し戻しました');
+    openDetail(e.id);
+  }catch(err){console.error(err);showToast(`差戻しに失敗しました：${err?.message||err}`);}
 }
 async function deleteEntry(e){
   if(e.status==='approved') return showToast('承認済みの伝票は削除できません。訂正・取消で対応してください');
@@ -5878,7 +5902,7 @@ async function getResetPreview(){
   return {rows,total:rows.reduce((n,x)=>n+x.count,0)};
 }
 async function resetTrialData(){
-  if(!isT()) return;
+  if(!isRealAdmin()) return showToast('初期化は管理者専用です');
   const btn=$('resetRunBtn'); if(btn) btn.disabled=true;
   const typed=prompt('本当に試行データを初期化する場合は「本番開始」と入力してください。\n\nこの操作は元に戻せません。');
   if(typed!=='本番開始'){ if(btn) btn.disabled=false; if(typed!==null) showToast('確認文字が一致しないため中止しました'); return; }
@@ -5898,7 +5922,7 @@ async function resetTrialData(){
     // ルール更新漏れを本番データ削除の直前に検出する。
     const roleSnap=await R(`members/${me.uid}/role`).get();
     const resetRole=roleSnap.val();
-    if(resetRole!=='treasurer' && resetRole!=='admin') throw new Error('管理者・会計権限を確認できません');
+    if(resetRole!=='admin') throw new Error('初期化は管理者のみ実行できます');
     // 軽量バックアップは領収書類を複製しないため、初期化前は画像の存在を確認して誤解を防ぐ。
     const photoSnap=await R('photos').get();
     const photoCount=photoSnap.exists() && typeof photoSnap.val()==='object' ? Object.keys(photoSnap.val()).length : 0;
@@ -5919,7 +5943,12 @@ async function resetTrialData(){
     addChildDeletes('photos',photoDeleteSnap);
     addChildDeletes('log',logSnap);
 
-    await db.ref(ROOT).update(ups);
+    // 一時的な管理者専用削除許可。承認済み伝票も含め全件初期化する。
+    // 先にバックアップを完了し、期限付きの本人限定許可を発行する。
+    const resetAuthRef=R('settings/resetAuthorization');
+    await resetAuthRef.set({uid:me.uid,expiresAt:Date.now()+120000});
+    try { await db.ref(ROOT).update(ups); }
+    finally { await resetAuthRef.remove().catch(err=>console.warn('初期化許可の解除に失敗（期限で失効）',err)); }
     // 操作履歴を0件にするため、この初期化自体はlogへ書かず設定メタデータだけに残す。
     await R('settings/productionReset').set({at:TS(),by:me.uid,byName:me.name,version:APP_VERSION});
     showToast('試行データを初期化しました');
