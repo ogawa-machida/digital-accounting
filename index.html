@@ -881,7 +881,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.11-176';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.11-177';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -2690,20 +2690,73 @@ function aiErrorText(e){
   if (m==='AITIMEOUT' || m.includes('90秒') || m.includes('60秒以内')) return 'AIの処理が時間内に完了しませんでした。画像を1ページずつに分けて再試行してください';
   if (m.includes('GAS応答の監視')) return 'AI応答を受信できませんでした。Firebaseへのアクセス権限を確認してください';
   if (m.includes('送信に失敗')) return 'AIへの送信に失敗しました。通信状態を確認してください';
+  if (m.startsWith('MULTI_DOCUMENT:')) return '複数の領収書類を検出しました。書類ごとにページを分けて読み込んでください（'+(Number(m.split(':')[1])||2)+'件）';
   if (m.includes('JSON') || m.includes('parse') || m.includes('FORMAT')) return 'AI応答の形式を読み取れませんでした';
   return 'AI読み取りエラー（'+m.slice(0,160)+'）';
 }
 const nullish = v => (v===null || v===undefined || v==='null' || v==='') ? null : v;
 
+/* GAS/AIの返却形の違いを吸収する。認証情報や原文を画面には表示しない。 */
+function parseReceiptAiResponse(raw){
+  let v=raw;
+  for(let depth=0;depth<5;depth++){
+    if(v && typeof v==='object' && !Array.isArray(v)){
+      if(Array.isArray(v.documents)){
+        if(v.documents.length>1) throw new Error('MULTI_DOCUMENT:'+v.documents.length);
+        if(v.documents.length===1){v=v.documents[0];continue;}
+      }
+      if(Array.isArray(v.receipts)){
+        if(v.receipts.length>1) throw new Error('MULTI_DOCUMENT:'+v.receipts.length);
+        if(v.receipts.length===1){v=v.receipts[0];continue;}
+      }
+      if('date' in v || 'amount' in v || 'payee' in v) return v;
+      if(v.result!==undefined){v=v.result;continue;}
+      if(v.data!==undefined){v=v.data;continue;}
+      if(v.output!==undefined){v=v.output;continue;}
+      if(v.text!==undefined){v=v.text;continue;}
+      if(v.content!==undefined){v=v.content;continue;}
+    }
+    if(Array.isArray(v)){
+      if(v.length===1){v=v[0];continue;}
+      if(v.every(x=>x && typeof x==='object' && typeof x.text==='string')){
+        v=v.map(x=>x.text).join('\n');continue;
+      }
+      throw new Error('MULTI_DOCUMENT:'+v.length);
+    }
+    if(typeof v==='string'){
+      const t=v.trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,'').trim();
+      try{v=JSON.parse(t);continue;}catch(_){ }
+      // 説明文付きのJSONは、引用符内の括弧を壊さずに抽出する。
+      const start=t.search(/[\[{]/);
+      if(start>=0){
+        const stack=[];let quoted=false,escape=false,end=-1;
+        for(let i=start;i<t.length;i++){
+          const c=t[i];
+          if(quoted){if(escape)escape=false;else if(c==='\\')escape=true;else if(c==='"')quoted=false;continue;}
+          if(c==='"'){quoted=true;continue;}
+          if(c==='{'||c==='[')stack.push(c);
+          if(c==='}'||c===']'){
+            const open=stack.pop();if(!open || (open==='{'&&c!=='}')||(open==='['&&c!==']'))break;
+            if(!stack.length){end=i+1;break;}
+          }
+        }
+        if(end>start){try{v=JSON.parse(t.slice(start,end));continue;}catch(_){ }}
+      }
+    }
+    break;
+  }
+  throw new Error('AI_RESPONSE_FORMAT');
+}
 /* 領収書類（レシート・振込控え等） 1枚を読み取る */
 async function recognizeReceipt(dataUrls, type){
   const images = Array.isArray(dataUrls) ? dataUrls : [dataUrls];
   const accNames = accounts.filter(a=>a.type===(type||'expense') && a.active).map(a=>a.desc?`${a.name}（${a.desc}）`:a.name);
-  const r = await callClaude(images,
-    'あなたは町内会・自治会の会計担当を手伝うアシスタントです。領収書類（レシート・振込控え等）・請求書の画像（PDFをページ画像化したものを含む）から情報を抽出し、JSONオブジェクトのみを出力します。前後の説明文やコードブロック記号は付けません。',
-    `次の形式のJSONのみで出力してください。
+  const response = await callClaude(images,
+    'あなたは町内会・自治会の会計担当を手伝うアシスタントです。領収書類（レシート・振込控え等）・請求書の画像（PDFをページ画像化したものを含む）から情報を抽出し、JSONのみを出力します。前後の説明文やコードブロック記号は付けません。',
+    `画像に異なる請求書番号・発行者の独立した書類が複数含まれる場合、金額を合算せず {"documents":[{"date":"YYYY-MM-DD","payee":"発行者","amount":税込合計}, ...]} のJSONを返してください。同一請求書の続きページは1件として扱います。1件のみの場合は次の形式のJSONを返してください。
 {"date":"支払日 YYYY-MM-DD（不明ならnull）","payee":"店名・支払先（不明ならnull）","amount":税込合計の数値（不明なら0）,"items":"品目の簡潔なメモ（30文字程度）","purpose":"町内会の用途として自然な短い説明（例：役員会の茶菓子、防災倉庫の備品）","account":"次の科目名から最も近いものを1つ（括弧内は各科目に含まれる支出の例。科目名だけを出力）：${accNames.join('、')}","payMethod":"支払手段。cash / credit / qr / emoney / transfer / unknown のいずれか","addressee":"領収書類の宛名（上様・空欄ならその文字、なければnull）","docType":"receipt / invoice / transfer / other のいずれか"}
 和暦は西暦に変換してください。金額は値引き後・税込の支払総額です。お預り・お釣りの金額と取り違えないでください。`);
+  const r = parseReceiptAiResponse(response);
   return {
     date: nullish(r.date), payee: nullish(r.payee), amount: Math.round(Number(r.amount)||0),
     items: nullish(r.items), purpose: nullish(r.purpose), payMethod: nullish(r.payMethod)||'unknown',
@@ -2760,7 +2813,7 @@ async function runAi(dataUrls){
     console.error('領収書AI読取りエラー',e);
     const msg=aiErrorText(e);
     showToast(msg + '。必要なら手入力してください');
-    alert('AI読み取りに失敗しました。\n\n'+msg+'\n\n※PDFに複数の請求書がある場合は、請求書ごとにページを分けて読み込んでください。');
+    alert('AI読み取りに失敗しました。\n\n'+msg+(String(e?.message||'').startsWith('MULTI_DOCUMENT:')?'':'\n\n※PDFに複数の請求書がある場合は、請求書ごとにページを分けて読み込んでください。'));
   } finally { btn.disabled=false; btn.textContent=orig; }
 }
 
