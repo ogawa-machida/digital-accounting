@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>町内会 会計簿</title>
+<title>らくっと｜町内会のお金の管理</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&family=DotGothic16&display=swap" rel="stylesheet">
 
@@ -14,12 +14,13 @@
 <!-- アプリとしてインストールするための設定（manifest・アイコン・sw.js は index.html と同じ場所に置く） -->
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<meta name="theme-color" content="#B4432C">
+<meta name="theme-color" content="#E0F7E8">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="会計簿">
+<meta name="apple-mobile-web-app-title" content="らくっと">
 <script>
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(()=>{}));
@@ -603,7 +604,7 @@ label[for="newMSettle"]{display:flex;align-items:center;justify-content:flex-sta
 <div id="loginScreen" style="display:none;">
   <div class="center-wrap">
     <div class="mark-big">会計<br>簿</div>
-    <h1 style="font-size:22px;">町内会 会計簿</h1>
+    <h1 style="font-size:22px;">らくっと</h1>
     <p>領収書類の撮影から立替の精算、監査、会員への報告までをひとつの帳簿で。役員・班長・支隊長のどなたでも使えます。</p>
     <button class="google-btn" id="googleLoginBtn">
       <svg viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.9 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.6 6.1 29.6 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.7-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.6 15.9 18.9 13 24 13c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.6 6.1 29.6 4 24 4c-7.4 0-13.8 4.1-17.1 10.1z"/><path fill="#4CAF50" d="M24 44c5.5 0 10.4-1.9 14.3-5.1l-6.6-5.4C29.6 35.4 26.9 36.2 24 36.2c-5.3 0-9.7-3.1-11.3-7.5l-6.6 5.1C9.9 39.9 16.4 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.3 4.2-4.2 5.5l6.6 5.4C41.4 35.4 44 30.1 44 24c0-1.3-.1-2.7-.4-3.5z"/></svg>
@@ -880,7 +881,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.11-173';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.11-174';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -2101,7 +2102,7 @@ function bindSlips(container){
    ホーム
    ========================================================= */
 function homeVersionInfo(){
-  return `<div class="hint" style="text-align:center;margin:20px 0 6px;padding-top:10px;border-top:1px solid var(--line);font-size:11px;opacity:.8">デジタル会計　Ver.${esc(APP_VERSION)}　<span class="ui-mode-label">${uiLayoutMode()==='desktop'?'PC表示':'スマホ表示'}</span></div>`;
+  return `<div class="hint" style="text-align:center;margin:20px 0 6px;padding-top:10px;border-top:1px solid var(--line);font-size:11px;opacity:.8">らくっと　Ver.${esc(APP_VERSION)}　<span class="ui-mode-label">${uiLayoutMode()==='desktop'?'PC表示':'スマホ表示'}</span></div>`;
 }
 function renderHome(){
   const el = $('homeScreen');
@@ -4380,7 +4381,7 @@ async function renderAdmin(){
 
     try{
       const vi=homeVersionInfo();
-      add('ホーム画面のバージョン表示',vi.includes(APP_VERSION)&&/デジタル会計/.test(vi)?'ok':'fail',`Ver.${APP_VERSION} を常時表示`);
+      add('ホーム画面のバージョン表示',vi.includes(APP_VERSION)&&/らくっと/.test(vi)?'ok':'fail',`Ver.${APP_VERSION} を常時表示`);
     }catch(e){ add('ホーム画面のバージョン表示','fail',e?.message||String(e)); }
 
     // Excel/CSV列の自動マッピング（自治会金銭出納帳の代表的な表記揺れ）
