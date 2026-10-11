@@ -881,7 +881,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.11-183';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.11-184';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -4358,22 +4358,36 @@ async function renderAdmin(){
     if(!confirm('監査・年度更新デモと、デモ中に作成した監査・残高照合・年度更新結果を削除して開始前へ戻しますか？'))return;
     try{await clearClosingDemoData();}catch(e){console.error(e);showToast('デモ削除に失敗しました：'+String(e?.message||e));}
   };
+  // v184: テスト用データは個別パスで削除し、失敗したIDを報告する。
+  // 一括updateは1件の拒否で全件失敗するため使用しない。
   if($('adminClearTestBtn')) $('adminClearTestBtn').onclick=async()=>{
-    if(!isRealAdmin())return;
-    if(!confirm('この管理者アカウントがテストモードで作成した伝票・領収書類・仮払・精算・操作履歴・時間計測・テスト用支払者を削除しますか？\n\n本番データは削除しません。'))return;
+    if(!isRealAdmin())return showToast('管理者専用です');
+    if(!confirm('この管理者が作成した診断専用データだけを削除します。通常伝票・設定・年度確定データは削除しません。よろしいですか？'))return;
     const owner=auth.currentUser.uid;
+    const failed=[];let deleted=0,skipped=0;
+    const remove=async(path)=>{try{await R(path).remove();deleted++;}catch(e){failed.push(`${path}: ${e?.code||e?.message||String(e)}`);}};
     try{
       const [en,ad,st,lg,wm,py]=await Promise.all([R('entries').get(),R('advances').get(),R('settlements').get(),R('log').get(),R('workMetrics').get(),R('payers').get()]);
-      const ups={}; let count=0;
-      Object.entries(en.val()||{}).forEach(([id,v])=>{if(v?.testMode && (v.testActor===realMe.name || String(v.createdBy||'').startsWith(`test:${owner}:`))){ups[`entries/${id}`]=null;ups[`photos/${id}`]=null;count++;}});
-      Object.entries(ad.val()||{}).forEach(([id,v])=>{if(v?.testMode&&v.testOwnerUid===owner){ups[`advances/${id}`]=null;count++;}});
-      Object.entries(st.val()||{}).forEach(([id,v])=>{if(v?.testMode&&v.testOwnerUid===owner){ups[`settlements/${id}`]=null;count++;}});
-      Object.entries(lg.val()||{}).forEach(([id,v])=>{if(v?.testMode&&v.testOwnerUid===owner){ups[`log/${id}`]=null;}});
-      Object.entries(wm.val()||{}).forEach(([id,v])=>{if(v?.testMode&&v.uid===owner){ups[`workMetrics/${id}`]=null;}});
-      Object.entries(py.val()||{}).forEach(([id,v])=>{if(v?.testMode&&v.testOwnerUid===owner){ups[`payers/${id}`]=null;}});
-      if(Object.keys(ups).length) await db.ref(ROOT).update(ups);
-      showToast(`テストデータを削除しました（主要データ ${count}件）`);
-    }catch(e){console.error(e);showToast('テストデータの削除に失敗しました');}
+      const own=(v)=>v?.testMode===true && (v.testOwnerUid===owner || (v.testActor===realMe.name && String(v.diagnosticRunId||'').startsWith('ui_full_')) || String(v.createdBy||'').startsWith(`test:${owner}:`));
+      for(const [id,v] of Object.entries(st.val()||{}))if(own(v))await remove(`settlements/${id}`);
+      for(const [id,v] of Object.entries(en.val()||{})){
+        if(!own(v)){if(v?.testMode)skipped++;continue;}
+        await remove(`entries/${id}`);
+        // 写真は当該伝票の削除が成功した場合に限り削除する。
+        try{if(!(await R(`entries/${id}`).get()).exists())await remove(`photos/${id}`);}catch(e){failed.push(`photos/${id}: ${e?.message||e}`);}
+      }
+      for(const [node,snap] of [['advances',ad],['log',lg],['workMetrics',wm],['payers',py]]){
+        for(const [id,v] of Object.entries(snap.val()||{})){
+          if(own(v)||(node==='workMetrics'&&v?.testMode===true&&v.uid===owner))await remove(`${node}/${id}`);
+        }
+      }
+      // 削除結果をサーバーから再読込して確認。
+      const remain=(await R('entries').get()).val()||{};
+      const ids=Object.entries(remain).filter(([id,v])=>own(v)).map(([id])=>id);
+      const msg=`診断データ清掃：削除 ${deleted}件、残存 ${ids.length}件、失敗 ${failed.length}件`;
+      showToast(msg);
+      alert(msg+(ids.length?`\n残存伝票ID: ${ids.slice(0,8).join(', ')}`:'')+(failed.length?`\n拒否箇所:\n${failed.slice(0,8).join('\n')}`:'')+(skipped?`\n所有者が不明なテストデータ ${skipped}件は安全のため削除していません。`:''));
+    }catch(e){console.error(e);alert('診断データの確認・清掃に失敗しました：'+(e?.code||e?.message||String(e)));}
   };
 
   if($('adminAddBtn')) $('adminAddBtn').onclick=()=>{
@@ -5147,7 +5161,7 @@ async function renderAdmin(){
       if(testAcc){restore[`accounts/${testAcc.id}/budget/${transTo}`]=oldNextBudget===undefined?null:oldNextBudget;restore[`settings/budgetDrafts/${transTo}`]=null;}
       await db.ref(ROOT).update(restore); transitionTestCreated=false;
       const [opGone,trGone]=await Promise.all([R(`settings/opening/${transTo}`).get(),R(`settings/fiscalTransitions/${transKey}`).get()]);
-      add('年度切替テストデータの撤去',!opGone.exists()&&!trGone.exists()?'ok':'fail','診断用の次年度設定を原状復帰');
+      add('年度切替テストデータの撤去',((oldNextOpening===undefined&&!opGone.exists())||(oldNextOpening!==undefined&&JSON.stringify(opGone.val())===JSON.stringify(oldNextOpening)))&&!trGone.exists()?'ok':'fail','診断用の次年度設定を原状復帰（既存の期首残高は維持）');
 
       // 管理画面へ戻して結果表示へ
       showScreen('adminScreen');
@@ -5163,20 +5177,20 @@ async function renderAdmin(){
           if(accounts[0]?.id) await R(`accounts/${accounts[0].id}/budget/9997`).remove();
         }
       }catch(e){add('会員報告・年度処理・年度切替の後処理','fail',e?.message||String(e));}
-      try{
-        if(settlementId) await R(`settlements/${settlementId}`).remove();
-        if(settlementEntryId){await R(`entries/${settlementEntryId}`).remove();await R(`photos/${settlementEntryId}`).remove();}
-        if(incomeEntryId){await R(`entries/${incomeEntryId}`).remove();await R(`photos/${incomeEntryId}`).remove();}
-        if(entryId){await R(`entries/${entryId}`).remove();await R(`photos/${entryId}`).remove();}
-        await sleep(250);
-        for(const rid of [entryId,incomeEntryId,settlementEntryId].filter(Boolean)){
-          const rs=await R(`entries/${rid}`).get();
-          if(rs.exists() && rs.val()?.diagnosticRunId===runId){
-            await R(`entries/${rid}`).remove(); await R(`photos/${rid}`).remove();
-          }
+      {
+        const cleanupFailures=[];
+        const cleanupPath=async(path)=>{try{await R(path).remove();}catch(e){cleanupFailures.push(`${path}: ${e?.code||e?.message||String(e)}`);}};
+        if(settlementId)await cleanupPath(`settlements/${settlementId}`);
+        for(const rid of [settlementEntryId,incomeEntryId,entryId].filter(Boolean)){
+          await cleanupPath(`entries/${rid}`);
+          try{if(!(await R(`entries/${rid}`).get()).exists())await cleanupPath(`photos/${rid}`);}catch(e){cleanupFailures.push(`photos/${rid}: ${e?.message||e}`);}
         }
-        add('テスト伝票の撤去','ok',(entryId||incomeEntryId||settlementEntryId||settlementId)?'診断データを削除（遅延書込も再確認）':'作成済みデータなし');
-      }catch(e){add('テスト伝票の撤去','fail',e?.message||String(e));}
+        await sleep(300);
+        for(const rid of [entryId,incomeEntryId,settlementEntryId].filter(Boolean)){
+          try{const rs=await R(`entries/${rid}`).get();if(rs.exists()&&rs.val()?.diagnosticRunId===runId)await cleanupPath(`entries/${rid}`);}catch(e){cleanupFailures.push(`再確認 ${rid}: ${e?.message||e}`);}
+        }
+        add('テスト伝票の撤去',cleanupFailures.length?'fail':'ok',cleanupFailures.length?cleanupFailures.join(' / '):'診断データの個別削除・再確認が完了');
+      }
       try{if(testPayerId&&!testPayerExisted){const ps=await R(`payers/${testPayerId}`).get();if(ps.exists()&&ps.val()?.testMode)await R(`payers/${testPayerId}`).remove();}}catch(_){}
       try{
         if(sandboxCreated) await R(sandbox).remove();
