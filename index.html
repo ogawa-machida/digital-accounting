@@ -881,7 +881,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.11-187';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.11-188';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -7584,7 +7584,7 @@ function computeImport(){
       else {
         const ex = accounts.find(a=>a.type===r.type && normKey(a.name)===normKey(r.accName));
         if(/仮払い?精算/u.test(r.accName)) d.accMap[ak]='__advance_settle__';
-        else if(r.type==='expense' && /^(?:仮払金|仮払い?\s*\d*)$/u.test(r.accName)) d.accMap[ak]='__advance__';
+        else if(r.type==='expense' && /^(?:仮払金|仮払い?[\s　]*[0-9０-９]*)$/u.test(r.accName)) d.accMap[ak]='__advance__';
         else { const m=matchAccount(r.type,r.accName); d.accMap[ak] = ex ? ex.id : (m&&m!=='new'?m:'add'); }
       }
     }
@@ -7643,7 +7643,7 @@ function renderImport(){
   html += `<div class="form-card"><h3 style="font-size:14.5px;margin-bottom:4px">③ 科目の対応</h3>` +
     accKeys.map(k=>{ const [type,name]=[k.split('|')[0], k.slice(k.indexOf('|')+1)];
       return mapRow(`${type==='income'?'［収］':'［支］'}${esc(name||'（科目なし）')}`, cnt(r=>`${r.type}|${r.accName}`===k), 'data-acc', k,
-        cur => `${type==='expense'&&/^(?:仮払金|仮払い?\s*\d*)$/u.test(name)?`<option value="__advance__" ${cur==='__advance__'?'selected':''}>仮払金として管理（費用にしない）</option>`:''}${/仮払い?精算/u.test(name)?`<option value="__advance_settle__" ${cur==='__advance_settle__'?'selected':''}>仮払金の精算履歴として扱う（収入にしない）</option>`:''}<option value="add" ${cur==='add'?'selected':''}>＋ 新しい科目を追加…</option>` + accounts.filter(a=>a.type===type).map(a=>`<option value="${a.id}" ${cur===a.id?'selected':''}>${esc(a.name)}${a.active?'':'（停止中）'}</option>`).join(''), d.accMap[k]); }).join('') + `</div>`;
+        cur => `${type==='expense'&&/^(?:仮払金|仮払い?[\s　]*[0-9０-９]*)$/u.test(name)?`<option value="__advance__" ${cur==='__advance__'?'selected':''}>仮払金として管理（費用にしない）</option>`:''}${/仮払い?精算/u.test(name)?`<option value="__advance_settle__" ${cur==='__advance_settle__'?'selected':''}>仮払金の精算履歴として扱う（収入にしない）</option>`:''}<option value="add" ${cur==='add'?'selected':''}>＋ 新しい科目を追加…</option>` + accounts.filter(a=>a.type===type).map(a=>`<option value="${a.id}" ${cur===a.id?'selected':''}>${esc(a.name)}${a.active?'':'（停止中）'}</option>`).join(''), d.accMap[k]); }).join('') + `</div>`;
   html += `<div class="form-card"><h3 style="font-size:14.5px;margin-bottom:4px">④ 支払方法の対応</h3>` +
     methKeys.map(k=>{ const [type,name]=[k.split('|')[0], k.slice(k.indexOf('|')+1)];
       return mapRow(`${type==='income'?'［収］':'［支］'}${esc(name||'（記載なし）')}`, cnt(r=>`${r.type}|${r.methodName}`===k), 'data-meth', k,
