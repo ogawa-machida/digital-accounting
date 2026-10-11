@@ -880,7 +880,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.11-172';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.11-173';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1038,6 +1038,14 @@ function fmtDateFull(s){ if(!s) return ''; const [y,m,d]=s.split('-'); return `$
 function fmtTs(t){ if(!t) return ''; const d=new Date(t); return `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`; }
 function startMonth(){ return Number(settings.fiscalStartMonth)||4; }
 function fyOf(dateStr){ const [y,m]=dateStr.split('-').map(Number); return m >= startMonth() ? y : y-1; }
+/* AI読取日付が現在の会計年度と異なる場合の注意喚起（保存禁止ではない） */
+function receiptFYWarning(date){
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(String(date))) return '';
+  const readFY=fyOf(date);
+  if (!Number.isFinite(readFY) || Number(readFY)===Number(curFY)) return '';
+  return `⚠ 領収書類の日付（${date}）は${readFY}年度です。現在の対象年度は${curFY}年度です。日付と対象年度を確認してください。`;
+}
+function alertReceiptFY(date){ const msg=receiptFYWarning(date); if(msg) window.alert(msg); return !!msg; }
 function fyRangeLabel(fy){
   const s=startMonth(); const endM = s===1 ? 12 : s-1; const endY = s===1 ? fy : fy+1;
   return `${fy}年${s}月〜${endY}年${endM}月`;
@@ -2725,6 +2733,7 @@ async function runAi(dataUrls){
       const mid = suggestMethod(r.payMethod, isP() || !!$('fPayer').value);
       if (mid) { formMethod = mid; renderMethodPicker(); renderPayerSelect(); }
     }
+    alertReceiptFY(r.date);
     const warn = addresseeWarning(formAddressee);
     showToast(warn ? `読み取りました。${warn}` : '読み取りました。内容を確認してから保存してください');
   } catch(e) {
@@ -2833,6 +2842,7 @@ $('formSaveBtn').onclick = async () => {
   const m = methodById(formMethod);
   const noReceipt = formType==='expense' && $('fNoReceipt').checked;
   if (!date) return showToast('日付を入力してください');
+  if (receiptFYWarning(date) && !confirm(receiptFYWarning(date)+'\n\nこの日付のまま保存しますか？')) return;
   if (amount<=0) return showToast('金額を入力してください');
   if (!formAccount) return showToast('科目を選んでください');
   if (!formMethod) return showToast(formType==='income'?'受取方法を選んでください':'支払方法を選んでください');
@@ -6351,7 +6361,7 @@ function batchCardHTML(it){
   const f = it.f; const m = methodById(f.methodId);
   const dup = f.amount && f.date && allEntries().some(e=>e.date===f.date && Number(e.amount)===Number(f.amount));
   const dupIn = f.amount && f.date && batchItems.some(o=>o!==it && o.state!=='saved' && o.f.date===f.date && Number(o.f.amount)===Number(f.amount));
-  const warn = [dup?'同じ日付・金額の伝票が登録済みです（二重登録に注意）':'', dupIn?'この中に同じ日付・金額のものがあります（同じ写真の重複？）':'', addresseeWarning(f.addressee)].filter(Boolean).join('／');
+  const warn = [dup?'同じ日付・金額の伝票が登録済みです（二重登録に注意）':'', dupIn?'この中に同じ日付・金額のものがあります（同じ写真の重複？）':'', addresseeWarning(f.addressee), receiptFYWarning(f.date)].filter(Boolean).join('／');
   return `<div class="batch-card ${it.on?'':'off'} ${it.invalid?'invalid':''}" id="bc-${it.id}">
     <div class="b-img"><img src="${it.photo}" alt="" data-zoom="${it.id}">${(it.photos||[]).length>1?`<div class="hint" style="font-size:10px;text-align:center">PDF ${(it.photos||[]).length}ページ</div>`:''}
       <label class="check-line" style="font-size:11px;white-space:nowrap"><input type="checkbox" data-k="on" ${it.on?'checked':''}>登録</label>
@@ -6429,6 +6439,7 @@ function pumpBatch(){
         items:r.items||'',payMethod:r.payMethod||'unknown',readAt:TS()
       };
       if (r.date) f.date = r.date;
+      it.fyWarning = receiptFYWarning(r.date);
       if (r.amount) f.amount = r.amount;
       if (r.payee) f.payee = r.payee;
       if (!f.purpose) f.purpose = r.purpose || r.items || '';
@@ -6440,7 +6451,7 @@ function pumpBatch(){
       const pm = {cash:'現金',credit:'クレジットカード',qr:'QRコード決済',emoney:'電子マネー',transfer:'振込'}[r.payMethod];
       it.msg = `✓ 読み取り完了${pm?`（レシート上の支払手段：${pm}）`:''}`;
     }).catch(e => { console.error(e); it.state='error'; it.msg = aiErrorText(e); })
-      .finally(() => { batchRunning--; if (batchRunning===0 && !batchQueue.length) renderBatchList(); else redrawBatchCard(it); pumpBatch(); });
+      .finally(() => { batchRunning--; if (batchRunning===0 && !batchQueue.length) { renderBatchList(); const flagged=batchItems.filter(x=>x.fyWarning && !x.fyAlerted); if(flagged.length){ flagged.forEach(x=>x.fyAlerted=true); window.alert(`⚠ 現在の${curFY}年度以外の日付が${flagged.length}件見つかりました。\n${flagged.map(x=>x.fyWarning).join('\n')}\n\n登録前に日付を確認してください。`); } } else redrawBatchCard(it); pumpBatch(); });
   }
 }
 
@@ -6453,6 +6464,8 @@ async function saveBatch(){
     if (it.invalid) bad++;
   });
   if (bad) { renderBatchList(); return showToast(`${bad}件に未入力があります（赤枠）。日付・金額・科目・支払方法・支払った人を確認してください`); }
+  const otherFY = targets.filter(it=>receiptFYWarning(it.f.date));
+  if (otherFY.length && !confirm(`⚠ ${otherFY.length}件の領収書類の日付が現在の${curFY}年度の範囲外です。\n${otherFY.map(it=>`${it.f.date}（${yen(it.f.amount)}）`).join('\n')}\n\n日付と対象年度を確認してください。このまま続けますか？`)) return;
   if (!confirm(`${targets.length}件、合計${yen(targets.reduce((s,i)=>s+i.f.amount,0))}を${isP()?'申請':'登録'}します。よろしいですか？`)) return;
   const btn = $('bSave'); btn.disabled = true;
   let ok = 0; const submittedIds = [];
