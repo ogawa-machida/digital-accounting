@@ -881,7 +881,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.11-182';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.11-183';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -2435,6 +2435,8 @@ const uiTestSessionPath = uid => `diagnosticTests/${uid}/uiSession`;
 const uiTestResiduePath = uid => `diagnosticTests/${uid}/uiResidue`;
 
 async function openForm(e){
+  if(e && e.status==='returned' && !(e.createdBy===me.uid || isRealAdmin())){showToast('差戻し伝票は登録者本人または管理者だけが修正できます');return;}
+  if(e && e.status==='returned' && (e.settleState==='settled'||isFYClosed(e.fy))){showToast('精算済み・年度確定済みの伝票は修正できません');return;}
   if (canOwnSubmit() && !me.payerId) { showToast('立替・仮払の対象設定が済んでいません'); return; }
   editing = e || null;
   metricBegin(e ? 'entry_edit' : 'expense_application', e?.id||'');
@@ -2992,6 +2994,8 @@ function addresseeWarning(a){
 $('formCancelBtn').onclick = () => { metricCancel(); editing ? openDetail(editing.id) : showScreen('homeScreen'); };
 /* 伝票を1件保存する（フォームとまとめて読み込みで共通） */
 async function persistEntry(prev, f, photos, photosChanged){
+  if(prev && prev.status==='returned' && !(prev.createdBy===me.uid || isRealAdmin()))throw new Error('差戻し伝票の修正権限がありません');
+  if(prev && prev.status==='returned' && prev.settleState==='settled')throw new Error('精算済み伝票は修正できません');
   const m = methodById(f.methodId);
   const fy = fyOf(f.date);
   if(!ensureFYOpen(fy)) throw new Error(`${fy}年度は決算確定済みです`);
@@ -3010,19 +3014,20 @@ async function persistEntry(prev, f, photos, photosChanged){
   if (photosChanged) thumb = photos[0] ? await compressImage(photos[0], 160, 0.6) : null;
   const settle = f.type==='expense' && !!(m && m.settle);
   const treasurerOwnExpense = isT() && f.type==='expense'; // 会計担当の支出は登録者と別人が承認
-  const status = isT() ? (treasurerOwnExpense || p.status==='submitted' ? 'submitted' : 'approved') : 'submitted';
+  const status = p.status==='returned' ? 'submitted' : (isT() ? (treasurerOwnExpense || p.status==='submitted' ? 'submitted' : 'approved') : 'submitted');
   const data = {
     ...p, ...f,
     fy, voucherNo, payerId: f.payerId || null, addressee: f.addressee || '',
     excludePublic: isT() ? !!f.excludePublic : !!p.excludePublic,
     thumb, photoCount: photosChanged ? photos.length : (p.photoCount||0),
     status, returnReason: null,
-    selfApprovalRequired: treasurerOwnExpense ? true : (p.selfApprovalRequired || false),
+    selfApprovalRequired: treasurerOwnExpense || p.status==='returned' ? true : (p.selfApprovalRequired || false),
     settleState: p.settleState==='settled' ? 'settled' : (settle ? 'pending' : 'none'),
     auditStale: p.audit ? true : false,
     createdBy: p.createdBy || me.uid, createdByName: p.createdByName || me.name,
     createdAt: p.createdAt || TS(),
-    updatedAt: TS(), updatedByName: me.name
+    updatedAt: TS(), updatedByName: me.name,
+    ...(p.status==='returned'?{lastRevisedBy:me.uid,lastRevisedByName:me.name,lastRevisedAt:TS(),auditStale:true}:{} )
   };
   const aiOrig = (p.aiReceiptOriginal && typeof p.aiReceiptOriginal==='object') ? p.aiReceiptOriginal : ((f.aiReceiptOriginal && typeof f.aiReceiptOriginal==='object') ? f.aiReceiptOriginal : null);
   if (aiOrig) {
@@ -3150,8 +3155,10 @@ async function renderDetail(id){
   const inc = e.type==='income';
   const stl = e.settlementId ? settlements.find(s=>s.id===e.settlementId) : null;
   // 会計の通常編集は承認前だけ。承認済み・精算済みを通常フォームから書き換えない。
+  // v183: 差戻しは登録者本人（権限を問わず）または管理者が修正。第三者の会計担当は不可。
+  const canEditReturned = !e.cashFeeRequest && e.status==='returned' && e.settleState!=='settled' && !isFYClosed(e.fy) && (e.createdBy===me.uid || isRealAdmin());
   const canEditT = isT() && !e.cashFeeRequest && e.status==='submitted';
-  const canEditP = !e.cashFeeRequest && (isP() || (isViewer() && e.createdBy===me.uid)) && e.status!=='approved' && e.settleState!=='settled';
+  const canEditP = !e.cashFeeRequest && (isP() || (isViewer() && e.createdBy===me.uid)) && e.status!=='approved' && e.status!=='returned' && e.settleState!=='settled';
   const canFixCashFee = e.cashFeeRequest && isGroupLeader() && e.createdBy===me.uid && e.status==='returned' && cashFeeCollectionOpen();
   const keepAudit = $('auditComment') ? $('auditComment').value : '';
 
@@ -3227,9 +3234,9 @@ async function renderDetail(id){
   if (canFixCashFee) {
     html += `<div class="audit-box" style="border-color:var(--stamp-red);margin-bottom:10px"><div style="font-weight:700;margin-bottom:5px">現金会費を修正して再申告</div><p class="hint">差戻し理由：${esc(e.returnReason||'内容を確認してください')}</p><div class="btn-row"><button class="btn btn-navy" id="cashFeeResubmitBtn">世帯数・金額を修正して再申告</button></div></div>`;
   }
-  if (canEditT || canEditP) {
-    html += `<div class="btn-row"><button class="btn btn-ghost" id="dEdit">${isT()&&e.status==='submitted'?'申請内容を修正':(isP()&&e.status==='returned'?'修正して再申請':'修正する')}</button></div>
-      ${e.status!=='approved' && e.settleState!=='settled' ? `<div class="btn-row"><button class="btn btn-danger" id="dDelete">${isP()?'申請を取り下げる':'この伝票を削除'}</button></div>` : ''}`;
+  if (canEditT || canEditP || canEditReturned) {
+    html += `<div class="btn-row"><button class="btn btn-ghost" id="dEdit">${e.status==='returned'?'修正して再申請':(isT()&&e.status==='submitted'?'申請内容を修正':'修正する')}</button></div>
+      ${e.status!=='approved' && e.status!=='returned' && e.settleState!=='settled' ? `<div class="btn-row"><button class="btn btn-danger" id="dDelete">${isP()?'申請を取り下げる':'この伝票を削除'}</button></div>` : ''}`;
   }
   el.innerHTML = html;
 
@@ -3290,7 +3297,7 @@ async function rejectGuest(e){
 }
 
 async function approveEntry(e, guestTarget, guestRole){
-  if (e.createdBy===me.uid) return showToast('自分で登録した伝票は承認できません。別の会計担当者へ依頼してください');
+  if (e.createdBy===me.uid || e.lastRevisedBy===me.uid) return showToast('登録・修正した本人は承認できません。別の会計担当者へ依頼してください');
   if (!(await confirmApprovalAi(e))) return;
   const pv = payerById(e.payerId);
   if (pv && pv.provisional) {
@@ -3316,7 +3323,7 @@ async function approveEntry(e, guestTarget, guestRole){
   if (next && confirm('次の承認待ちを開きますか？')) openDetail(next.id);
 }
 async function approveOne(e){
-  if (e.createdBy===me.uid) throw new Error('自己承認は禁止されています');
+  if (e.createdBy===me.uid || e.lastRevisedBy===me.uid) throw new Error('登録者・最終修正者による自己承認は禁止されています');
   if(!ensureFYOpen(e.fy)) return;
   const approvalAiRows=aiApprovalRows(e);
   const approvedAt=TS();
@@ -3599,7 +3606,7 @@ async function doSettlement(pid, recalc){
       showToast('精算を記録し、該当者へ受取確認のメール通知を送信しました');
       if (confirm('精算書を印刷しますか？（受領印をもらう場合）')) printSettlement({...ups[`settlements/${sid}`], id:sid, createdAt:Date.now()});
     }
-  } catch(e){ console.error(e); showToast(e.message==='STALE_SETTLEMENT'?'他の端末で状態が更新されています。画面を更新して精算内容を確認してください':'精算の記録に失敗しました'); btn.disabled=false; }
+  } catch(e){ console.error(e); showToast(e.message==='STALE_SETTLEMENT'?'他の端末で状態が更新されています。画面を更新して精算内容を確認してください':'精算の記録に失敗しました'); if(uiAutoTestContext)uiAutoTestContext.settlementError=e?.code||e?.message||String(e); btn.disabled=false; }
 }
 
 async function cancelSettlement(s){
@@ -4949,7 +4956,7 @@ async function renderAdmin(){
       uiAutoTestContext.savedSettlementId=null;
       const originalConfirm=window.confirm;
       window.confirm=()=>true;
-      try{$('stDo').click(); markStage('精算保存'); await waitFor(()=>uiAutoTestContext?.savedSettlementId,12000);}
+      try{$('stDo').click(); markStage('精算保存'); await waitFor(()=>{if(uiAutoTestContext?.settlementError)throw new Error('精算書込：'+uiAutoTestContext.settlementError);return uiAutoTestContext?.savedSettlementId;},12000);}
       finally{window.confirm=originalConfirm;}
       settlementId=uiAutoTestContext.savedSettlementId;
       if(!settlementId)throw new Error('精算保存の完了を確認できません');
