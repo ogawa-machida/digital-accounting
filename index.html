@@ -881,7 +881,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.11-178';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.11-179';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -2692,7 +2692,7 @@ function aiErrorText(e){
   if (m.includes('送信に失敗')) return 'AIへの送信に失敗しました。通信状態を確認してください';
   if (m==='MULTI_PAGE_RANGE') return 'AIが示した書類のページ範囲を確認できませんでした。分割登録は行っていません';
   if (m==='MULTI_MISSING_FIELDS') return '書類の日付または金額が不足しています。分割登録は行っていません';
-  if (m==='MULTI_METHOD_REQUIRED') return '支払方法と支払者を選択してからAI読取りをやり直してください';
+  if (m==='MULTI_METHOD_REQUIRED') return '確認画面で支払方法と支払者を選択してください';
   if (m==='MULTI_EDIT_NOT_SUPPORTED') return '既存伝票の編集中は分割登録できません。新規登録画面を使ってください';
   if (m.startsWith('MULTI_DOCUMENT:')) return '複数の領収書類を検出しました。書類ごとにページを分けて読み込んでください（'+(Number(m.split(':')[1])||2)+'件）';
   if (m.includes('JSON') || m.includes('parse') || m.includes('FORMAT')) return 'AI応答の形式を読み取れませんでした';
@@ -2857,16 +2857,34 @@ async function openMultiReceiptReview(documents,images){
   const payerId=canOwnSubmit()?me.payerId:($('fPayer').value||'');
   const methodId=formMethod||suggestMethod(rows[0].payMethod,canOwnSubmit()||!!payerId);
   const m=methodById(methodId);
-  if(!methodId||!m||m.settle&&!payerId)throw new Error('MULTI_METHOD_REQUIRED');
+  // AI解析段階では支払方法・支払者の指定を要求しない。確認画面で選択する。
   const opts=accounts.filter(a=>a.type===formType&&a.active).map(a=>`<option value="${esc(a.id)}">${esc(a.name)}</option>`).join('');
   const overlay=multiReviewOverlay(), area=overlay.querySelector('#multiReceiptRows'), err=overlay.querySelector('#multiReceiptError');
   err.textContent='';
-  area.innerHTML=rows.map((r,i)=>`<fieldset data-i="${i}" style="border:1px solid #ddd;border-radius:10px;padding:12px;margin:12px 0"><legend>書類 ${i+1}（PDF ${r.pageStart}〜${r.pageEnd}ページ）</legend><label>支払日 <input data-f="date" type="date" value="${esc(r.date)}" style="width:100%;padding:8px"></label><label>金額（税込） <input data-f="amount" type="number" min="1" value="${r.amount}" style="width:100%;padding:8px"></label><label>支払先 <input data-f="payee" value="${esc(r.payee)}" style="width:100%;padding:8px"></label><label>用途 <input data-f="purpose" value="${esc(r.purpose)}" style="width:100%;padding:8px"></label><label>科目 <select data-f="accountId" style="width:100%;padding:8px"><option value="">科目を選択</option>${opts}</select></label><small>品目：${esc(r.items)} ／ 宛名：${esc(r.addressee)}</small></fieldset>`).join('');
+  const availableMethods=methods.filter(x=>x.active&&(x.use===formType||x.use==='both'));
+  const methodOptions=availableMethods.map(x=>`<option value="${esc(x.id)}">${esc(x.name)}${x.settle?'（要精算）':''}</option>`).join('');
+  const payerOptions=payers.filter(x=>(x.active&&!x.provisional)||x.id===payerId).map(x=>`<option value="${esc(x.id)}">${esc(payerLabel(x.id))}</option>`).join('');
+  const common=document.createElement('div');common.id='multiReceiptCommon';
+  common.style.cssText='border:1px solid #d8d0bf;border-radius:10px;padding:12px;background:#faf7f0';
+  common.innerHTML=`<p style="margin:0 0 10px"><strong>登録前の確認（全書類共通）</strong></p><label>支払方法 <select id="multiReceiptMethod" style="width:100%;padding:9px"><option value="">支払方法を選択</option>${methodOptions}</select></label><label style="display:block;margin-top:10px">支払者 <select id="multiReceiptPayer" style="width:100%;padding:9px"><option value="">（指定なし）</option>${payerOptions}</select></label><p id="multiReceiptMethodHint" class="hint" style="margin:8px 0 0">立替払いの場合は支払者も選択してください。</p>`;
+  area.replaceChildren(common);
+  common.querySelector('#multiReceiptMethod').value=availableMethods.some(x=>x.id===methodId)?methodId:'';
+  const payerSelect=common.querySelector('#multiReceiptPayer');
+  payerSelect.value=payerId;
+  if(canOwnSubmit()){payerSelect.value=me.payerId;payerSelect.disabled=true;}
+  const methodSelect=common.querySelector('#multiReceiptMethod');
+  methodSelect.onchange=()=>{const selected=methodById(methodSelect.value);common.querySelector('#multiReceiptMethodHint').textContent=selected?.settle?'立替・仮払の場合は支払者が必須です。':'会計が直接支払った場合は支払者を指定しなくても登録できます。';};
+  area.insertAdjacentHTML('beforeend',rows.map((r,i)=>`<fieldset data-i="${i}" style="border:1px solid #ddd;border-radius:10px;padding:12px;margin:12px 0"><legend>書類 ${i+1}（PDF ${r.pageStart}〜${r.pageEnd}ページ）</legend><label>支払日 <input data-f="date" type="date" value="${esc(r.date)}" style="width:100%;padding:8px"></label><label>金額（税込） <input data-f="amount" type="number" min="1" value="${r.amount}" style="width:100%;padding:8px"></label><label>支払先 <input data-f="payee" value="${esc(r.payee)}" style="width:100%;padding:8px"></label><label>用途 <input data-f="purpose" value="${esc(r.purpose)}" style="width:100%;padding:8px"></label><label>科目 <select data-f="accountId" style="width:100%;padding:8px"><option value="">科目を選択</option>${opts}</select></label><small>品目：${esc(r.items)} ／ 宛名：${esc(r.addressee)}</small></fieldset>`).join(''));
   area.querySelectorAll('fieldset').forEach((f,i)=>{f.querySelector('[data-f="accountId"]').value=rows[i].accountId;});
   overlay.style.display='block';
   overlay.querySelector('#multiReceiptCancel').onclick=()=>{overlay.style.display='none';};
   overlay.querySelector('#multiReceiptSave').onclick=async()=>{
     const btn=overlay.querySelector('#multiReceiptSave');if(btn.disabled)return;
+    const chosenMethodId=area.querySelector('#multiReceiptMethod').value;
+    const chosenPayerId=canOwnSubmit()?me.payerId:area.querySelector('#multiReceiptPayer').value;
+    const chosenMethod=methodById(chosenMethodId);
+    if(!chosenMethod){err.textContent='支払方法を選択してください';return;}
+    if(chosenMethod.settle&&!chosenPayerId){err.textContent='立替・仮払の場合は支払者を選択してください';return;}
     const data=[...area.querySelectorAll('fieldset')].map((f,i)=>({ ...rows[i], ...Object.fromEntries([...f.querySelectorAll('[data-f]')].map(el=>[el.dataset.f,el.value])) }));
     for(const d of data){
       if(!/^\d{4}-\d{2}-\d{2}$/.test(d.date)||!Number.isFinite(Number(d.amount))||Number(d.amount)<=0||!d.accountId){err.textContent='日付・金額・科目をすべて確認してください';return;}
@@ -2881,7 +2899,7 @@ async function openMultiReceiptReview(documents,images){
       for(let i=0;i<data.length;i++){
         const d=data[i];const photos=images.slice(d.pageStart-1,d.pageEnd);
         const original={date:d.date,amount:Number(d.amount),payee:d.payee,purpose:d.purpose,accountId:d.accountId,addressee:d.addressee,items:d.items,payMethod:d.payMethod,readAt:TS()};
-        const entry=await persistEntry(null,{type:formType,date:d.date,amount:Number(d.amount),payee:d.payee,purpose:d.purpose||d.items,memo:d.items,accountId:d.accountId,methodId,payerId:payerId||null,storageLocation:$('fStorage').value.trim(),noReceipt:false,noReceiptReason:'',excludePublic:$('fExclude').checked,addressee:d.addressee,aiReceiptOriginal:original,_via:'PDF自動分割'},photos,true);
+        const entry=await persistEntry(null,{type:formType,date:d.date,amount:Number(d.amount),payee:d.payee,purpose:d.purpose||d.items,memo:d.items,accountId:d.accountId,methodId:chosenMethodId,payerId:chosenPayerId||null,storageLocation:$('fStorage').value.trim(),noReceipt:false,noReceiptReason:'',excludePublic:$('fExclude').checked,addressee:d.addressee,aiReceiptOriginal:original,_via:'PDF自動分割'},photos,true);
         saved.push(entry);
       }
       if(saved.some(x=>x.status==='submitted')&&!uiAutoTestContext)notifyEntries(saved.filter(x=>x.status==='submitted').map(x=>x.id));
