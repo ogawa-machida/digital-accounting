@@ -881,7 +881,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.11-179';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.11-180';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -2690,6 +2690,7 @@ function aiErrorText(e){
   if (m==='AITIMEOUT' || m.includes('90秒') || m.includes('60秒以内')) return 'AIの処理が時間内に完了しませんでした。画像を1ページずつに分けて再試行してください';
   if (m.includes('GAS応答の監視')) return 'AI応答を受信できませんでした。Firebaseへのアクセス権限を確認してください';
   if (m.includes('送信に失敗')) return 'AIへの送信に失敗しました。通信状態を確認してください';
+  if (m.startsWith('STATEMENT_')) return '支払い履歴の行・金額・支払状態を確認できませんでした。合算せず停止しました';
   if (m==='MULTI_PAGE_RANGE') return 'AIが示した書類のページ範囲を確認できませんでした。分割登録は行っていません';
   if (m==='MULTI_MISSING_FIELDS') return '書類の日付または金額が不足しています。分割登録は行っていません';
   if (m==='MULTI_METHOD_REQUIRED') return '確認画面で支払方法と支払者を選択してください';
@@ -2705,6 +2706,9 @@ function parseReceiptAiResponse(raw){
   let v=raw;
   for(let depth=0;depth<5;depth++){
     if(v && typeof v==='object' && !Array.isArray(v)){
+      // 支払履歴表は複数請求書と異なり、明細行を合算して1伝票にする。
+      if(v.documentType==='payment_statement' && Array.isArray(v.transactions)) return {__statement:v};
+      if(v.statement && typeof v.statement==='object'){v=v.statement;continue;}
       if(Array.isArray(v.documents)){
         if(v.documents.length>1) return {__documents:v.documents};
         if(v.documents.length===1){v=v.documents[0];continue;}
@@ -2758,10 +2762,15 @@ async function recognizeReceipt(dataUrls, type){
   const accNames = accounts.filter(a=>a.type===(type||'expense') && a.active).map(a=>a.desc?`${a.name}（${a.desc}）`:a.name);
   const response = await callClaude(images,
     'あなたは町内会・自治会の会計担当を手伝うアシスタントです。領収書類（レシート・振込控え等）・請求書の画像（PDFをページ画像化したものを含む）から情報を抽出し、JSONのみを出力します。前後の説明文やコードブロック記号は付けません。',
-    `画像に異なる請求書番号・発行者の独立した書類が複数含まれる場合、金額を合算せず {"documents":[{"date":"YYYY-MM-DD","payee":"発行者","amount":税込合計,"items":"品目","purpose":"用途","account":"科目名","payMethod":"cash / credit / qr / emoney / transfer / unknown","addressee":null,"docType":"receipt / invoice / transfer / other","pageStart":開始ページ番号(1始まり),"pageEnd":終了ページ番号(1始まり)}, ...]} のJSONを返してください。ページ範囲は必須です。同一請求書の続きページは1件として扱います。1件のみの場合は次の形式のJSONを返してください。
+    `最初に書類の種類を判別してください。1枚または複数ページに「支払日・購入内容・合計額・ステータス」などの列があり、各行が別々の支払いを表す支払い履歴・取引明細表の場合は、独立した請求書の集合とは扱わず、次のJSONだけを返してください：
+{"documentType":"payment_statement","payee":"サービス・支払先名","purpose":"支払履歴の用途","account":"科目名","transactions":[{"date":"YYYY-MM-DD","description":"支払内容","amount":5500,"status":"支払済み"}],"total":33000,"payMethod":"credit / transfer / qr / unknown"}。
+各行の税込支払金額を数値として正確に抽出してください。「合計」「小計」「繰越」などの集計行はtransactionsに入れず、未払い・失敗・取消・返金行は合算対象に含めないでください。返金等があり支払総額を確定できない場合は推測せず transactions を空にしてください。total は合算対象の行の金額の合計と一致させてください。日付・金額が読めない行は推測しないでください。表の行数を省略しないでください。
+
+画像に異なる請求書番号・発行者の独立した書類が複数含まれる場合、金額を合算せず {"documents":[{"date":"YYYY-MM-DD","payee":"発行者","amount":税込合計,"items":"品目","purpose":"用途","account":"科目名","payMethod":"cash / credit / qr / emoney / transfer / unknown","addressee":null,"docType":"receipt / invoice / transfer / other","pageStart":開始ページ番号(1始まり),"pageEnd":終了ページ番号(1始まり)}, ...]} のJSONを返してください。ページ範囲は必須です。同一請求書の続きページは1件として扱います。1件のみの場合は次の形式のJSONを返してください。
 {"date":"支払日 YYYY-MM-DD（不明ならnull）","payee":"店名・支払先（不明ならnull）","amount":税込合計の数値（不明なら0）,"items":"品目の簡潔なメモ（30文字程度）","purpose":"町内会の用途として自然な短い説明（例：役員会の茶菓子、防災倉庫の備品）","account":"次の科目名から最も近いものを1つ（括弧内は各科目に含まれる支出の例。科目名だけを出力）：${accNames.join('、')}","payMethod":"支払手段。cash / credit / qr / emoney / transfer / unknown のいずれか","addressee":"領収書類の宛名（上様・空欄ならその文字、なければnull）","docType":"receipt / invoice / transfer / other のいずれか"}
 和暦は西暦に変換してください。金額は値引き後・税込の支払総額です。お預り・お釣りの金額と取り違えないでください。`);
   const r = parseReceiptAiResponse(response);
+  if (r.__statement) return {__statement:r.__statement};
   if (r.__documents) return {__documents:r.__documents};
   return {
     date: nullish(r.date), payee: nullish(r.payee), amount: Math.round(Number(r.amount)||0),
@@ -2796,6 +2805,7 @@ async function runAi(dataUrls){
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> AIが読み取り中…';
   try {
     const r = await recognizeReceipt(dataUrls, formType);
+    if (r.__statement) { await openPaymentStatementReview(r.__statement); return; }
     if (r.__documents) { await openMultiReceiptReview(r.__documents, dataUrls); return; }
     formAiReceiptOriginal = {
       date:r.date||'', amount:Math.round(Number(r.amount)||0), payee:r.payee||'',
@@ -2822,6 +2832,61 @@ async function runAi(dataUrls){
     showToast(msg + '。必要なら手入力してください');
     alert('AI読み取りに失敗しました。\n\n'+msg+(String(e?.message||'').startsWith('MULTI_DOCUMENT:')?'':'\n\n※PDFに複数の請求書がある場合は、請求書ごとにページを分けて読み込んでください。'));
   } finally { btn.disabled=false; btn.textContent=orig; }
+}
+
+/* v180: 支払履歴の各行を確認し、合算して1伝票の入力欄に反映する。
+   読取り段階でFirebaseへ保存しない。合計・明細の確認後に通常の保存処理を使う。 */
+function normalizePaymentStatement(raw){
+  if(!raw || !Array.isArray(raw.transactions) || raw.transactions.length<1 || raw.transactions.length>100) throw new Error('STATEMENT_ROWS');
+  const rows=raw.transactions.map(x=>({
+    date:String(x.date||'').trim(),
+    description:String(x.description||x.items||'').trim(),
+    amount:Number(String(x.amount??'').replace(/[,￥¥\s]/g,'')),
+    status:String(x.status||'').trim()
+  }));
+  if(rows.some(x=>!/^\d{4}-\d{2}-\d{2}$/.test(x.date)||!Number.isInteger(x.amount)||x.amount<=0))throw new Error('STATEMENT_ROWS');
+  if(rows.some(x=>/未払|未決済|失敗|取消|キャンセル|返金|保留|処理中/.test(x.status)))throw new Error('STATEMENT_STATUS');
+  const sum=rows.reduce((n,x)=>n+x.amount,0);
+  if(raw.total!==undefined && raw.total!==null && raw.total!=='' && Number(String(raw.total).replace(/[,￥¥\s]/g,''))!==sum)throw new Error('STATEMENT_TOTAL');
+  return {rows,sum,payee:String(raw.payee||''),purpose:String(raw.purpose||''),account:String(raw.account||''),payMethod:String(raw.payMethod||'unknown')};
+}
+async function openPaymentStatementReview(raw){
+  if(editing)throw new Error('STATEMENT_EDIT');
+  const statement=normalizePaymentStatement(raw);
+  let overlay=document.getElementById('paymentStatementReview');
+  if(!overlay){overlay=document.createElement('div');overlay.id='paymentStatementReview';overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:99999;overflow:auto;padding:14px;';document.body.appendChild(overlay);}
+  overlay.innerHTML=`<div style="max-width:760px;margin:20px auto;background:#fff;color:#222;border-radius:14px;padding:18px">
+    <h2>支払い履歴を合算</h2><p>各行が支払い1件です。日付・金額を確認してください。確認後、合計を1件の伝票に反映します。まだ登録されません。</p>
+    <div style="overflow:auto"><table style="width:100%;min-width:340px"><thead><tr><th>支払日</th><th>内容</th><th>金額（税込）</th></tr></thead><tbody id="statementRows"></tbody></table></div>
+    <p style="font-weight:bold;font-size:18px">合計 <span id="statementSum"></span></p><p class="hint">伝票の支払日は最後の支払日とします。全件の支払日は備考欄に記録します。</p>
+    <p id="statementError" style="color:#a33"></p><div class="btn-row"><button type="button" class="btn btn-ghost" id="statementCancel">キャンセル</button><button type="button" class="btn btn-red" id="statementApply">合計を伝票に反映</button></div></div>`;
+  const body=overlay.querySelector('#statementRows'), error=overlay.querySelector('#statementError');
+  body.innerHTML=statement.rows.map((r,i)=>`<tr><td><input aria-label="${i+1}行目の日付" data-date type="date" value="${esc(r.date)}" style="width:135px;max-width:100%"></td><td><input aria-label="${i+1}行目の内容" data-description value="${esc(r.description)}" style="width:160px;max-width:100%"></td><td><input aria-label="${i+1}行目の金額" data-amount type="number" min="1" step="1" value="${r.amount}" style="width:110px;max-width:100%"></td></tr>`).join('');
+  function current(){return [...body.querySelectorAll('tr')].map(tr=>({date:tr.querySelector('[data-date]').value,description:tr.querySelector('[data-description]').value.trim(),amount:Number(tr.querySelector('[data-amount]').value)}));}
+  function refresh(){const rs=current();const valid=rs.every(x=>/^\d{4}-\d{2}-\d{2}$/.test(x.date)&&Number.isInteger(x.amount)&&x.amount>0);overlay.querySelector('#statementSum').textContent=valid?yen(rs.reduce((n,x)=>n+x.amount,0)):'入力を確認してください';return valid;}
+  body.addEventListener('input',refresh);refresh();
+  overlay.querySelector('#statementCancel').onclick=()=>overlay.remove();
+  overlay.querySelector('#statementApply').onclick=()=>{
+    if(!refresh()){error.textContent='すべての支払日と金額を確認してください。';return;}
+    const rows=current(), total=rows.reduce((n,x)=>n+x.amount,0);
+    const lastDate=rows.map(x=>x.date).sort().at(-1);
+    const fySet=[...new Set(rows.map(x=>fyOf(x.date)))];
+    if(fySet.length!==1){error.textContent='異なる会計年度の支払いが含まれています。年度ごとに分けて登録してください。';return;}
+    const warn=receiptFYWarning(lastDate);
+    if(warn&&!confirm(warn+'\n\nこの年度で入力を続けますか？'))return;
+    const memo=rows.map((x,i)=>`${i+1}. ${x.date} ${x.description||'支払い'} ${yen(x.amount)}`).join('\n');
+    $('fDate').value=lastDate;
+    $('fAmount').value=total;
+    if(statement.payee)$('fPayee').value=statement.payee;
+    if(statement.purpose)$('fPurpose').value=statement.purpose;
+    $('fMemo').value=($('fMemo').value.trim()?$('fMemo').value.trim()+'\n':'')+`【支払い履歴 ${rows.length}件・合計 ${yen(total)}】\n`+memo;
+    const acc=accounts.filter(a=>a.type===formType&&a.active).sort((a,b)=>b.name.length-a.name.length).find(a=>statement.account.startsWith(a.name));
+    if(acc&&!formAccount){formAccount=acc.id;renderAccountPicker();}
+    formAiReceiptOriginal={date:lastDate,amount:total,payee:statement.payee,purpose:statement.purpose,accountId:acc?.id||formAccount||'',addressee:'',items:memo,payMethod:statement.payMethod,readAt:TS()};
+    if(formType==='expense'&&!formMethod){const mid=suggestMethod(statement.payMethod,isP()||!!$('fPayer').value);if(mid){formMethod=mid;renderMethodPicker();renderPayerSelect();}}
+    overlay.remove();showToast(`${rows.length}件の支払いを合算しました。内容を確認して保存してください。`);
+    $('fAmount').scrollIntoView({behavior:'smooth',block:'center'});
+  };
 }
 
 /* v178: 複数請求書PDFをページ単位で分割し、利用者確認後に複数伝票として登録する。
