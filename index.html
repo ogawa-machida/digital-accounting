@@ -881,7 +881,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.11-184';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.11-186';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -955,11 +955,12 @@ const POSTS = ['会長','副会長','会計','庶務','書記','班長','防災�
 const SETTLE_WAYS = ['現金手渡し','口座振込','その他'];
 const BRANCH_GROUPS = {"下小川1支部":["1班","2班","3班","4班","5班"],"下小川2支部":["1班","2班","3班","4班","5班"],"下小川3支部":["1班","2班","3班","4班","5班","6班"],"せんげん1支部":["1班","2班","3班","4班","5班"],"せんげん2支部":["1班","2班","3班","4班","5班","6班"],"蜂谷戸1支部":["1班","2班","3班","4班","5班","6班"],"蜂谷戸2支部":["1班","2班","3班","4班","5班"],"柳谷戸1支部":["1班","2班","3班","4班","5班"],"柳谷戸2支部":["1班","2班","3班","4班"],"柳谷戸3支部":["1班","2班","3班","4班","5班"],"かえで支部":["1班","2班","3班","4班","5班"]};
 
+
 /* ---------- 状態 ---------- */
 let me = null;                 // 現在アプリ上で操作しているプロフィール
 let realMe = null;             // Firebase members に登録された実プロフィール（テスト切替中も保持）
 let testProfile = null;        // 管理者専用テストモードの仮想プロフィール
-let settings = { orgName:'町内会', fiscalStartMonth:4, opening:{}, publicDetail:'items' };
+let settings = { orgName:'町内会', fiscalStartMonth:3, opening:{}, publicDetail:'items' };
 let accounts = [], methods = [], payers = [], members = [], storageTags = [];
 let fyMap = {}, pendingMap = {}, mineMap = {};
 let advances = [], settlements = [], logs = [], auditReports = {}, yearClosures = {};
@@ -1733,7 +1734,7 @@ function standardAccountData(x){
 
 async function seedDefaults(){
   const ups = {};
-  ups['settings'] = { initialized:true, orgName:'小川自治会', fiscalStartMonth:4, publicDetail:'items', opening:{ [STANDARD_FY]: STANDARD_OPENING }, createdAt:TS() };
+  ups['settings'] = { initialized:true, orgName:'小川自治会', fiscalStartMonth:3, publicDetail:'items', opening:{ [STANDARD_FY]: STANDARD_OPENING }, createdAt:TS() };
   STANDARD_ACCOUNTS.forEach(x => { ups[`accounts/${R('accounts').push().key}`] = { ...standardAccountData(x), budget:{ [STANDARD_FY]: x.budget } }; });
   const ms = [
     {name:'町内会口座から振込', use:'expense', settle:false},
@@ -5594,7 +5595,7 @@ async function renderAdmin(){
   const tool=$('adminToolPanel');
   const notifyTool=$('adminNotifyToolPanel');
   if(!tool || !notifyTool){ console.error('管理パネルが見つかりません'); return; }
-  if($('adminImport')) $('adminImport').onclick=()=>{ tool.innerHTML=`<div class="form-card"><b>データ取り込み</b><p class="hint">過去データ（CSV・Excel）または会費ペイのファイルを選択します。</p><div class="btn-row"><button class="btn btn-navy" id="admExcel">CSV・Excel</button><button class="btn btn-navy" id="admKaihi">会費ペイ</button></div><div id="kaihipayPreview" style="margin-top:10px"></div><button class="btn btn-navy full" style="margin-top:8px" id="admStmt">会費ペイ支払通知書PDF</button><div id="kaihipayStatementPreview" style="margin-top:10px"></div></div>`;$('admExcel').onclick=()=>$('importInput').click();$('admKaihi').onclick=()=>$('kaihipayInput').click();$('admStmt').onclick=()=>$('kaihipayStatementInput').click();};
+  if($('adminImport')) $('adminImport').onclick=()=>{ tool.innerHTML=`<div class="form-card"><b>データ取り込み</b><p class="hint">過去データ（CSV・Excel）または会費ペイのファイルを選択します。</p><div class="btn-row"><button class="btn btn-navy" id="admExcel">CSV・Excel</button><button class="btn btn-navy" id="admKaihi">会費ペイ</button></div><div id="kaihipayPreview" style="margin-top:10px"></div><button class="btn btn-navy full" style="margin-top:8px" id="admStmt">会費ペイ支払通知書PDF</button><div id="kaihipayStatementPreview" style="margin-top:10px"></div><hr style="border:0;border-top:1px solid var(--line);margin:16px 0"></div>`;$('admExcel').onclick=()=>$('importInput').click();$('admKaihi').onclick=()=>$('kaihipayInput').click();$('admStmt').onclick=()=>$('kaihipayStatementInput').click();};
   if($('adminBackup')) $('adminBackup').onclick=()=>{
     tool.innerHTML=`<div class="form-card"><b>バックアップ・データ管理</b>
       <p class="hint">日常のFirebaseバックアップに加え、年度末・監査前はCSV書き出しも併用してください。</p>
