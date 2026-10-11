@@ -881,7 +881,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.11-175';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.11-176';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -2687,8 +2687,11 @@ function aiErrorText(e){
   if (m.includes('401') || m.includes('CLAUDE_401')) return 'Claude APIキーが無効です（GASのScript Propertiesを確認してください）';
   if (m.includes('429')) return 'AIの利用が混み合っています。少し待って再試行してください';
   if (m.includes('529') || m.includes('500')) return 'AIが一時的に応答していません';
-  if (m==='AITIMEOUT' || m.includes('90秒')) return 'AIの読み取りが時間内に完了しませんでした。もう一度お試しください';
-  return '読み取れませんでした';
+  if (m==='AITIMEOUT' || m.includes('90秒') || m.includes('60秒以内')) return 'AIの処理が時間内に完了しませんでした。画像を1ページずつに分けて再試行してください';
+  if (m.includes('GAS応答の監視')) return 'AI応答を受信できませんでした。Firebaseへのアクセス権限を確認してください';
+  if (m.includes('送信に失敗')) return 'AIへの送信に失敗しました。通信状態を確認してください';
+  if (m.includes('JSON') || m.includes('parse') || m.includes('FORMAT')) return 'AI応答の形式を読み取れませんでした';
+  return 'AI読み取りエラー（'+m.slice(0,160)+'）';
 }
 const nullish = v => (v===null || v===undefined || v==='null' || v==='') ? null : v;
 
@@ -2754,7 +2757,10 @@ async function runAi(dataUrls){
     const warn = addresseeWarning(formAddressee);
     showToast(warn ? `読み取りました。${warn}` : '読み取りました。内容を確認してから保存してください');
   } catch(e) {
-    console.error(e); showToast(aiErrorText(e) + '。手入力してください');
+    console.error('領収書AI読取りエラー',e);
+    const msg=aiErrorText(e);
+    showToast(msg + '。必要なら手入力してください');
+    alert('AI読み取りに失敗しました。\n\n'+msg+'\n\n※PDFに複数の請求書がある場合は、請求書ごとにページを分けて読み込んでください。');
   } finally { btn.disabled=false; btn.textContent=orig; }
 }
 
