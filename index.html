@@ -881,7 +881,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.11-186';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.10.11-187';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1978,6 +1978,7 @@ async function showScreen(id){
   if(target) target.classList.add('active');
   window.scrollTo(0,0);
 }
+let budgetEditingUntil = 0; // 予算の連続入力中はFirebase通知による設定画面の再描画を抑制
 function renderAll(){
   if (!me || curFY===null) return;
   let tb=document.getElementById('testModeBanner');
@@ -2001,7 +2002,7 @@ async function renderCurrent(){
     case 'auditScreen': renderAudit(); break;
     case 'adminScreen': await renderAdmin(); break;
     case 'fiscalCloseScreen': renderFiscalCloseScreen(); break;
-    case 'settingsScreen': { const a=document.activeElement; const typing = a && $('settingsScreen').contains(a) && ['INPUT','TEXTAREA','SELECT'].includes(a.tagName) && a.type!=='checkbox'; if (!typing) renderSettings(); break; }
+    case 'settingsScreen': { const a=document.activeElement; const typing = a && $('settingsScreen').contains(a) && ['INPUT','TEXTAREA','SELECT'].includes(a.tagName) && a.type!=='checkbox'; if (!typing && Date.now() >= budgetEditingUntil) renderSettings(); break; }
     case 'detailScreen': if (detailId) await renderDetail(detailId); break;
   }
   injectScreenGuide(currentScreen);
@@ -6344,11 +6345,24 @@ function bindSettings(){
     }
   };
 
-  q('[data-budget]').forEach(inp => inp.onchange = async () => {
-    const v = inp.value==='' ? null : Math.round(Number(inp.value)||0);
-    await R(`accounts/${inp.dataset.budget}/budget/${curFY}`).set(v);
-    writeLog('予算設定', null, `${accById(inp.dataset.budget)?.name} ${curFY}年度 ${v===null?'未設定':yen(v)}`);
-    showToast('予算を保存しました');
+  q('[data-budget]').forEach(inp => {
+    inp.addEventListener('focus', () => { budgetEditingUntil = Date.now() + 60000; });
+    inp.addEventListener('blur', () => { budgetEditingUntil = Date.now() + 2500; });
+    inp.onchange = async () => {
+      const v = inp.value==='' ? null : Math.round(Number(inp.value)||0);
+      const accountId = inp.dataset.budget;
+      const year = curFY;
+      // blur → onchange → Firebase購読通知の順で再描画されても、次の科目の入力欄を維持する。
+      budgetEditingUntil = Date.now() + 2500;
+      try {
+        await R(`accounts/${accountId}/budget/${year}`).set(v);
+        writeLog('予算設定', null, `${accById(accountId)?.name} ${year}年度 ${v===null?'未設定':yen(v)}`);
+        showToast('予算を保存しました（続けて入力できます）');
+      } catch(err) {
+        console.error('予算保存エラー', err);
+        showToast(`予算を保存できませんでした：${err?.message||err}`);
+      }
+    };
   });
   q('[data-rename]').forEach(b => b.onclick = () => {
     const a=accById(b.dataset.rename);
