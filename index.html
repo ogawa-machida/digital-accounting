@@ -190,7 +190,10 @@ main{max-width:600px; margin:0 auto; padding:14px 14px 24px;}
 .photo-strip{display:flex; gap:8px; overflow-x:auto; padding-bottom:4px;}
 .photo-item{position:relative; flex-shrink:0;}
 .photo-item img{height:120px; border-radius:6px; border:1px solid var(--line); display:block;}
-.photo-item button{position:absolute; top:4px; right:4px; width:26px; height:26px; border-radius:50%; border:none; background:rgba(58,50,42,.75); color:#fff; font-size:14px;}
+.photo-item .photo-delete{position:absolute; top:4px; right:4px; width:26px; height:26px; border-radius:50%; border:none; background:rgba(58,50,42,.75); color:#fff; font-size:14px;}
+.photo-item .photo-controls{display:flex; gap:4px; margin-top:5px;}
+.photo-item .photo-controls button{flex:1; border:1px solid var(--line); background:#fff; color:var(--ink); border-radius:6px; padding:5px 8px; font-size:13px; font-weight:700; min-height:32px;}
+.photo-item .photo-controls button:disabled{opacity:.45;}
 .photo-empty{border:2px dashed var(--line); border-radius:10px; padding:18px; text-align:center; color:var(--ink-soft); font-size:12.5px; width:100%;}
 .check-line{display:flex; align-items:center; gap:8px; font-size:13.5px;}
 .check-line input{width:18px; height:18px; accent-color:var(--stamp-red);}
@@ -881,7 +884,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.11.01-196';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.11.01-197';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -2578,9 +2581,37 @@ $('fileInput').onchange = async e => { await handleDocument(e.target.files[0]); 
 function renderPhotoStrip(){
   const strip = $('photoStrip');
   if (!formPhotos.length) { strip.innerHTML = `<div class="photo-empty">まだ写真がありません</div>`; $('aiReadBtn').style.display='none'; return; }
-  strip.innerHTML = formPhotos.map((p,i)=>`<div class="photo-item"><img src="${p}" alt="写真${i+1}"><button type="button" data-i="${i}" aria-label="削除">×</button></div>`).join('');
-  strip.querySelectorAll('button').forEach(b=>b.onclick=()=>{ formPhotos.splice(Number(b.dataset.i),1); photosChanged=true; renderPhotoStrip(); });
+  strip.innerHTML = formPhotos.map((p,i)=>`<div class="photo-item"><img src="${p}" alt="領収書類${i+1}"><button type="button" class="photo-delete" data-i="${i}" aria-label="削除">×</button><div class="photo-controls"><button type="button" class="photo-rotate" data-i="${i}" data-deg="-90" aria-label="左へ90度回転">↶ 左90°</button><button type="button" class="photo-rotate" data-i="${i}" data-deg="90" aria-label="右へ90度回転">↷ 右90°</button></div></div>`).join('');
+  strip.querySelectorAll('.photo-delete').forEach(b=>b.onclick=()=>{ formPhotos.splice(Number(b.dataset.i),1); photosChanged=true; renderPhotoStrip(); });
+  strip.querySelectorAll('.photo-rotate').forEach(b=>b.onclick=()=>rotateReceiptPhoto(Number(b.dataset.i),Number(b.dataset.deg)));
   $('aiReadBtn').style.display = 'block';
+}
+let receiptRotationBusy=false;
+async function rotateReceiptPhoto(index,degrees){
+  if(receiptRotationBusy || !formPhotos[index])return;
+  receiptRotationBusy=true;
+  const buttons=$('photoStrip').querySelectorAll('.photo-rotate');
+  buttons.forEach(b=>b.disabled=true);
+  try{
+    const src=formPhotos[index];
+    const img=await new Promise((resolve,reject)=>{
+      const image=new Image(); image.onload=()=>resolve(image); image.onerror=()=>reject(new Error('IMAGE_LOAD')); image.src=src;
+    });
+    const w=img.naturalWidth, h=img.naturalHeight;
+    const canvas=document.createElement('canvas'); canvas.width=h; canvas.height=w;
+    const ctx=canvas.getContext('2d',{alpha:false});
+    ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.translate(canvas.width/2,canvas.height/2);
+    ctx.rotate(degrees*Math.PI/180);
+    ctx.drawImage(img,-w/2,-h/2,w,h);
+    const rotated=canvas.toDataURL('image/jpeg',0.85);
+    // 保存対象の画像そのものを回転させ、AI読取にも同じ向きを反映する。
+    formPhotos[index]=dataUrlBytes(rotated)>300*1024?await compressReceiptImage(rotated):rotated;
+    photosChanged=true;
+    renderPhotoStrip();
+    showToast('領収書類を90度回転しました。AI読取済みの場合は再度読み取ってください');
+  }catch(e){console.error(e);showToast('画像を回転できませんでした');}
+  finally{receiptRotationBusy=false; $('photoStrip').querySelectorAll('.photo-rotate').forEach(b=>b.disabled=false);}
 }
 async function pdfToImages(file, maxPages=3){
   await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs', true).catch(()=>{});
