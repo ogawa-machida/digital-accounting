@@ -881,7 +881,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.11.01-194';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.11.01-195';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1594,6 +1594,8 @@ function showJoinForm(user, mref){
         if (!['payer','report','treasurer','auditor'].includes(purpose)) throw new Error('利用目的を選択してください');
         const requestType = purpose==='payer' ? 'payer' : 'report';
         await mref.set({name,email:user.email||'',post,branch,group,role:'pending',requestType,requestedRole:purpose,privacyConsentAt,privacyConsentVersion,createdAt:TS()});
+        // 利用申請のメール通知。保存成功後にGASへ送信（送信失敗は画面上に表示）。
+        notify('member').then(result=>{if(!result.ok)console.warn('利用申請メール通知:',result.error);}).catch(console.error);
         try { localStorage.removeItem('kaikei_reportIntent'); sessionStorage.removeItem('kaikei_reportIntent'); } catch(e){}
         resolve();
       } catch(e) { console.error(e); $('jErr').textContent='利用申請の保存に失敗しました（members/'+user.uid+'）：'+(e.code||e.message||e); btn.disabled=false; btn.textContent='申請する'; }
@@ -3013,6 +3015,7 @@ $('formCancelBtn').onclick = () => { metricCancel(); editing ? openDetail(editin
 async function persistEntry(prev, f, photos, photosChanged){
   if(prev && prev.status==='returned' && !(prev.createdBy===me.uid || isRealAdmin()))throw new Error('差戻し伝票の修正権限がありません');
   if(prev && prev.status==='returned' && prev.settleState==='settled')throw new Error('精算済み伝票は修正できません');
+  if(f.type==='expense' && !isT() && f.payerId!==me.payerId) throw new Error('本人以外の立替・仮払は会計担当・管理者のみ入力できます');
   const m = methodById(f.methodId);
   const fy = fyOf(f.date);
   if(!ensureFYOpen(fy)) throw new Error(`${fy}年度は決算確定済みです`);
@@ -6499,6 +6502,9 @@ function bindSettings(){
       }
     }
     await db.ref(ROOT).update(ups);
+    if(oldRole==='pending' && !['pending','removed','guest'].includes(newRole)){
+      notify('memberApproved',{memberUid:m.id}).then(result=>{if(!result.ok)showToast('権限は承認しましたが、通知メール送信に失敗しました：'+(result.error||''));}).catch(console.error);
+    }
     writeLog('権限変更', null, `${m.name}：${ROLES[oldRole]?.name}→${ROLES[newRole]?.name}`);
     showToast(`${m.name}さんを「${ROLES[newRole].name}」にしました`);
     if (['treasurer','viewer'].includes(newRole) || ['treasurer','viewer'].includes(oldRole)) setTimeout(()=>syncRecipients(), 800);

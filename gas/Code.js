@@ -46,6 +46,7 @@ function doPost(e) {
         case 'cashFeeComplete':result=cashFeeComplete_(user,req.entryId||'',appUrl);break;
         case 'settlementConfirm':result=settlementConfirm_(user,req.settlementId||'',appUrl);break;
         case 'member':result=member_(user,appUrl);break;
+         case 'memberApproved':result=memberApproved_(user,req.memberUid||'',appUrl);break;
         default:throw new Error('不明な操作です');
       }
     }
@@ -346,19 +347,41 @@ function settlementConfirm_(user, settlementId, appUrl) {
 }
 
 function member_(user, appUrl) {
-  if (user.role !== 'pending') return { ok:true, sent:0 };
-  const cache = CacheService.getScriptCache();
-  if (cache.get('member_' + user.uid)) return { ok:true, sent:0 };
-  cache.put('member_' + user.uid, '1', 21600);
-  const to = recipientsByRole_('treasurer');
-  if (!to.length) throw new Error('会計担当の通知先が登録されていません');
-  send_(to, '【会計簿】利用申請 ' + user.name, [
-    '会計簿に新しい利用申請が届きました。',
-    '', '氏名：' + user.name, 'メール：' + user.email, '',
-    '会計担当が「設定」の利用者一覧で、会計・監査・役員・支払者の権限を設定してください。',
-    '支払者名簿との紐付けは不要です。'
-  ], appUrl, '会計簿を開く');
-  return { ok:true, sent:1 };
+  if (user.role !== 'pending') return {ok:true,sent:0};
+  const to=uniqueEmails_(recipientRecords_('treasurer').map(r=>r.email));
+  if (!to.length) throw new Error('会計担当・管理者の通知先が未登録です。「送信先を登録」を実行してください');
+  const props=PropertiesService.getScriptProperties();
+  const key='MEMBER_NOTIFIED_'+user.uid;
+  const lock=LockService.getScriptLock();lock.waitLock(10000);
+  try {
+    if(props.getProperty(key))return {ok:true,sent:0,duplicate:true};
+    send_(to,'【らくっと】新規利用申請 '+user.name,[
+      '新しい利用申請が届きました。', '', '氏名：'+user.name,'メール：'+user.email,
+      '管理者または会計担当が「関係者・権限管理」から申請内容を確認してください。'
+    ],appUrl,'利用申請を確認する');
+    props.setProperty(key,String(Date.now()));
+    return {ok:true,sent:1};
+  }finally{lock.releaseLock();}
+}
+function memberApproved_(user, memberUid, appUrl) {
+  if(!['admin','treasurer'].includes(user.role))throw new Error('承認通知の権限がありません');
+  if(!/^[A-Za-z0-9_-]{5,160}$/.test(memberUid))throw new Error('利用者IDが不正です');
+  const member=read_('members/'+memberUid,user.token);
+  if(!member || ['pending','removed','guest'].includes(member.role))throw new Error('承認済みの利用者を確認できません');
+  if(!member.email)throw new Error('承認された利用者のメールアドレスがありません');
+  const props=PropertiesService.getScriptProperties();
+  const key='APPROVED_NOTIFIED_'+memberUid+'_'+String(member.createdAt||'')+'_'+member.role;
+  const lock=LockService.getScriptLock();lock.waitLock(10000);
+  try{
+    if(props.getProperty(key))return {ok:true,sent:0,duplicate:true};
+    send_([member.email],'【らくっと】利用申請が承認されました',[
+      (member.name||'利用者')+'さん','',
+      'らくっとの利用申請が承認されました。アプリにログインしてご利用ください。',
+      '承認された役割：'+member.role
+    ],appUrl,'らくっとを開く');
+    props.setProperty(key,String(Date.now()));
+    return {ok:true,sent:1};
+  }finally{lock.releaseLock();}
 }
 
 /* ---------- Claude AI中継 ----------
