@@ -884,7 +884,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.11.01-206';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.11.02-208';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -4996,6 +4996,7 @@ async function renderAdmin(){
       // v205: 仮想ロール切替ではFirebase AuthのUIDは切り替わらない。
       // 申請者と承認者が同じ実UIDなら、自己承認ガードが先に発動する。
       // その場合、承認ポップアップ自体を独立して検証し、自己承認を偽装しない。
+      const mockApproval = approvalEntry.createdBy===auth.currentUser.uid || approvalEntry.lastRevisedBy===auth.currentUser.uid;
       if(approvalEntry.createdBy===auth.currentUser.uid || approvalEntry.lastRevisedBy===auth.currentUser.uid){
         markStage('承認確認ポップアップ（独立検証）');
         const modalPromise=confirmApprovalDetails({id:entryId,...approvalEntry});
@@ -5007,9 +5008,20 @@ async function renderAdmin(){
         add('会計科目確認後は進行可能',!modalOk.disabled?'ok':'fail','チェック操作でボタン有効を検証');
         modalOk.click();
         add('承認確認ポップアップの完了',(await modalPromise)===true?'ok':'fail','会計科目の明示確認を完了');
-        // 実UIDが同じ状態では本番ルール上承認不可。診断用の例外権限は設けない。
-        throw Object.assign(new Error('承認確認UIは正常。申請者と承認者が同じFirebase認証UIDのため、実承認は未実施です。別アカウントでの検証が必要です。後続の承認依存テストも実施していません。'),{uiTestSkipped:true});
+        // v208: 承認・監査・精算の後続経路を独立したメモリ上で模擬する。
+        // 実Firebaseの伝票を承認済みに変更しない。自己承認禁止を緩和しない。
+        const simulation={...approvalEntry,id:entryId,status:'submitted',approvedBy:null};
+        const mockApprovalAllowed=simulation.createdBy!==auth.currentUser.uid && simulation.lastRevisedBy!==auth.currentUser.uid;
+        add('実承認の自己承認ガード',!mockApprovalAllowed?'ok':'fail','同一UIDの実承認は禁止（Firebase書込なし）');
+        simulation.status='approved';simulation.approvedBy='SIMULATED_OTHER_UID';
+        add('承認後の状態遷移（模擬）',simulation.status==='approved'?'ok':'fail','メモリ上のみでsubmitted→approved');
+        const mockAudit={result:'ok',entryId:simulation.id};
+        add('監査後の状態遷移（模擬）',simulation.status==='approved'&&mockAudit.result==='ok'?'ok':'fail','メモリ上のみ・監査書込なし');
+        const mockSettlement={payerId:simulation.payerId,net:Number(simulation.amount),entryId:simulation.id};
+        add('精算への引継ぎ（模擬）',mockSettlement.entryId===simulation.id&&Number.isFinite(mockSettlement.net)?'ok':'fail','メモリ上のみ・精算書込なし');
+        add('別UIDによる実承認・監査・精算','skip','本番Firebaseの複数アカウント権限は別途実検証が必要');
       }
+      if(!mockApproval){
       $('dApprove').click();
       await waitFor(()=>document.getElementById('approvalAccountChecked'),5000);
       const accountCheck=document.getElementById('approvalAccountChecked');
@@ -5100,6 +5112,8 @@ async function renderAdmin(){
       const [stGone,seGone]=await Promise.all([R(`settlements/${settlementId}`).get(),R(`entries/${settlementEntryId}`).get()]);
       add('精算テストデータの撤去',!stGone.exists()&&!seGone.exists()?'ok':'fail',!stGone.exists()&&!seGone.exists()?'撤去済み':'残存');
       settlementId=null; settlementEntryId=null; uiAutoTestContext.savedSettlementId=null;
+
+      } // v208: 実UIDが異なる場合のみ実承認・監査・精算のFirebaseテストを実施
 
       // ---- 収入登録：会計役割で実際の登録フォーム→収入切替→入力→保存 ----
       testProfile='treasurer'; applyEffectiveProfile(); renderAll();
@@ -5485,11 +5499,11 @@ async function renderAdmin(){
     }).join('');
     const interrupted=uiTestNetworkInterrupted;
     const stateClass=fails?'fail':((skipped||interrupted)?'warn':'ok');
-    const stateText=fails?`${fails}件の異常`:(skipped?`${skipped}件未実施・後続テスト未完了`:(interrupted?'通信中断あり':'すべて正常'));
+    const stateText=fails?`${fails}件の異常`:(skipped?`${skipped}件未実施（模擬と実検証を区別）`:(interrupted?'通信中断あり':'すべて正常'));
     const failRows=rows.filter(x=>x[1]==='fail');
     const failHtml=failRows.length?`<div class="diag-failbox"><b>異常項目</b>${failRows.map(x=>diagRow(...x)).join('')}</div>`:'';
-    const skipHtml=skipped?`<div class="diag-failbox" style="background:#fff9e9"><b>未実施項目（異常ではありません）</b>${rows.filter(x=>x[1]==='skip').map(x=>diagRow(...x)).join('')}<p class="hint">自己承認禁止を維持するため、同一アカウントでの実承認は実行していません。後続の承認依存項目も未検証であり、総合試験完了とは判定しません。</p></div>`:'';
-    lastUiTestResultHtml=`<div class="diag-summary ${stateClass}"><span>総合実画面テスト<br><small>${stateText}</small></span><span class="diag-score">${passed} PASS／${skipped} 未実施／${fails} 異常</span></div>${failHtml}${skipHtml}<details class="diag-details"><summary>詳細を確認（${total}項目）</summary>${catHtml}${rows.map(x=>diagRow(...x)).join('')}<p class="hint">実行バージョン：${esc(APP_VERSION)}／実行項目数：${total}／実行ID：${esc(runId)}。件数はこの実行で実際に実行した項目から自動集計しています。<br>実行済みの項目のみ集計しています。自己承認禁止により実承認を実施できない場合、後続の承認依存テストは未検証です。全工程の完了を意味しません。</p></details>`;
+    const skipHtml=skipped?`<div class="diag-failbox" style="background:#fff9e9"><b>未実施項目（異常ではありません）</b>${rows.filter(x=>x[1]==='skip').map(x=>diagRow(...x)).join('')}<p class="hint">同一アカウントでは実承認・監査・精算をメモリ上で模擬し、その他の独立した実画面テストは継続します。模擬はFirebaseの実承認テストの代替ではありません。</p></div>`:'';
+    lastUiTestResultHtml=`<div class="diag-summary ${stateClass}"><span>総合実画面テスト<br><small>${stateText}</small></span><span class="diag-score">${passed} PASS／${skipped} 未実施／${fails} 異常</span></div>${failHtml}${skipHtml}<details class="diag-details"><summary>詳細を確認（${total}項目）</summary>${catHtml}${rows.map(x=>diagRow(...x)).join('')}<p class="hint">実行バージョン：${esc(APP_VERSION)}／実行項目数：${total}／実行ID：${esc(runId)}。件数はこの実行で実際に実行した項目から自動集計しています。<br>実行済みの項目のみ集計しています。模擬結果と実Firebase検証は区別しています。別UIDによる実承認・監査・精算は未検証であり、全工程の完了を意味しません。</p></details>`;
     adminActiveGroup='diagnostics';
     // v147: 診断用年度（9997等）やテスト役割を、全テスト終了後に必ず元へ戻す。
     uiAutoTestContext=null;
