@@ -884,7 +884,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.11.01-201';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.11.01-202';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1889,6 +1889,10 @@ function roleNextAction(){
   }
   const sub=fy.filter(e=>e.status==='submitted'&&e.selfApprovalRequired!==true),ret=fy.filter(e=>e.status==='returned');
   if(sub.length)return{kind:'required',tone:'amber',title:`会計担当者の確認待ちが ${sub.length}件あります`,sub:'申請内容と領収書類を確認し、承認または差戻しをしてください。',label:'確認待ちの申請を処理',go:'bookScreen',filter:'submitted'};
+  // 承認先が役員に振り分けられた伝票も、会計担当が状況を把握できるようにする。
+  // 自己承認禁止の対象なので、会計担当に承認可能とは案内しない。
+  const routed=fy.filter(e=>e.status==='submitted'&&e.selfApprovalRequired===true);
+  if(routed.length)return{kind:'waiting',tone:'navy',title:`役員の承認待ちが ${routed.length}件あります`,sub:'確認待ちの伝票がありますが、会計担当による自己承認を防ぐため役員の確認が必要です。伝票一覧で進捗を確認できます。',secondaryLabel:'確認待ち伝票を確認',go:'bookScreen',filter:'submitted'};
   if(ret.length)return{kind:'waiting',tone:'navy',title:`申請者の修正待ちが ${ret.length}件あります`,sub:'差戻し済みです。申請者から再申請されるまで、会計担当者の操作は不要です。',secondaryLabel:'差戻し中の伝票を確認',go:'bookScreen',filter:'returned'};
   const ready=settlePeople().filter(p=>p.ready);
   if(ready.length)return{kind:'required',tone:'navy',title:`精算できる人が ${ready.length}人います`,sub:'承認済みの立替・仮払があります。支払額を確認して精算を記録してください。',label:'精算を処理',go:'settleScreen'};
