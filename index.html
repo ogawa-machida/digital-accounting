@@ -881,7 +881,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.11.01-195';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.11.01-196';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1362,7 +1362,7 @@ function notifySettlementConfirm(settlementId){
 let lastRecipientKey = '';
 function syncRecipients(force){
   if (isTestMode() || !isT() || !settings.notifyUrl || !members.length) return;
-  const key = members.filter(m=>m.role==='treasurer' || m.role==='viewer').map(m=>`${m.role}:${(m.email||'').trim().toLowerCase()}`).sort().join(',') + '|' + settings.notifyUrl;
+  const key = members.filter(m=>m.role==='treasurer' || m.role==='admin' || m.role==='viewer').map(m=>`${m.role}:${(m.email||'').trim().toLowerCase()}`).sort().join(',') + '|' + settings.notifyUrl;
   if (!force && key===lastRecipientKey) return;
   lastRecipientKey = key;
   notify('register').then(r => { if (force) showToast(r && r.ok ? `送信先を登録しました（${(r.recipients||[]).join('、')}）` : `登録に失敗：${r && r.error || ''}`); });
@@ -1915,7 +1915,7 @@ function roleNextAction(){
   return{kind:'none',tone:'moss',title:'現在、会計担当者が対応することはありません',sub:'新しい申請や精算対象が発生すると、ここに次の操作を表示します。',secondaryLabel:'必要なら伝票を確認',go:'bookScreen'};
 }
 function nextActionHtml(){const a=roleNextAction();const action=a.label?`<button class="btn btn-primary" id="nextActionBtn">${esc(a.label)}</button>`:a.secondaryLabel?`<button class="btn btn-ghost next-secondary" id="nextActionBtn">${esc(a.secondaryLabel)}</button>`:'';return `<section class="next-action-card ${a.tone||''} ${a.kind||''}"><div class="next-kicker">${a.kind==='none'||a.kind==='waiting'||a.kind==='optional'?'現在の状況':'次にやること'}</div><h2>${esc(a.title)}</h2><p>${esc(a.sub)}</p>${action}</section>`;}
-function bindNextAction(){const b=$('nextActionBtn');if(!b)return;b.onclick=async()=>{const a=roleNextAction();if(a.action==='new')return openForm();if(a.action==='memberApproval'){await showScreen('settingsScreen');document.getElementById('membersSection')?.scrollIntoView({behavior:'smooth',block:'start'});return;}if(a.action==='fiscalClose'){await showScreen('fiscalCloseScreen');return;}if(a.filter)bookFilter.status=a.filter;if(a.go)showScreen(a.go);};}
+function bindNextAction(){const b=$('nextActionBtn');if(!b)return;b.onclick=async()=>{const a=roleNextAction();if(a.action==='new')return openForm();if(a.action==='memberApproval'){await openPendingMemberApprovals();return;}if(a.action==='fiscalClose'){await showScreen('fiscalCloseScreen');return;}if(a.filter)bookFilter.status=a.filter;if(a.go)showScreen(a.go);};}
 function screenGuideHtml(id){const [t,d]=screenPlainGuide(id),r=roleSimpleGuide();const glossary=id==='settleScreen'?'<p class="plain-note"><b>精算とは：</b>立て替えたお金を自治会から支払う、または仮払金の残りを返す処理です。</p>':id==='auditScreen'?'<p class="plain-note"><b>監査とは：</b>帳簿の数字と伝票・領収書類・実際の残高が合っているかを確認する作業です。</p>':'';return `<details class="screen-guide" ${id==='homeScreen'?'open':''}><summary><span>この画面ですること</span><b>${esc(t)}</b></summary><div class="screen-guide-body"><p>${esc(d)}</p>${glossary}<p class="hint">あなたの役割：<b>${esc(r.title)}</b>　${esc(r.one)}</p></div></details>`;}
 function injectScreenGuide(id){const el=$(id);if(!el||['cashFeeScreen','batchScreen','budgetImportScreen','importScreen'].includes(id))return;el.querySelectorAll(':scope > .screen-guide').forEach(x=>x.remove());el.insertAdjacentHTML('afterbegin',screenGuideHtml(id));}
 
@@ -2189,7 +2189,7 @@ function renderHome(){
   bindSlips(el);
   if ($('homeBatchBtn')) $('homeBatchBtn').onclick = () => openBatch();
   if ($('cashFeeNewBtn')) $('cashFeeNewBtn').onclick = () => openCashFeeForm('new');
-  if($('memberApprovalNotice'))$('memberApprovalNotice').onclick=async()=>{await showScreen('settingsScreen');document.getElementById('membersSection')?.scrollIntoView({behavior:'smooth',block:'start'});};
+  if($('memberApprovalNotice'))$('memberApprovalNotice').onclick=async()=>{await openPendingMemberApprovals();};
   if ($('cashFeeWaitingBtn')) $('cashFeeWaitingBtn').onclick = () => { bookFilter.status='submitted'; showScreen('bookScreen'); };
   el.querySelectorAll('[data-go]').forEach(b => b.onclick = () => {
     const g = b.dataset.go;
@@ -6001,11 +6001,18 @@ async function resetTrialData(){
   }
 }
 
+/* ホームの利用申請通知から関係者・権限管理を直接開く。 */
+async function openPendingMemberApprovals(){
+  await showScreen('settingsScreen');
+  if(typeof window.openSettingsPeoplePanel==='function') window.openSettingsPeoplePanel();
+  const pending=document.querySelector('#membersSection');
+  if(pending) pending.scrollIntoView({behavior:'smooth',block:'start'});
+}
 /* 会計の設定画面は「設定項目の羅列」ではなく、やりたいことから選ぶ入口にする。 */
 function organizeTreasurerSettings(){
   const root=$('settingsScreen'); if(!root) return;
   const defs=[
-    {id:'people', icon:'👥', title:'関係者・権限', sub:'役割、立替・仮払、支部・班', heads:['関係者・権限管理']},
+    {id:'people', icon:'👥', title:'関係者・権限', sub:'利用申請の承認、役割、支払者台帳、支部・班', heads:['関係者・権限管理']},
     {id:'money', icon:'💰', title:'会計の基本設定', sub:'団体情報、会費徴収期間、科目・予算、支払方法', heads:['団体の情報','会費徴収期間','現預金残高の確認',`科目と${curFY}年度の予算`,'支払方法']},
     {id:'fiscal', icon:'📅', title:'年度末・年度開始処理', sub:'残高確認、決算・監査、次年度予算、年度確定を順に実施', heads:[], action:'fiscalClose'},
     {id:'report', icon:'📊', title:'会員向け会計報告', sub:'公開内容の設定・報告の更新', heads:['会員向けの会計報告']},
@@ -6030,6 +6037,7 @@ function organizeTreasurerSettings(){
     if(def?.action==='fiscalClose'){ showScreen('fiscalCloseScreen'); return; }
     menu.style.display='none'; back.style.display='block'; Object.values(groups).forEach(x=>x.style.display=x.dataset.settingsPanel===id?'block':'none'); window.scrollTo({top:0,behavior:'smooth'});
   };
+  window.openSettingsPeoplePanel=()=>open('people');
   root.querySelectorAll('[data-settings-open]').forEach(b=>b.onclick=()=>open(b.dataset.settingsOpen));
   back.onclick=()=>{ Object.values(groups).forEach(x=>x.style.display='none'); back.style.display='none'; menu.style.display='block'; window.scrollTo({top:0,behavior:'smooth'}); };
   // メール等から利用者設定へ直接来た場合は、そのカテゴリを開く。
@@ -6507,7 +6515,7 @@ function bindSettings(){
     }
     writeLog('権限変更', null, `${m.name}：${ROLES[oldRole]?.name}→${ROLES[newRole]?.name}`);
     showToast(`${m.name}さんを「${ROLES[newRole].name}」にしました`);
-    if (['treasurer','viewer'].includes(newRole) || ['treasurer','viewer'].includes(oldRole)) setTimeout(()=>syncRecipients(), 800);
+    if (['treasurer','admin','viewer'].includes(newRole) || ['treasurer','admin','viewer'].includes(oldRole)) setTimeout(()=>syncRecipients(true), 800);
   });
   q('[data-officertype]').forEach(sel => sel.onchange = async () => {
     const m=members.find(x=>x.id===sel.dataset.officertype); if(!m || m.role!=='viewer') return;

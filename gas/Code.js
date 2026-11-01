@@ -358,7 +358,7 @@ function member_(user, appUrl) {
     send_(to,'【らくっと】新規利用申請 '+user.name,[
       '新しい利用申請が届きました。', '', '氏名：'+user.name,'メール：'+user.email,
       '管理者または会計担当が「関係者・権限管理」から申請内容を確認してください。'
-    ],appUrl,'利用申請を確認する');
+    ],appUrl+'?screen=settings','利用申請を確認する');
     props.setProperty(key,String(Date.now()));
     return {ok:true,sent:1};
   }finally{lock.releaseLock();}
@@ -369,6 +369,8 @@ function memberApproved_(user, memberUid, appUrl) {
   const member=read_('members/'+memberUid,user.token);
   if(!member || ['pending','removed','guest'].includes(member.role))throw new Error('承認済みの利用者を確認できません');
   if(!member.email)throw new Error('承認された利用者のメールアドレスがありません');
+  // 承認を行った会計・管理者の権限で送信先を最新化する。
+  register_(user);
   const props=PropertiesService.getScriptProperties();
   const key='APPROVED_NOTIFIED_'+memberUid+'_'+String(member.createdAt||'')+'_'+member.role;
   const lock=LockService.getScriptLock();lock.waitLock(10000);
