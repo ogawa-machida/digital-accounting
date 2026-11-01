@@ -881,7 +881,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.11.01-189';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.11.01-190';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1592,9 +1592,8 @@ function showJoinForm(user, mref){
         if (purpose==='report') {
           await mref.set({name,email:user.email||'',post,branch,group,role:'pending',requestType:'report',privacyConsentAt,privacyConsentVersion,createdAt:TS()});
         } else {
-          const pid='g_'+user.uid;
-          await mref.set({name,email:user.email||'',post,branch,group,role:'guest',payerId:pid,privacyConsentAt,privacyConsentVersion,createdAt:TS()});
-          await R(`payers/${pid}`).set({name,post,branch,group,provisional:true,uid:user.uid,email:user.email||'',active:true,order:999,createdAt:TS()});
+          // 初回申請では権限を付与しない。会計担当の承認後に payer を作成する。
+          await mref.set({name,email:user.email||'',post,branch,group,role:'pending',requestType:'payer',privacyConsentAt,privacyConsentVersion,createdAt:TS()});
         }
         try { localStorage.removeItem('kaikei_reportIntent'); sessionStorage.removeItem('kaikei_reportIntent'); } catch(e){}
         resolve();
@@ -1672,8 +1671,7 @@ async function enterAs(user){
       await showJoinForm(user, mref);
     }
   } else if (snap.val().role==='pending' && !snap.val().requestType) {
-    // 旧版の承認待ちは新しい申請画面へ移行する。
-    await showJoinForm(user, mref);
+    // 旧版の承認待ちは申請を維持し、会計担当の判断を待つ（再申請で上書きしない）。
   }
   snap = await mref.get();
   if (snap.exists() && !['pending','removed'].includes(snap.val().role)) await ensureAffiliation(user, mref, snap.val());
@@ -6436,6 +6434,12 @@ function bindSettings(){
     ups[`members/${m.id}/role`] = newRole;
     if (newRole==='viewer' && oldRole!=='viewer') ups[`members/${m.id}/officerType`] = 'headquarters';
     if (oldRole==='viewer' && newRole!=='viewer') ups[`members/${m.id}/officerType`] = null;
+    // 承認待ちから支払者・役員へ承認するとき、支払者台帳も一括作成する。
+    if (oldRole==='pending' && ['payer','viewer'].includes(newRole) && m.requestType!=='report' && !m.payerId) {
+      const pid='g_'+m.id;
+      ups[`members/${m.id}/payerId`] = pid;
+      ups[`payers/${pid}`] = {name:m.name||'',post:m.post||'',branch:m.branch||'',group:m.group||'',uid:m.id,email:m.email||'',active:true,order:999,createdAt:TS()};
+    }
     // 仮登録者を直接、本登録する。支払者・役員は支払者名簿を残し、監査は支払いと切り離す。
     if (m.role==='guest' && m.payerId) {
       const pp = payerById(m.payerId);
