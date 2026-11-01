@@ -884,7 +884,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.11.01-205';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.11.01-206';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -4524,9 +4524,9 @@ async function renderAdmin(){
   el.querySelectorAll('.admin-back').forEach(btn=>btn.onclick=closeAdminGroup);
   // v87: 本番データを変更しないシステム診断
   const diagRow=(name,status,detail='')=>{
-    const ok=status==='ok', warn=status==='warn';
-    const icon=ok?'✓':warn?'△':'✕';
-    const label=ok?'正常':warn?'要確認':'異常';
+    const ok=status==='ok', warn=status==='warn', skip=status==='skip';
+    const icon=ok?'✓':(warn||skip)?'△':'✕';
+    const label=ok?'正常':skip?'未実施':warn?'要確認':'異常';
     return `<div class="cat-row"><span class="cname">${icon} ${esc(name)}<small>${esc(detail)}</small></span><b style="white-space:nowrap">${label}</b></div>`;
   };
   async function runSystemDiagnostics(){
@@ -5008,7 +5008,7 @@ async function renderAdmin(){
         modalOk.click();
         add('承認確認ポップアップの完了',(await modalPromise)===true?'ok':'fail','会計科目の明示確認を完了');
         // 実UIDが同じ状態では本番ルール上承認不可。診断用の例外権限は設けない。
-        throw new Error('承認確認UIは正常です。ただしテスト申請者と承認者が同じFirebase認証UIDのため、自己承認禁止により実承認は実行できません。別のテスト用ログインアカウントで申請・承認を分ける必要があります。');
+        throw Object.assign(new Error('承認確認UIは正常。申請者と承認者が同じFirebase認証UIDのため、実承認は未実施です。別アカウントでの検証が必要です。後続の承認依存テストも実施していません。'),{uiTestSkipped:true});
       }
       $('dApprove').click();
       await waitFor(()=>document.getElementById('approvalAccountChecked'),5000);
@@ -5279,7 +5279,7 @@ async function renderAdmin(){
 
       // 管理画面へ戻して結果表示へ
       showScreen('adminScreen');
-    }catch(e){add(`実画面操作テスト：${uiTestStage}`,'fail',e?.message||String(e));}
+    }catch(e){add(e?.uiTestSkipped?'実承認（別アカウントで要検証）':`実画面操作テスト：${uiTestStage}`,e?.uiTestSkipped?'skip':'fail',e?.message||String(e));}
     finally{
       try{
         if(publicTestCreated){await R(`public/${publicTestFY}`).remove();await R(`public/index/years/${publicTestFY}`).remove();}
@@ -5444,7 +5444,8 @@ async function renderAdmin(){
     const fails=rows.filter(x=>x[1]==='fail').length;
     const warns=rows.filter(x=>x[1]==='warn').length;
     const passed=rows.filter(x=>x[1]==='ok').length;
-    lastUiTestSummary={version:APP_VERSION,runId,total,passed,fails,warns,finishedAt:Date.now()};
+    const skipped=rows.filter(x=>x[1]==='skip').length;
+    lastUiTestSummary={version:APP_VERSION,runId,total,passed,fails,warns,skipped,finishedAt:Date.now()};
     // 件数は固定値を持たず、この実行で rows に追加された全項目から毎回集計する。
     // 結果をDOMだけでなく状態として保持する。Firebaseの遅延onValueで管理画面が
     // 再描画されても、renderAdmin() が診断グループとこの結果を復元する。
@@ -5479,15 +5480,16 @@ async function renderAdmin(){
     };
     const cats=['支出・入力','収入登録','会計承認','監査','AI修正履歴','精算','データ取込','会員向け報告','年度処理','決算書類','年度切り替え','保存・遷移','異常系','安全・後処理'];
     const catHtml=cats.map(c=>{
-      const rr=rows.filter(x=>categoryOf(x[0])===c), ng=rr.filter(x=>x[1]==='fail').length;
-      return `<div class="total-check"><span>${c}</span><b>${ng?`${ng} FAIL`:`${rr.length}/${rr.length} PASS`}</b></div>`;
+      const rr=rows.filter(x=>categoryOf(x[0])===c), ng=rr.filter(x=>x[1]==='fail').length, sk=rr.filter(x=>x[1]==='skip').length, ok=rr.filter(x=>x[1]==='ok').length;
+      return `<div class="total-check"><span>${c}</span><b>${ng?`${ng} FAIL`:sk?`${ok} PASS／${sk} 未実施`:`${ok}/${rr.length} PASS`}</b></div>`;
     }).join('');
     const interrupted=uiTestNetworkInterrupted;
-    const stateClass=fails?'fail':(interrupted?'warn':'ok');
-    const stateText=fails?`${fails}件の異常`:(interrupted?'通信中断あり':'すべて正常');
+    const stateClass=fails?'fail':((skipped||interrupted)?'warn':'ok');
+    const stateText=fails?`${fails}件の異常`:(skipped?`${skipped}件未実施・後続テスト未完了`:(interrupted?'通信中断あり':'すべて正常'));
     const failRows=rows.filter(x=>x[1]==='fail');
     const failHtml=failRows.length?`<div class="diag-failbox"><b>異常項目</b>${failRows.map(x=>diagRow(...x)).join('')}</div>`:'';
-    lastUiTestResultHtml=`<div class="diag-summary ${stateClass}"><span>総合実画面テスト<br><small>${stateText}</small></span><span class="diag-score">${passed}/${total} PASS</span></div>${failHtml}<details class="diag-details"><summary>詳細を確認（${total}項目）</summary>${catHtml}${rows.map(x=>diagRow(...x)).join('')}<p class="hint">実行バージョン：${esc(APP_VERSION)}／実行項目数：${total}／実行ID：${esc(runId)}。件数はこの実行で実際に実行した項目から自動集計しています。<br>支出申請→会計承認→監査→AI修正履歴→精算→収入登録→会員向け報告→年度処理→決算書類→年度切り替え→異常系→Firebase保存→撤去まで一括確認しました。</p></details>`;
+    const skipHtml=skipped?`<div class="diag-failbox" style="background:#fff9e9"><b>未実施項目（異常ではありません）</b>${rows.filter(x=>x[1]==='skip').map(x=>diagRow(...x)).join('')}<p class="hint">自己承認禁止を維持するため、同一アカウントでの実承認は実行していません。後続の承認依存項目も未検証であり、総合試験完了とは判定しません。</p></div>`:'';
+    lastUiTestResultHtml=`<div class="diag-summary ${stateClass}"><span>総合実画面テスト<br><small>${stateText}</small></span><span class="diag-score">${passed} PASS／${skipped} 未実施／${fails} 異常</span></div>${failHtml}${skipHtml}<details class="diag-details"><summary>詳細を確認（${total}項目）</summary>${catHtml}${rows.map(x=>diagRow(...x)).join('')}<p class="hint">実行バージョン：${esc(APP_VERSION)}／実行項目数：${total}／実行ID：${esc(runId)}。件数はこの実行で実際に実行した項目から自動集計しています。<br>実行済みの項目のみ集計しています。自己承認禁止により実承認を実施できない場合、後続の承認依存テストは未検証です。全工程の完了を意味しません。</p></details>`;
     adminActiveGroup='diagnostics';
     // v147: 診断用年度（9997等）やテスト役割を、全テスト終了後に必ず元へ戻す。
     uiAutoTestContext=null;
