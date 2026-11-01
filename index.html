@@ -881,7 +881,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.11.01-192';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.11.01-194';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1862,6 +1862,7 @@ function screenPlainGuide(id){
 }
 function roleNextAction(){
   const fy=fyEntries();
+  if(isT()){const waiting=members.filter(m=>m.role==='pending');if(waiting.length)return{kind:'required',tone:'amber',title:`新規利用申請が ${waiting.length}件あります`,sub:'利用目的と本人情報を確認して役割を承認してください。',label:'利用申請を確認',action:'memberApproval'};}
   if(isA()){
     const todo=fy.filter(e=>e.status==='approved'&&(!e.audit||e.auditStale));
     const opening=Number((settings.opening||{})[curFY])||0;
@@ -1912,7 +1913,7 @@ function roleNextAction(){
   return{kind:'none',tone:'moss',title:'現在、会計担当者が対応することはありません',sub:'新しい申請や精算対象が発生すると、ここに次の操作を表示します。',secondaryLabel:'必要なら伝票を確認',go:'bookScreen'};
 }
 function nextActionHtml(){const a=roleNextAction();const action=a.label?`<button class="btn btn-primary" id="nextActionBtn">${esc(a.label)}</button>`:a.secondaryLabel?`<button class="btn btn-ghost next-secondary" id="nextActionBtn">${esc(a.secondaryLabel)}</button>`:'';return `<section class="next-action-card ${a.tone||''} ${a.kind||''}"><div class="next-kicker">${a.kind==='none'||a.kind==='waiting'||a.kind==='optional'?'現在の状況':'次にやること'}</div><h2>${esc(a.title)}</h2><p>${esc(a.sub)}</p>${action}</section>`;}
-function bindNextAction(){const b=$('nextActionBtn');if(!b)return;b.onclick=async()=>{const a=roleNextAction();if(a.action==='new')return openForm();if(a.action==='fiscalClose'){await showScreen('fiscalCloseScreen');return;}if(a.filter)bookFilter.status=a.filter;if(a.go)showScreen(a.go);};}
+function bindNextAction(){const b=$('nextActionBtn');if(!b)return;b.onclick=async()=>{const a=roleNextAction();if(a.action==='new')return openForm();if(a.action==='memberApproval'){await showScreen('settingsScreen');document.getElementById('membersSection')?.scrollIntoView({behavior:'smooth',block:'start'});return;}if(a.action==='fiscalClose'){await showScreen('fiscalCloseScreen');return;}if(a.filter)bookFilter.status=a.filter;if(a.go)showScreen(a.go);};}
 function screenGuideHtml(id){const [t,d]=screenPlainGuide(id),r=roleSimpleGuide();const glossary=id==='settleScreen'?'<p class="plain-note"><b>精算とは：</b>立て替えたお金を自治会から支払う、または仮払金の残りを返す処理です。</p>':id==='auditScreen'?'<p class="plain-note"><b>監査とは：</b>帳簿の数字と伝票・領収書類・実際の残高が合っているかを確認する作業です。</p>':'';return `<details class="screen-guide" ${id==='homeScreen'?'open':''}><summary><span>この画面ですること</span><b>${esc(t)}</b></summary><div class="screen-guide-body"><p>${esc(d)}</p>${glossary}<p class="hint">あなたの役割：<b>${esc(r.title)}</b>　${esc(r.one)}</p></div></details>`;}
 function injectScreenGuide(id){const el=$(id);if(!el||['cashFeeScreen','batchScreen','budgetImportScreen','importScreen'].includes(id))return;el.querySelectorAll(':scope > .screen-guide').forEach(x=>x.remove());el.insertAdjacentHTML('afterbegin',screenGuideHtml(id));}
 
@@ -2148,6 +2149,8 @@ function renderHome(){
   </div>`;
 
   const cashWaiting = fyEntries().filter(e=>e.cashFeeRequest && e.status==='submitted');
+  const pendingMembers=isT()?members.filter(m=>m.role==='pending'):[];
+  if(pendingMembers.length)html+=`<button class="notice amber" id="memberApprovalNotice"><span class="n-body">新規利用申請 ${pendingMembers.length}件<span class="n-sub">利用目的を確認して承認してください</span></span><span class="n-val">›</span></button>`;
   if (isT() && cashWaiting.length) html += `<button class="notice navy" id="cashFeeWaitingBtn"><span class="n-body">現金会費の受取待ち<span class="n-sub">班長から現金を受け取り、数えて確認してください</span></span><span class="n-val">${cashWaiting.length}件</span></button>`;
   if (isGroupLeader() && cashFeeCollectionOpen()) {
     const myCash = fyEntries().filter(e=>e.cashFeeRequest && e.createdBy===me.uid);
@@ -2184,6 +2187,7 @@ function renderHome(){
   bindSlips(el);
   if ($('homeBatchBtn')) $('homeBatchBtn').onclick = () => openBatch();
   if ($('cashFeeNewBtn')) $('cashFeeNewBtn').onclick = () => openCashFeeForm('new');
+  if($('memberApprovalNotice'))$('memberApprovalNotice').onclick=async()=>{await showScreen('settingsScreen');document.getElementById('membersSection')?.scrollIntoView({behavior:'smooth',block:'start'});};
   if ($('cashFeeWaitingBtn')) $('cashFeeWaitingBtn').onclick = () => { bookFilter.status='submitted'; showScreen('bookScreen'); };
   el.querySelectorAll('[data-go]').forEach(b => b.onclick = () => {
     const g = b.dataset.go;
@@ -3038,6 +3042,8 @@ async function persistEntry(prev, f, photos, photosChanged){
     settleState: p.settleState==='settled' ? 'settled' : (settle ? 'pending' : 'none'),
     auditStale: p.audit ? true : false,
     createdBy: p.createdBy || me.uid, createdByName: p.createdByName || me.name,
+    entryType: p.entryType || (isT() && f.type==='expense' && f.payerId && f.payerId!==me.payerId ? 'proxy' : 'self'),
+    proxyByUid: p.proxyByUid || (isT() && f.type==='expense' && f.payerId && f.payerId!==me.payerId ? me.uid : null),
     createdAt: p.createdAt || TS(),
     updatedAt: TS(), updatedByName: me.name,
     ...(p.status==='returned'?{lastRevisedBy:me.uid,lastRevisedByName:me.name,lastRevisedAt:TS(),auditStale:true}:{} )
@@ -5711,7 +5717,7 @@ function renderSettings(){
     const linkedPayerIds = new Set(ms.map(m=>m.payerId).filter(Boolean));
     const unlinkedPayers = payers.filter(p=>!linkedPayerIds.has(p.id));
     html += `<h2 class="section-title" id="membersSection" style="margin-top:20px;scroll-margin-top:70px">関係者・権限管理</h2>
-      <p class="hint" style="margin-top:-4px">会計に関わる人をここでまとめて管理します。「役割」はアプリでできること、「立替・仮払」はその人名義で支払申請や精算を行うかを表します。</p>` +
+      <p class="hint" style="margin-top:-4px">会計に関わる人と利用権限を管理します。本人の支払者台帳は承認時または補完操作で紐づけます。代理入力する対象者は伝票登録時に選択します。</p>` +
       ms.map(m=>{
         const pp=m.payerId?payerById(m.payerId):null;
         const roleName=m.role==='pending'?'利用承認待ち':(ROLES[m.role]?.name||m.role);
@@ -5726,9 +5732,8 @@ function renderSettings(){
             <select data-role="${m.id}" ${(m.id===me.uid||m.role==='admin')?'disabled':''}>${Object.entries(ROLES).filter(([k])=>k!=='admin' || m.role==='admin').map(([k,r])=>`<option value="${k}" ${m.role===k?'selected':''}>${k==='pending'?'利用承認待ち':r.name}</option>`).join('')}</select>
           </div>
           ${m.role==='viewer'?`<div style="flex:1;min-width:110px"><label style="font-size:11px;color:var(--ink-soft)">役員区分</label><select data-officertype="${m.id}" title="役員区分"><option value="headquarters" ${(m.officerType||'headquarters')==='headquarters'?'selected':''}>本部役員</option><option value="leader" ${m.officerType==='leader'?'selected':''}>班長</option></select></div>`:''}
-          <div style="flex:1;min-width:150px"><label style="font-size:11px;color:var(--ink-soft)">立替・仮払</label>
-            <select data-link="${m.id}"><option value="">対象外</option>${payers.map(p=>`<option value="${p.id}" ${m.payerId===p.id?'selected':''}>対象：${esc(payerLabel(p.id))}</option>`).join('')}</select>
-          </div>
+          <div style="flex:1;min-width:150px"><label style="font-size:11px;color:var(--ink-soft)">本人の支払者台帳</label><div class="hint" style="margin:5px 0">${m.payerId?`紐づけ済み：${esc(payerLabel(m.payerId))}`:(['auditor','pending'].includes(m.role)?'承認後、必要な役割のみ設定':'未設定')}</div></div>
+          ${!m.payerId && ['treasurer','payer'].includes(m.role) ? `<div style="flex-basis:100%;margin:2px 0 5px"><button class="btn btn-ghost sm" data-fixpayer="${m.id}">支払者IDを補完（既存台帳と照合）</button></div>` : ''}
           <div class="inline-add" style="flex-basis:100%;margin:4px 0 0">
             <select data-mbranch="${m.id}" style="flex:1"></select><select data-mgroup="${m.id}" style="flex:1"></select>
             <button class="btn btn-ghost sm" data-saveaff="${m.id}">所属を保存</button>
@@ -5748,7 +5753,7 @@ function renderSettings(){
        <div class="inline-add"><select id="newPBranch" style="flex:1"></select><select id="newPGroup" style="flex:1"></select></div>
        <div class="inline-add"><input id="newPName" placeholder="氏名"><input id="newPPost" placeholder="役職" list="postList" style="flex:0 0 38%"><button class="btn btn-navy sm" id="addP">追加</button></div>
        <datalist id="postList">${POSTS.map(p=>`<option value="${p}">`).join('')}</datalist>
-       <p class="hint">役割：管理者＝全機能／会計＝会計処理／監査＝監査チェック／役員＝閲覧・会計本人申請の承認／支払者＝自分の申請と精算確認。立替・仮払が「対象」の人は、その人名義で申請・精算できます。</p>`;
+       <p class="hint">役割：管理者・会計は本人の申請と他人の代理入力が可能です。支払者は本人のみ、監査は監査のみです。本人の支払者台帳は必要に応じて紐づけます。</p>`;
 
     const trs = members.filter(m=>m.role==='treasurer');
     html += `<h2 class="section-title" style="margin-top:20px">会費ペイから会費収入を取り込む</h2><div class="form-card">
@@ -6413,6 +6418,48 @@ function bindSettings(){
     await R('payers').push().set({ name, post:$('newPPost').value.trim(), branch, group, active:true, createdAt:TS() });
     $('newPName').value=''; $('newPPost').value=''; document.activeElement.blur(); showToast('関係者を追加しました'); renderSettings();
   };
+  // 既存利用者の支払者ID補完：既存台帳との紐付けは管理者が確認して確定する。
+  q('[data-fixpayer]').forEach(b => b.onclick = async () => {
+    const m=members.find(x=>x.id===b.dataset.fixpayer);
+    if(!m || m.payerId || !['treasurer','payer'].includes(m.role)) return showToast('この利用者は補完対象ではありません');
+    const candidate=payers.filter(p=>!p.uid || p.uid===m.id).filter(p=>!members.some(other=>other.id!==m.id && other.payerId===p.id));
+    const suggested=candidate.filter(p=>p.name && m.name && p.name.replace(/\s/g,'')===m.name.replace(/\s/g,''));
+    const selected='';
+    let pid='';
+    if(selected){
+      const p=payers.find(p=>p.id===selected);
+      if(!p || (p.uid && p.uid!==m.id) || members.some(other=>other.id!==m.id&&other.payerId===selected)) return alert('この台帳は別の利用者に紐づいているため選択できません。');
+      if(!confirm(`「${m.name}」さんを既存の支払者台帳「${p.name}」に紐づけますか？\n氏名・所属・過去の伝票を確認してから確定してください。`)) return;
+      pid=selected;
+    }else{
+      const hint=suggested.length?`\n同名の既存台帳があります：${suggested.map(p=>p.name+'（'+p.id+'）').join('、')}\n同名の台帳があるため、自動作成はできません。管理者が本人確認のうえ既存台帳と紐づけてください。`:'';
+      if(suggested.length){alert('同名の既存支払者台帳があります。誤った二重登録を防ぐため、本人確認が必要です。\n'+suggested.map(p=>p.name+'（'+p.id+'）').join('、'));return;}
+      if(!confirm(`「${m.name}」さんの新しい支払者台帳を作成しますか？${hint}\n既存の精算履歴がある場合はキャンセルして既存台帳を選んでください。`)) return;
+      pid='g_'+m.id;
+    }
+    b.disabled=true;
+    try{
+      const live=await R(`members/${m.id}`).get();
+      if(!live.exists() || live.val().payerId || !['treasurer','payer'].includes(live.val().role)) throw new Error('利用者情報が変更されています。再読み込みしてください。');
+      const ups={};
+      if(selected){
+        const ps=await R(`payers/${pid}`).get();
+        if(!ps.exists() || (ps.val().uid && ps.val().uid!==m.id)) throw new Error('既存台帳の情報が変更されています。');
+        ups[`payers/${pid}/uid`]=m.id;
+      }else{
+        const ps=await R(`payers/${pid}`).get();
+        if(ps.exists()) throw new Error('同じIDの支払者台帳がすでに存在します。既存台帳との照合が必要です。');
+        ups[`payers/${pid}`]={name:m.name||'',post:m.post||'',branch:m.branch||'',group:m.group||'',uid:m.id,email:m.email||'',active:true,order:payers.length,createdAt:TS()};
+      }
+      ups[`members/${m.id}/payerId`]=pid;
+      ups[`members/${m.id}/updatedAt`]=TS();
+      await db.ref(ROOT).update(ups);
+      writeLog('支払者ID補完',null,`${m.name}：${pid}（${selected?'既存台帳':'新規台帳'}）`);
+      showToast(`${m.name}さんの支払者IDを補完しました`);
+      renderSettings();
+    }catch(e){alert('支払者IDの補完に失敗しました：'+(e.message||e));}
+    finally{b.disabled=false;}
+  });
   q('[data-role]').forEach(s => s.onchange = async () => {
     const m = members.find(x=>x.id===s.dataset.role);
     const oldRole = m.role;
@@ -6421,11 +6468,25 @@ function bindSettings(){
     ups[`members/${m.id}/role`] = newRole;
     if (newRole==='viewer' && oldRole!=='viewer') ups[`members/${m.id}/officerType`] = 'headquarters';
     if (oldRole==='viewer' && newRole!=='viewer') ups[`members/${m.id}/officerType`] = null;
-    // 承認待ちから支払者・役員へ承認するとき、支払者台帳も一括作成する。
-    if (oldRole==='pending' && ['payer','viewer'].includes(newRole) && m.requestType!=='report' && !m.payerId) {
-      const pid='g_'+m.id;
-      ups[`members/${m.id}/payerId`] = pid;
-      ups[`payers/${pid}`] = {name:m.name||'',post:m.post||'',branch:m.branch||'',group:m.group||'',uid:m.id,email:m.email||'',active:true,order:999,createdAt:TS()};
+    // 新規承認時は本人台帳を紐づける。既存の同名台帳がある場合は自動作成しない。
+    if(oldRole==='pending' && ['payer','treasurer'].includes(newRole) && !m.payerId){
+      const normalized=x=>String(x||'').replace(/\s/g,'');
+      const candidates=payers.filter(p=>normalized(p.name)===normalized(m.name)&&(!p.uid||p.uid===m.id));
+      if(candidates.length>1){alert('同名の支払者台帳が複数あります。本人確認後に承認してください。');s.value=oldRole;return;}
+      if(candidates.length===1){
+        const p=candidates[0];
+        if(members.some(other=>other.id!==m.id&&other.payerId===p.id)){
+          alert('既存の台帳は別ユーザーと紐づいています。確認してください。');s.value=oldRole;return;
+        }
+        if(!confirm(`「${m.name}」さんの既存台帳「${p.name}」を本人として紐づけますか？\n所属・本人確認を行ってください。`)){s.value=oldRole;return;}
+        ups[`members/${m.id}/payerId`]=p.id;
+        ups[`payers/${p.id}/uid`]=m.id;
+      }else{
+        const pid='g_'+m.id;
+        if(payers.some(p=>p.id===pid)){alert('同じIDの支払者台帳が存在します。確認してください。');s.value=oldRole;return;}
+        ups[`members/${m.id}/payerId`]=pid;
+        ups[`payers/${pid}`]={name:m.name||'',post:m.post||'',branch:m.branch||'',group:m.group||'',uid:m.id,email:m.email||'',active:true,order:payers.length,createdAt:TS()};
+      }
     }
     // 仮登録者を直接、本登録する。支払者・役員は支払者名簿を残し、監査は支払いと切り離す。
     if (m.role==='guest' && m.payerId) {
@@ -6447,12 +6508,6 @@ function bindSettings(){
     await R(`members/${m.id}/officerType`).set(sel.value);
     writeLog('役員区分変更', null, `${m.name}：${sel.value==='leader'?'班長':'本部役員'}`);
     showToast(`${m.name}さんを「${sel.value==='leader'?'班長':'本部役員'}」にしました`);
-  });
-  q('[data-link]').forEach(s => s.onchange = async () => {
-    const m = members.find(x=>x.id===s.dataset.link);
-    await R(`members/${m.id}/payerId`).set(s.value || null);
-    writeLog('立替・仮払設定', null, `${m.name} → ${payerLabel(s.value)||'なし'}`);
-    showToast('立替・仮払の設定を保存しました');
   });
   if($('pubDetail')) $('pubDetail').onchange = () => R('settings/publicDetail').set($('pubDetail').value);
   if($('nEntry')) $('nEntry').onchange = e => R('settings/notifyOnEntry').set(e.target.checked);
