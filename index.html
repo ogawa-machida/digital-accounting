@@ -881,7 +881,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.10.11-188';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.11.01-189';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1479,18 +1479,36 @@ window.addEventListener('online',()=>{ if(uiAutoTestContext) uiAutoTestContext.n
     } finally { btn.disabled = false; }
   };
   // メールのリンクから戻ってきたときにログインを完了する
-  if (auth.isSignInWithEmailLink(location.href)) {
+  // v189: メールアプリがリンクをネストして返す場合にも対応する。
+  // URLの認証パラメータは成功するまで消さず、失敗理由を表示する。
+  const emailLinkCandidates = [location.href];
+  try {
+    const current = new URL(location.href);
+    for (const key of ['link','deep_link_id']) {
+      const nested = current.searchParams.get(key);
+      if (nested && /^https?:\/\//i.test(nested)) emailLinkCandidates.push(nested);
+    }
+    const hash = current.hash.slice(1);
+    if (hash && hash.includes('oobCode=')) {
+      const hashParams = new URLSearchParams(hash.replace(/^\?/, ''));
+      const nested = new URL(current.origin + current.pathname);
+      for (const [k,v] of hashParams) nested.searchParams.set(k,v);
+      emailLinkCandidates.push(nested.toString());
+    }
+  } catch(e) { console.warn('メールリンクURLの解析に失敗', e); }
+  const incomingEmailLink = emailLinkCandidates.find(link => auth.isSignInWithEmailLink(link));
+  if (incomingEmailLink) {
     (async () => {
       let email = lsGet(EMAIL_KEY);
       if (!email) email = prompt('確認のため、ログイン用リンクを受け取ったメールアドレスを入力してください');
-      if (!email) return;
+      if (!email) { $('loginError').textContent='ログインを完了するにはメールアドレスの確認が必要です。'; return; }
       try {
-        await auth.signInWithEmailLink(email.trim(), location.href);
+        await auth.signInWithEmailLink(email.trim(), incomingEmailLink);
         lsSet(EMAIL_KEY, null);
+        const u = new URL(location.href);
+        ['apiKey','oobCode','mode','lang','continueUrl','tenantId','link','deep_link_id'].forEach(k=>u.searchParams.delete(k));
+        history.replaceState(null, '', u.pathname + (u.search || ''));
       } catch(e) { showLoginError(e); }
-      const u = new URL(location.href);
-      ['apiKey','oobCode','mode','lang','continueUrl','tenantId'].forEach(k=>u.searchParams.delete(k));
-      history.replaceState(null, '', u.pathname + (u.search || ''));
     })();
   }
   $('googleLoginBtn').onclick = () => {
@@ -1635,10 +1653,18 @@ async function enterAs(user){
       try { localStorage.setItem('kaikei_reportIntent','1'); sessionStorage.setItem('kaikei_reportIntent','1'); } catch(e){}
       snap = await mref.get();
     }
-    const initSnap = await R('settings/initialized').get();
+    // v189: 未登録ユーザーには settings の読取権限がない。初回登録画面の前に
+    // settings を読んで permission_denied で停止しないようにする。
+    // 初期セットアップは管理者による明示操作が必要なため、権限エラーを初期化扱いしない。
+    let initialized = true;
+    try { initialized = !!(await R('settings/initialized').get()).val(); }
+    catch (e) {
+      if (e.code !== 'PERMISSION_DENIED' && e.code !== 'permission_denied') throw e;
+      initialized = true; // 未登録ユーザーは申請画面へ。勝手に会計権限を与えない
+    }
     if (snap.exists()) {
       // 会員向け会計報告の閲覧申請は、メール本人確認後にここで登録済み。
-    } else if (!initSnap.val()) {
+    } else if (!initialized) {
       if (!confirm('この会計簿はまだ使われていません。あなたを「会計」担当として初期設定を行いますか？')) { auth.signOut(); return; }
       await mref.set({ name:user.displayName||'会計', email:user.email||'', role:'treasurer', createdAt:TS() });
       await seedDefaults();
