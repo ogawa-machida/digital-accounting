@@ -884,7 +884,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.11.01-199';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.11.01-200';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -2871,13 +2871,16 @@ async function runAi(dataUrls){
     if (r.payee) $('fPayee').value = r.payee;
     if (r.amount) $('fAmount').value = r.amount;
     if (r.items && !$('fMemo').value) $('fMemo').value = r.items;
-    if (r.purpose && !$('fPurpose').value) $('fPurpose').value = r.purpose;
+    if (r.purpose) $('fPurpose').value = r.purpose;
     formAddressee = r.addressee || '';
-    if (r.accountId && !formAccount) { formAccount = r.accountId; renderAccountPicker(); }
+    if (r.accountId) { formAccount = r.accountId; renderAccountPicker(); }
     if (formType==='expense' && !formMethod) {
       const mid = suggestMethod(r.payMethod, isP() || !!$('fPayer').value);
       if (mid) { formMethod = mid; renderMethodPicker(); renderPayerSelect(); }
     }
+    // 再読取時は古いAI判定を基準にしない。最新の読取を画面に反映した状態を基準にする。
+    // その後ユーザーが手動変更した項目のみ差分確認する。
+    formAiReceiptOriginal = {...formAiReceiptOriginal, ...currentAiComparable(), readAt:TS()};
     alertReceiptFY(r.date);
     const warn = addresseeWarning(formAddressee);
     showToast(warn ? `読み取りました。${warn}` : '読み取りました。内容を確認してから保存してください');
@@ -3082,7 +3085,7 @@ async function persistEntry(prev, f, photos, photosChanged){
     updatedAt: TS(), updatedByName: me.name,
     ...(p.status==='returned'?{lastRevisedBy:me.uid,lastRevisedByName:me.name,lastRevisedAt:TS(),auditStale:true}:{} )
   };
-  const aiOrig = (p.aiReceiptOriginal && typeof p.aiReceiptOriginal==='object') ? p.aiReceiptOriginal : ((f.aiReceiptOriginal && typeof f.aiReceiptOriginal==='object') ? f.aiReceiptOriginal : null);
+  const aiOrig = (f.aiReceiptOriginal && typeof f.aiReceiptOriginal==='object') ? f.aiReceiptOriginal : ((p.aiReceiptOriginal && typeof p.aiReceiptOriginal==='object') ? p.aiReceiptOriginal : null);
   if (aiOrig) {
     data.aiReceiptOriginal = aiOrig;
     const aiFields=['date','amount','payee','purpose','accountId','addressee'];
@@ -3146,7 +3149,7 @@ $('formSaveBtn').onclick = async () => {
   if (formType==='expense' && !noReceipt && !formPhotos.length && !confirm('領収書類の写真がありません。このまま保存しますか？')) return;
   if (editing && editing.settleState==='settled' && Number(editing.amount)!==amount) return showToast('精算済みの伝票は金額を変更できません。先に精算を取り消してください');
 
-  const aiOriginalForSubmit = (editing && editing.aiReceiptOriginal) || formAiReceiptOriginal;
+  const aiOriginalForSubmit = formAiReceiptOriginal || (editing && editing.aiReceiptOriginal);
   const aiSubmitDiffs = aiDiffFrom(aiOriginalForSubmit, currentAiComparable());
   if (aiSubmitDiffs.length) {
     const confirmed = await confirmAiDifferences(aiSubmitDiffs);
