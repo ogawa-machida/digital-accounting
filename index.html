@@ -884,7 +884,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.11.01-202';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.11.01-203';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -3356,8 +3356,42 @@ async function rejectGuest(e){
   showToast('利用停止にしました');
 }
 
+/* v203: 会計承認前に科目を明示確認。AI差分確認とは独立して必ず表示する。 */
+function confirmApprovalDetails(e){
+ return new Promise(resolve=>{
+  const account=accById(e.accountId), method=methodById(e.methodId);
+  const ov=document.createElement('div');ov.className='ai-confirm-overlay';
+  ov.innerHTML=`<div class="ai-confirm-box" role="dialog" aria-modal="true" aria-label="支出伝票の承認確認">
+    <h2 style="margin:0 0 8px">承認前の最終確認</h2>
+    <p class="hint" style="margin:0 0 12px">特に会計科目と領収書を確認してください。誤りがある場合は「戻って修正」を選択してください。</p>
+    <dl class="kv"><dt>伝票番号</dt><dd>${esc(e.voucherNo||'－')}</dd>
+    <dt>支払日</dt><dd>${esc(fmtDateFull(e.date))}</dd>
+    <dt>支払先</dt><dd>${esc(e.payee||'－')}</dd>
+    <dt>用途</dt><dd>${esc(e.purpose||'－')}</dd>
+    <dt>金額</dt><dd><b>${yen(e.amount)}</b></dd>
+    <dt>支払方法</dt><dd>${esc(method?.name||'未設定')}</dd>
+    <dt>領収書</dt><dd>${e.photoCount?esc(String(e.photoCount))+'枚':e.noReceipt?'なし（'+esc(e.noReceiptReason||'理由未入力')+'）':'未添付'}</dd></dl>
+    <div style="padding:12px;border:2px solid var(--amber);border-radius:10px;margin:12px 0;background:var(--tint)">
+      <div style="font-weight:800;margin-bottom:6px">会計科目（必ず確認）</div>
+      <div style="font-size:19px;font-weight:800">${esc(account?.name||'未設定')}</div>
+      ${!account?'<p style="color:var(--stamp-red)">科目が見つからないため承認できません。</p>':''}
+      <label style="display:flex;gap:9px;align-items:center;margin-top:12px;cursor:pointer"><input type="checkbox" id="approvalAccountChecked"> この会計科目で正しいことを確認しました</label>
+    </div>
+    <div class="btn-row"><button class="btn btn-ghost" id="approvalDetailBack">戻って修正</button><button class="btn btn-moss" id="approvalDetailOk" disabled>確認して承認へ</button></div>
+  </div>`;
+  document.body.appendChild(ov);
+  const done=v=>{document.removeEventListener('keydown',onKey);ov.remove();resolve(v)};
+  const onKey=ev=>{if(ev.key==='Escape')done(false)};
+  document.addEventListener('keydown',onKey);
+  const check=ov.querySelector('#approvalAccountChecked'),ok=ov.querySelector('#approvalDetailOk');
+  check.onchange=()=>{ok.disabled=!check.checked||!account};
+  ov.querySelector('#approvalDetailBack').onclick=()=>done(false);
+  ok.onclick=()=>{if(check.checked&&account)done(true)};
+ });
+}
 async function approveEntry(e, guestTarget, guestRole){
   if (e.createdBy===me.uid || e.lastRevisedBy===me.uid) return showToast('登録・修正した本人は承認できません。別の会計担当者へ依頼してください');
+  if (!(await confirmApprovalDetails(e))) return;
   if (!(await confirmApprovalAi(e))) return;
   const pv = payerById(e.payerId);
   if (pv && pv.provisional) {
@@ -4960,7 +4994,11 @@ async function renderAdmin(){
       await waitFor(()=>$('detailScreen')?.classList.contains('active') && $('dApprove'),12000);
       add('会計承認画面を開く','ok','会計テスト役割で承認ボタンを表示');
       $('dApprove').click();
-      // AI差分がある伝票は承認確認ダイアログが出る。総合テスト中だけ実ボタンを自動押下する。
+      // v203: 承認前の科目確認とAI差分確認をテスト時も実際の画面操作で確認する。
+      await waitFor(()=>document.getElementById('approvalAccountChecked'),3000);
+      const accountCheck=document.getElementById('approvalAccountChecked');
+      accountCheck.click();
+      document.getElementById('approvalDetailOk').click();
       await sleep(80);
       const aiApprovalOk=document.getElementById('aiApprovalOk');
       if(aiApprovalOk) aiApprovalOk.click();
