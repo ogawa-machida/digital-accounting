@@ -881,7 +881,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.11.01-190';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.11.01-191';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1597,7 +1597,7 @@ function showJoinForm(user, mref){
         }
         try { localStorage.removeItem('kaikei_reportIntent'); sessionStorage.removeItem('kaikei_reportIntent'); } catch(e){}
         resolve();
-      } catch(e) { console.error(e); $('jErr').textContent='登録できませんでした：'+(e.message||e); btn.disabled=false; btn.textContent='申請する'; }
+      } catch(e) { console.error(e); $('jErr').textContent='利用申請の保存に失敗しました（members/'+user.uid+'）：'+(e.code||e.message||e); btn.disabled=false; btn.textContent='申請する'; }
     };
   });
 }
@@ -1618,7 +1618,9 @@ function ensureAffiliation(user, mref, member){
 
 async function enterAs(user){
   const mref = R(`members/${user.uid}`);
-  let snap = await mref.get();
+  let snap;
+  try { snap = await mref.get(); }
+  catch(e) { e.message = '本人の利用者情報（members/'+user.uid+'）の読み取りに失敗：'+(e.message||e); throw e; }
   let reportDraft=null;
   try { reportDraft=JSON.parse(localStorage.getItem(REPORT_DRAFT_KEY)||'null'); } catch(e){}
 
@@ -1650,30 +1652,16 @@ async function enterAs(user){
     if (reportDraft && reportDraft.email && user.email && reportDraft.email.toLowerCase()===user.email.toLowerCase() && validAffiliation(reportDraft.branch,reportDraft.group)) {
       // 新規利用者は自動登録せず、個人情報の取扱い確認を含む利用申請画面へ進める。
       try { localStorage.setItem('kaikei_reportIntent','1'); sessionStorage.setItem('kaikei_reportIntent','1'); } catch(e){}
-      snap = await mref.get();
     }
-    // v189: 未登録ユーザーには settings の読取権限がない。初回登録画面の前に
-    // settings を読んで permission_denied で停止しないようにする。
-    // 初期セットアップは管理者による明示操作が必要なため、権限エラーを初期化扱いしない。
-    let initialized = true;
-    try { initialized = !!(await R('settings/initialized').get()).val(); }
-    catch (e) {
-      if (e.code !== 'PERMISSION_DENIED' && e.code !== 'permission_denied') throw e;
-      initialized = true; // 未登録ユーザーは申請画面へ。勝手に会計権限を与えない
-    }
-    if (snap.exists()) {
-      // 会員向け会計報告の閲覧申請は、メール本人確認後にここで登録済み。
-    } else if (!initialized) {
-      if (!confirm('この会計簿はまだ使われていません。あなたを「会計」担当として初期設定を行いますか？')) { auth.signOut(); return; }
-      await mref.set({ name:user.displayName||'会計', email:user.email||'', role:'treasurer', createdAt:TS() });
-      await seedDefaults();
-    } else {
-      await showJoinForm(user, mref);
-    }
+    // Ver.191: 未登録者が閲覧できるのは本人の members/{uid} のみ。
+    // settings/initialized の読み取りや初期会計権限の自己付与を行わず、
+    // 必ず利用申請（pending）へ進める。既存会計データ・他ユーザーにはアクセスしない。
+    await showJoinForm(user, mref);
   } else if (snap.val().role==='pending' && !snap.val().requestType) {
     // 旧版の承認待ちは申請を維持し、会計担当の判断を待つ（再申請で上書きしない）。
   }
-  snap = await mref.get();
+  try { snap = await mref.get(); }
+  catch(e) { e.message = '利用申請後の本人情報（members/'+user.uid+'）の確認に失敗：'+(e.message||e); throw e; }
   if (snap.exists() && !['pending','removed'].includes(snap.val().role)) await ensureAffiliation(user, mref, snap.val());
   // 自分の権限の変化をリアルタイムで反映
   const h = mref.on('value', s => {
