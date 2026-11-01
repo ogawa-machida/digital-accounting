@@ -884,7 +884,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.11.01-204';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.11.01-205';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -4993,13 +4993,29 @@ async function renderAdmin(){
       markStage('会計承認画面'); await showScreen('detailScreen');
       await waitFor(()=>$('detailScreen')?.classList.contains('active') && $('dApprove'),12000);
       add('会計承認画面を開く','ok','会計テスト役割で承認ボタンを表示');
+      // v205: 仮想ロール切替ではFirebase AuthのUIDは切り替わらない。
+      // 申請者と承認者が同じ実UIDなら、自己承認ガードが先に発動する。
+      // その場合、承認ポップアップ自体を独立して検証し、自己承認を偽装しない。
+      if(approvalEntry.createdBy===auth.currentUser.uid || approvalEntry.lastRevisedBy===auth.currentUser.uid){
+        markStage('承認確認ポップアップ（独立検証）');
+        const modalPromise=confirmApprovalDetails({id:entryId,...approvalEntry});
+        await waitFor(()=>document.getElementById('approvalAccountChecked'),5000);
+        const accountCheck=document.getElementById('approvalAccountChecked');
+        const modalOk=document.getElementById('approvalDetailOk');
+        add('会計科目確認前は承認不可',modalOk.disabled?'ok':'fail','確認チェック前のボタン無効を検証');
+        accountCheck.click();
+        add('会計科目確認後は進行可能',!modalOk.disabled?'ok':'fail','チェック操作でボタン有効を検証');
+        modalOk.click();
+        add('承認確認ポップアップの完了',(await modalPromise)===true?'ok':'fail','会計科目の明示確認を完了');
+        // 実UIDが同じ状態では本番ルール上承認不可。診断用の例外権限は設けない。
+        throw new Error('承認確認UIは正常です。ただしテスト申請者と承認者が同じFirebase認証UIDのため、自己承認禁止により実承認は実行できません。別のテスト用ログインアカウントで申請・承認を分ける必要があります。');
+      }
       $('dApprove').click();
-      // v203: 承認前の科目確認とAI差分確認をテスト時も実際の画面操作で確認する。
-      await waitFor(()=>document.getElementById('approvalAccountChecked'),3000);
+      await waitFor(()=>document.getElementById('approvalAccountChecked'),5000);
       const accountCheck=document.getElementById('approvalAccountChecked');
       accountCheck.click();
       document.getElementById('approvalDetailOk').click();
-      await sleep(80);
+      await waitFor(()=>document.getElementById('aiApprovalOk') || !document.querySelector('.ai-confirm-overlay'),5000);
       const aiApprovalOk=document.getElementById('aiApprovalOk');
       if(aiApprovalOk) aiApprovalOk.click();
       await waitFor(async()=>{const x=await R(`entries/${entryId}/status`).get();return x.val()==='approved';},8000);
