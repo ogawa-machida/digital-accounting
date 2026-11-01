@@ -655,7 +655,7 @@ label[for="newMSettle"]{display:flex;align-items:center;justify-content:flex-sta
     <h1 style="font-size:20px;">利用申請</h1>
     <p>自治会員であることを確認するため、所属とお名前を登録してください。会計報告の閲覧は会計担当の承認後に利用できます。</p>
     <div class="form-card" style="width:100%;max-width:380px;text-align:left">
-      <div class="field"><label>利用目的</label><select id="jPurpose"><option value="report" selected>会計報告を閲覧する</option><option value="payer">支払い申請・精算も利用する</option></select></div>
+      <div class="field"><label>利用目的</label><select id="jPurpose"><option value="payer" selected>支払い申請・精算</option><option value="report">会計報告の閲覧</option><option value="treasurer">会計業務</option><option value="auditor">監査業務</option></select></div>
       <div class="field" id="jBranchField"><label>支部</label><select id="jBranch"></select></div>
       <div class="field" id="jGroupField"><label>班</label><select id="jGroup"></select></div>
       <div class="field"><label>お名前</label><input type="text" id="jName" placeholder="例）山田 花子"></div>
@@ -881,7 +881,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.11.01-191';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.11.01-192';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1589,12 +1589,11 @@ function showJoinForm(user, mref){
       const privacyConsentAt=TS(), privacyConsentVersion='2026-10-04-v3';
       const btn=$('jSubmit'); btn.disabled=true; btn.textContent='申請中…';
       try {
-        if (purpose==='report') {
-          await mref.set({name,email:user.email||'',post,branch,group,role:'pending',requestType:'report',privacyConsentAt,privacyConsentVersion,createdAt:TS()});
-        } else {
-          // 初回申請では権限を付与しない。会計担当の承認後に payer を作成する。
-          await mref.set({name,email:user.email||'',post,branch,group,role:'pending',requestType:'payer',privacyConsentAt,privacyConsentVersion,createdAt:TS()});
-        }
+        // DB rules allow only requestType=report/payer on self-registration.
+        // Store the precise requested purpose separately; this never grants privileges.
+        if (!['payer','report','treasurer','auditor'].includes(purpose)) throw new Error('利用目的を選択してください');
+        const requestType = purpose==='payer' ? 'payer' : 'report';
+        await mref.set({name,email:user.email||'',post,branch,group,role:'pending',requestType,requestedRole:purpose,privacyConsentAt,privacyConsentVersion,createdAt:TS()});
         try { localStorage.removeItem('kaikei_reportIntent'); sessionStorage.removeItem('kaikei_reportIntent'); } catch(e){}
         resolve();
       } catch(e) { console.error(e); $('jErr').textContent='利用申請の保存に失敗しました（members/'+user.uid+'）：'+(e.code||e.message||e); btn.disabled=false; btn.textContent='申請する'; }
@@ -1653,7 +1652,7 @@ async function enterAs(user){
       // 新規利用者は自動登録せず、個人情報の取扱い確認を含む利用申請画面へ進める。
       try { localStorage.setItem('kaikei_reportIntent','1'); sessionStorage.setItem('kaikei_reportIntent','1'); } catch(e){}
     }
-    // Ver.191: 未登録者が閲覧できるのは本人の members/{uid} のみ。
+    // Ver.192: 未登録者が閲覧できるのは本人の members/{uid} のみ。
     // settings/initialized の読み取りや初期会計権限の自己付与を行わず、
     // 必ず利用申請（pending）へ進める。既存会計データ・他ユーザーにはアクセスしない。
     await showJoinForm(user, mref);
@@ -1675,7 +1674,7 @@ async function enterAs(user){
       detachData(); hideAllRoots();
       $('pendingText').innerHTML = v.role==='removed'
         ? 'このアカウントは利用停止中です。会計担当にお問い合わせください。'
-        : `${esc(v.name)} さん（${esc(v.branch||'')} ${esc(v.group||'')}）の${v.requestType==='report'?'会計報告の閲覧':'利用'}申請を受け付けました。<br>会計担当が承認すると自動で画面が切り替わります。`;
+        : `${esc(v.name)} さん（${esc(v.branch||'')} ${esc(v.group||'')}）の${v.requestedRole==='treasurer'?'会計業務':v.requestedRole==='auditor'?'監査業務':v.requestedRole==='payer'?'支払い申請・精算':v.requestType==='report'?'会計報告の閲覧':'利用'}申請を受け付けました。<br>会計担当が承認すると自動で画面が切り替わります。`;
       $('pendingScreen').style.display='block';
       return;
     }
@@ -5722,7 +5721,7 @@ function renderSettings(){
             ? '<span class="stamp-tag" style="border-color:var(--amber);color:var(--amber)">仮登録</span>'
             : '<span class="stamp-tag" style="border-color:var(--moss);color:var(--moss)">利用中</span>';
         return `<div class="cat-row" style="flex-wrap:wrap;${m.role==='pending'||m.role==='guest'?'border-color:var(--amber)':''}">
-          <span class="cname" style="flex-basis:100%;font-size:14px">${esc(m.name)} ${status}<small>${esc(m.email)}${m.branch?`・${esc(m.branch)} ${esc(m.group||'')}`:''}${m.requestType==='report'?'・会計報告の閲覧申請':''}${m.id===me.uid?'（あなた）':''}</small></span>
+          <span class="cname" style="flex-basis:100%;font-size:14px">${esc(m.name)} ${status}<small>${esc(m.email)}${m.branch?`・${esc(m.branch)} ${esc(m.group||'')}`:''}${m.requestedRole==='treasurer'?'・会計業務の申請':m.requestedRole==='auditor'?'・監査業務の申請':m.requestedRole==='payer'?'・支払い申請・精算の申請':m.requestType==='report'?'・会計報告の閲覧申請':''}${m.id===me.uid?'（あなた）':''}</small></span>
           <div style="flex:1;min-width:130px"><label style="font-size:11px;color:var(--ink-soft)">役割</label>
             <select data-role="${m.id}" ${(m.id===me.uid||m.role==='admin')?'disabled':''}>${Object.entries(ROLES).filter(([k])=>k!=='admin' || m.role==='admin').map(([k,r])=>`<option value="${k}" ${m.role===k?'selected':''}>${k==='pending'?'利用承認待ち':r.name}</option>`).join('')}</select>
           </div>
