@@ -884,7 +884,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.11.01-203';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.11.01-204';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -3105,7 +3105,7 @@ async function persistEntry(prev, f, photos, photosChanged){
     }
   }
   if(isTestMode()){ data.testMode=true; data.testRole=testProfile; data.testActor=realMe?.name||''; }
-  if(uiAutoTestContext){ data.testMode=true; data.testRole='ui-auto'; data.testActor=realMe?.name||me.name||''; data.testOwnerUid=auth.currentUser?.uid||''; data.diagnosticRunId=uiAutoTestContext.runId; }
+  if(uiAutoTestContext){ data.testMode=true; data.testRole='ui-auto'; data.testActor=realMe?.name||me.name||''; data.testOwnerUid=auth.currentUser?.uid||''; data.diagnosticRunId=uiAutoTestContext.runId; /* Firebaseの認証UIDと仮想ロールUIDを混同しない */ if(!prev){ data.createdBy=auth.currentUser.uid; data.createdByName=realMe?.name||me.name; data.entryType='self'; data.proxyByUid=null; } }
 
   delete data.id; delete data._via;
   try { await ref.set(data); } catch(err) { throw new Error('伝票本体の保存：'+(err?.code||err?.message||err)); }
