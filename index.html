@@ -884,7 +884,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.11.02-208';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.11.03-211';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -1753,18 +1753,63 @@ async function seedDefaults(){
   ups['settings'] = { initialized:true, orgName:'小川自治会', fiscalStartMonth:3, publicDetail:'items', opening:{ [STANDARD_FY]: STANDARD_OPENING }, createdAt:TS() };
   STANDARD_ACCOUNTS.forEach(x => { ups[`accounts/${R('accounts').push().key}`] = { ...standardAccountData(x), budget:{ [STANDARD_FY]: x.budget } }; });
   const ms = [
-    {name:'町内会口座から振込', use:'expense', settle:false},
-    {name:'会計の手元現金', use:'expense', settle:false},
-    {name:'町内会名義のカード・QR', use:'expense', settle:false},
-    {name:'立替（現金）', use:'expense', settle:true},
-    {name:'立替（個人のクレジットカード）', use:'expense', settle:true},
-    {name:'立替（個人のQRコード決済）', use:'expense', settle:true},
+    {name:'個人立替', use:'expense', settle:true},
+    {name:'自治会現金', use:'expense', settle:false},
+    {name:'自治会口座振込', use:'expense', settle:false},
     {name:'仮払金から支払', use:'expense', settle:true},
+    {name:'その他', use:'expense', settle:false},
     {name:'現金で受取', use:'income', settle:false},
     {name:'口座に入金', use:'income', settle:false}
   ];
   ms.forEach((m,i)=>{ ups[`methods/${R('methods').push().key}`] = {...m, active:true, order:i}; });
   await db.ref(ROOT).update(ups);
+}
+
+/* v211: 既存の支払方法を安全に移行する。旧IDを削除しないことで過去伝票の表示を保護。 */
+const EXPENSE_METHODS_211 = [
+  {name:'個人立替',settle:true},
+  {name:'自治会現金',settle:false},
+  {name:'自治会口座振込',settle:false},
+  {name:'仮払金から支払',settle:true},
+  {name:'その他',settle:false}
+];
+let migratingMethods211=false;
+async function migrateMethods211(){
+  if(migratingMethods211 || !isAdmin())return;
+  const current=methods.filter(m=>m.use==='expense'||m.use==='both');
+  const isTarget=EXPENSE_METHODS_211.every((x,i)=>current.some(m=>m.name===x.name&&m.active&&m.order===i&&!!m.settle===x.settle));
+  const hasLegacy=current.some(m=>m.active&&!EXPENSE_METHODS_211.some(x=>x.name===m.name));
+  if(isTarget&&!hasLegacy)return;
+  migratingMethods211=true;
+  try{
+    const snap=await R('methods').get();
+    const records=snap.val()||{};
+    const updates={};
+    const existing=Object.entries(records);
+    for(const [id,m] of existing){
+      if(m.use==='income')continue;
+      const idx=EXPENSE_METHODS_211.findIndex(x=>x.name===m.name);
+      if(idx>=0){
+        updates[`${id}/active`]=true;
+        updates[`${id}/order`]=idx;
+        updates[`${id}/settle`]=EXPENSE_METHODS_211[idx].settle;
+        updates[`${id}/use`]='expense';
+      }else{
+        updates[`${id}/active`]=false;
+        updates[`${id}/order`]=100+(Number(m.order)||0);
+      }
+    }
+    for(let i=0;i<EXPENSE_METHODS_211.length;i++){
+      const x=EXPENSE_METHODS_211[i];
+      if(!existing.some(([,m])=>m.name===x.name)){
+        const id=R('methods').push().key;
+        updates[id]={name:x.name,use:'expense',settle:x.settle,active:true,order:i};
+      }
+    }
+    // 収入の選択肢は従来どおり維持する。
+    if(Object.keys(updates).length)await R('methods').update(updates);
+  }catch(err){console.error('支払方法の移行に失敗しました',err);showToast('支払方法の更新に失敗しました。管理者権限と通信状態をご確認ください');}
+  finally{migratingMethods211=false;}
 }
 
 /* ---------- データ購読 ---------- */
@@ -1786,7 +1831,13 @@ function attachData(){
     if(isRealAdmin() && !isTestMode()) setTimeout(maybeAutoBackup,500);
   });
   onData(R('accounts'), s => { accounts = toArr(s.val()).sort((a,b)=>(a.order||0)-(b.order||0)); renderAll(); });
-  onData(R('methods'),  s => { methods  = toArr(s.val()).sort((a,b)=>(a.order||0)-(b.order||0)); renderAll(); });
+  onData(R('methods'), s => {
+    methods=toArr(s.val()).sort((a,b)=>(a.order??0)-(b.order??0));
+    renderAll();
+    // 既存団体では管理者のログイン時に一度だけ新しい選択肢へ移行。
+    // 過去伝票のmethodIdは変更せず、旧項目は停止扱いで保持する。
+    if(isAdmin()) migrateMethods211();
+  });
   if (me.role==='guest') onData(R(`payers/${me.payerId}`), s => { payers = s.val() ? [{ id:me.payerId, ...s.val() }] : []; renderAll(); });
   else onData(R('payers'),   s => { payers   = toArr(s.val()).sort((a,b)=>(a.order||0)-(b.order||0) || (a.name||'').localeCompare(b.name||'','ja')); renderAll(); });
   onData(R('storageTags'), s => { storageTags = toArr(s.val()).map(t=>t.name).sort((a,b)=>a.localeCompare(b,'ja')); });
@@ -2841,20 +2892,15 @@ async function recognizeReceipt(dataUrls, type){
 
 /* 読み取った支払手段から、登録済みの支払方法を推定する */
 function suggestMethod(payMethod, withPayer){
-  const act = methods.filter(m=>m.active && m.use!=='income');
-  const find = (settle, ...kws) => act.find(m => !!m.settle===settle && kws.some(k=>m.name.includes(k)));
-  let m = null;
-  if (withPayer) {
-    if (payMethod==='credit') m = find(true,'クレジット','カード');
-    else if (payMethod==='qr' || payMethod==='emoney') m = find(true,'QR','電子');
-    else if (payMethod==='transfer') m = find(true,'振込');
-    m = m || find(true,'現金') || act.find(x=>x.settle);
-  } else {
-    if (payMethod==='transfer') m = find(false,'振込','口座');
-    else if (payMethod==='credit' || payMethod==='qr' || payMethod==='emoney') m = find(false,'カード','QR','名義');
-    else if (payMethod==='cash') m = find(false,'現金');
-  }
-  return m ? m.id : '';
+  const act=methods.filter(m=>m.active&&m.use!=='income');
+  const named=name=>act.find(m=>m.name===name);
+  // 決済手段（現金・カード・QR）と資金の出どころは別。
+  // 支払者がいる場合は個人立替を優先し、仮払は利用者が明示選択する。
+  if(withPayer)return (named('個人立替')||act.find(m=>m.settle))?.id||'';
+  if(payMethod==='transfer')return (named('自治会口座振込')||act.find(m=>!m.settle&&/振込|口座/.test(m.name)))?.id||'';
+  if(payMethod==='cash')return (named('自治会現金')||act.find(m=>!m.settle&&/現金/.test(m.name)))?.id||'';
+  // カード・QR等は自治会資金か個人資金か特定できないため自動選択しない。
+  return '';
 }
 
 $('aiReadBtn').onclick = () => { if (formPhotos[0]) runAi(formPhotos); };
@@ -3047,6 +3093,29 @@ function addresseeWarning(a){
   return '';
 }
 
+/* v210: 保存前の二重伝票確認（通常申請・PDF分割・AIまとめて読み込み共通）。
+   同額の別取引はあり得るため警告のみ。本人の修正伝票は除外する。 */
+function dup210Norm(v){return String(v??'').normalize('NFKC').toLowerCase().replace(/[\s\u3000\-ー・.,，．\/\\()（）]/g,'').trim();}
+function dup210Candidates(f, prev, extra=[]){
+  const all=[...Object.values(fyMap||{}),...Object.values(pendingMap||{}),...Object.values(mineMap||{}),...extra];
+  const unique=new Map();
+  all.forEach(e=>{if(e&&e.id&&!unique.has(e.id))unique.set(e.id,e)});
+  return [...unique.values()].filter(e=>{
+    if(e.id===prev?.id||e.type!==f.type||e.date!==f.date||Math.round(Number(e.amount)||0)!==Math.round(Number(f.amount)||0))return false;
+    if(e.testMode&&!uiAutoTestContext)return false;
+    return dup210Norm(e.payee)===dup210Norm(f.payee) || (!dup210Norm(e.payee)&&!dup210Norm(f.payee));
+  }).map(e=>({...e,dup210Strong:dup210Norm(e.purpose)===dup210Norm(f.purpose)&&!!dup210Norm(f.purpose)}))
+    .sort((a,b)=>Number(b.dup210Strong)-Number(a.dup210Strong)).slice(0,5);
+}
+function dup210Confirm(f,prev,extra=[]){
+  if(uiAutoTestContext)return true; // 実画面テストは別の診断データで検証する
+  const matches=dup210Candidates(f,prev,extra);
+  if(!matches.length)return true;
+  const strong=matches.some(e=>e.dup210Strong);
+  const lines=matches.map(e=>`${e.dup210Strong?'【強い一致】':'【候補】'} ${e.voucherNo||e.id||'番号なし'}  ${e.date}  ${yen(e.amount)}  ${e.payee||'支払先なし'}  ${e.purpose||''}`);
+  return confirm(`${strong?'⚠ 同じ内容の伝票が登録済みの可能性があります。':'⚠ 日付・金額・支払先が一致する伝票があります。'}\n\n${lines.join('\n')}\n\nキャンセル：登録を中止して伝票一覧で確認\nOK：別の取引であることを確認し、このまま登録`);
+}
+
 /* ---------- 保存 ---------- */
 $('formCancelBtn').onclick = () => { metricCancel(); editing ? openDetail(editing.id) : showScreen('homeScreen'); };
 /* 伝票を1件保存する（フォームとまとめて読み込みで共通） */
@@ -3054,6 +3123,7 @@ async function persistEntry(prev, f, photos, photosChanged){
   if(prev && prev.status==='returned' && !(prev.createdBy===me.uid || isT()))throw new Error('差戻し伝票の修正権限がありません');
   if(prev && prev.status==='returned' && prev.settleState==='settled')throw new Error('精算済み伝票は修正できません');
   if(f.type==='expense' && !isT() && f.payerId!==me.payerId) throw new Error('本人以外の立替・仮払は会計担当・管理者のみ入力できます');
+  if(!dup210Confirm(f,prev))throw new Error('重複候補の確認により保存を中止しました');
   const m = methodById(f.methodId);
   const fy = fyOf(f.date);
   if(!ensureFYOpen(fy)) throw new Error(`${fy}年度は決算確定済みです`);
@@ -4406,6 +4476,11 @@ async function renderAdmin(){
       <div class="form-card" style="margin-top:12px;background:var(--tint)"><div style="font-weight:700;font-size:16px">総合実画面テスト</div>
         <p class="hint">アプリ更新後はこちらです。主要業務を実際の画面イベントで一括確認し、診断データは最後に自動撤去します。</p>
         <button class="btn btn-navy full" id="diagUIRun">総合実画面テストを実行</button>
+        <div class="form-card" style="margin-top:14px;background:#fff">
+          <div style="font-weight:800;font-size:16px">実アカウント間テスト（別UID・手動検証）</div>
+          <p class="hint">107項目のワンタップテストとは別です。別ブラウザで別のFirebaseアカウントにログインし、通常の申請・承認・監査・精算を実際に操作してください。<b>この画面のチェックだけでFirebase権限の正常性が自動証明されるわけではありません。</b></p>
+          <div id="crossUidTestPanel"></div>
+        </div>
         <div id="diagSessionStatus" class="hint" style="margin-top:12px"></div>
         <button class="btn btn-ghost full" id="diagCleanup" style="margin-top:8px">中断したテストを確認・清掃</button><div id="diagCleanupResult" style="margin-top:8px"></div>
         <details style="margin-top:12px"><summary>総合実画面テストの対象範囲</summary><div class="hint" style="margin-top:8px">
@@ -5536,6 +5611,48 @@ async function renderAdmin(){
   if($('diagRun'))$('diagRun').onclick=runSystemDiagnostics;
   if($('diagUIRun'))$('diagUIRun').onclick=()=>runUIScreenTest();
 
+  // v209: 実アカウント間の検証ガイド。認証の成り代わりや自己承認は行わない。
+  // 端末内の手動検証記録であり、Firebase Rulesの自動検証結果とは区別する。
+  const crossKey='rakutto_cross_uid_test_v209';
+  const crossSteps=[
+    ['申請','申請者アカウントで診断用伝票を登録し、申請者UIDと伝票番号を控える'],
+    ['承認','別の会計担当アカウント（別UID）で会計科目・領収書を確認して承認する'],
+    ['自己承認拒否','申請者アカウントでは自分の伝票を承認できないことを確認する'],
+    ['監査','監査権限のアカウントで必要な監査操作を確認する（監査の運用対象の場合）'],
+    ['精算','適切な権限のアカウントで精算処理と履歴を確認する'],
+    ['清掃','診断伝票の処理・削除と集計への影響がないことを確認する']
+  ];
+  const crossLoad=()=>{try{return JSON.parse(localStorage.getItem(crossKey)||'{}')}catch(_){return {}}};
+  const crossSave=v=>localStorage.setItem(crossKey,JSON.stringify(v));
+  function renderCrossUidPanel(){
+    const el=$('crossUidTestPanel');if(!el)return;
+    const v=crossLoad(), checks=v.checks||{}, done=crossSteps.filter((_,i)=>checks[i]).length;
+    const complete=done===crossSteps.length && !!v.applicant && !!v.approver && v.applicant!==v.approver && !!v.voucher;
+    el.innerHTML=`
+      <div class="hint" style="margin:8px 0"><b>状態：${complete?'手動確認済み（実Firebase自動検証ではありません）':`${done}/${crossSteps.length} 手動確認・未完了`}</b></div>
+      <label class="hint">申請者のFirebase UID（メールアドレスではありません）</label>
+      <input id="crossApplicant" class="input" style="width:100%;margin:5px 0 10px" value="${esc(v.applicant||'')}" placeholder="申請者UIDを入力">
+      <label class="hint">承認者のFirebase UID（申請者と異なるUID）</label>
+      <input id="crossApprover" class="input" style="width:100%;margin:5px 0 10px" value="${esc(v.approver||'')}" placeholder="承認者UIDを入力">
+      <label class="hint">テスト伝票番号／ID</label>
+      <input id="crossVoucher" class="input" style="width:100%;margin:5px 0 10px" value="${esc(v.voucher||'')}" placeholder="伝票番号を入力">
+      <p class="hint">申請者と承認者は別々のブラウザプロファイル等でログインしてください。既存の本番伝票をテスト目的で変更しないでください。監査担当の権限確認には該当アカウントが必要です。</p>
+      ${crossSteps.map(([title,desc],i)=>`<label style="display:flex;gap:10px;align-items:flex-start;margin:12px 0"><input type="checkbox" data-cross-step="${i}" ${checks[i]?'checked':''} style="margin-top:4px"><span><b>${i+1}. ${esc(title)}</b><br><small>${esc(desc)}</small></span></label>`).join('')}
+      <div class="hint" style="margin:10px 0">このチェックは担当者が手動で実施した記録です。107 PASS／1未実施の自動テスト結果は変更しません。</div>
+      <button class="btn btn-navy full" id="crossSave">手動検証記録を保存</button>
+      <button class="btn btn-ghost full" id="crossReset" style="margin-top:8px">記録を初期化</button>
+      <div id="crossFeedback" class="hint" style="margin-top:8px"></div>`;
+    $('crossSave').onclick=()=>{
+      const next={applicant:$('crossApplicant').value.trim(),approver:$('crossApprover').value.trim(),voucher:$('crossVoucher').value.trim(),checks:{},savedAt:Date.now()};
+      el.querySelectorAll('[data-cross-step]').forEach(x=>{next.checks[x.dataset.crossStep]=x.checked});
+      if(next.applicant && next.approver && next.applicant===next.approver){$('crossFeedback').textContent='申請者と承認者が同一UIDです。別アカウントで確認してください。';return}
+      crossSave(next);renderCrossUidPanel();
+    };
+    $('crossReset').onclick=()=>{if(confirm('手動検証の記録を初期化しますか？')){localStorage.removeItem(crossKey);renderCrossUidPanel()}};
+  }
+  renderCrossUidPanel();
+
+
   // v84: データ保存期間・退任・匿名統計
   const retentionPolicy=()=>({
     retiredUserYears:Math.max(0,Math.min(20,Math.round(Number($('retUserYears')?.value ?? settings.retentionPolicy?.retiredUserYears ?? 2)))),
@@ -5816,7 +5933,7 @@ function renderSettings(){
       <button class="btn btn-ghost full" id="stdAccBtn" style="margin-top:8px">📋 ${STANDARD_FY}年度 一般会計予算（案）の科目に揃える</button>
       <p class="hint">予算は入力欄から離れると保存されます。停止した科目は選択肢に出なくなりますが、過去の記録は残ります。削除は伝票で一度も使っていない科目だけできます。</p>`;
 
-    html += `<h2 class="section-title" style="margin-top:20px">支払方法</h2>` + methods.map(m=>`<div class="cat-row ${m.active?'':'inactive'}">
+    html += `<h2 class="section-title" style="margin-top:20px">支払方法</h2>` + [...methods].sort((a,b)=>Number(b.active)-Number(a.active)||(a.order??0)-(b.order??0)).map(m=>`<div class="cat-row ${m.active?'':'inactive'}">
         <span class="cat-dot" style="background:${m.settle?'var(--stamp-red)':'var(--stamp-navy)'}"></span>
         <span class="cname">${esc(m.name)}<small>${m.use==='income'?'収入用':m.use==='both'?'収支共通':'支出用'}・${m.settle?'支払った人との精算が必要':'精算不要'}</small></span>
         <button class="lnk" data-settle="${m.id}">${m.settle?'精算不要に':'要精算に'}</button><button class="lnk" data-togglem="${m.id}">${m.active?'停止':'再開'}</button></div>`).join('') +
