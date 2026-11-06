@@ -884,7 +884,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.11.03-211';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.11.07-212';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -2082,7 +2082,8 @@ async function renderCurrent(){
 function updateBadges(){
   const set = (scr,n) => { const b=document.querySelector(`.nav-btn[data-screen="${scr}"] .dot`); if(!b) return; b.style.display = n ? 'block':'none'; b.textContent = n; };
   if (isT()) {
-    set('bookScreen', allEntries().filter(e=>e.status==='submitted' && e.selfApprovalRequired!==true).length);
+    // v212: 役員承認待ちも含めた当年度の確認待ち総数。権限は従来どおり。
+    set('bookScreen', fyEntries().filter(e=>e.status==='submitted').length);
     set('settleScreen', settlePeople().filter(p=>p.ready).length);
   }
   if (isP()) {
