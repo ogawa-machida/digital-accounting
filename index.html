@@ -884,7 +884,7 @@ const firebaseConfig = {
   messagingSenderId: "864551639060",
   appId: "1:864551639060:web:0e3d1007b788433573ef01"
 };
-const APP_VERSION = '2026.11.07-212';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
+const APP_VERSION = '2026.11.07-213';   // 更新のたびに変える（画面下に表示し、古い版かどうかを見分ける）
 
 
 /* 説明文の読みやすさを整える：括弧を途中で割らず、長い説明は句点単位で改行 */
@@ -3322,9 +3322,19 @@ async function renderDetail(id){
 
   <div class="form-card"><div class="field" style="margin:0"><label>領収書類</label><div id="detailPhotos" class="detail-photos">${e.photoCount?'<p class="hint">読み込み中…</p>':'<p class="hint">写真はありません</p>'}</div></div></div>`;
 
+  // 会計・管理者が登録・最終修正した申請は、本人には承認させない。
+  // 承認ボタンの有無に関係なく、理由と次の対応を伝票詳細に明示する。
+  const ownApprovalBlocked = isT() && e.status==='submitted' &&
+    (e.createdBy===me.uid || e.lastRevisedBy===me.uid);
+  if (ownApprovalBlocked) {
+    html += `<div class="audit-box" role="alert" style="border:2px solid var(--stamp-red);margin-bottom:12px;background:#fff8f4">
+      <div style="font-weight:800;color:var(--stamp-red);margin-bottom:6px">この伝票はご自身では承認できません</div>
+      <p style="margin:0;font-size:14px;line-height:1.7">会計担当・管理者であっても、自分が申請または最終修正した伝票は自己承認できません。<b>別の承認権限を持つ担当者に確認・承認を依頼してください。</b></p>
+    </div>`;
+  }
   // 会計：承認・差戻し
   const pv = payerById(e.payerId);
-  if (isT() && e.status==='submitted' && e.createdBy!==me.uid && e.selfApprovalRequired!==true && pv && pv.provisional) {
+  if (isT() && e.status==='submitted' && !ownApprovalBlocked && e.selfApprovalRequired!==true && pv && pv.provisional) {
     const others = allEntries().filter(x=>x.payerId===pv.id && x.status==='submitted').length;
     html += `<div class="audit-box" style="border-color:var(--amber);margin-bottom:10px">
       <div style="font-weight:700;font-size:13.5px;margin-bottom:4px">🆕 はじめての申請者です</div>
@@ -3338,11 +3348,11 @@ async function renderDetail(id){
       <button class="text-link" id="gReject" style="font-size:12px;padding:6px 0 0;color:var(--stamp-red)">この人の利用を認めない</button>
     </div>`;
   }
-  if (isT() && e.status==='submitted' && e.createdBy!==me.uid) {
+  if (isT() && e.status==='submitted' && !ownApprovalBlocked) {
     if(e.cashFeeRequest) html += `<div class="audit-box" style="border-color:var(--stamp-navy);margin-bottom:10px"><div style="font-weight:700;margin-bottom:5px">現金会費の受取確認</div><p class="hint">申告：${esc(e.cashFeeBranch||'')} ${esc(e.cashFeeGroup||'')}／${Number(e.cashFeeCount)||0}世帯／${yen(e.cashFeeDeclaredAmount||e.amount)}。現金を実際に数えてから確認してください。</p><div class="btn-row"><button class="btn btn-danger" id="dReturn">差し戻す</button><button class="btn btn-moss" id="cashFeeConfirmBtn">現金を数えて受取確認</button></div></div>`;
     else html += `<div class="btn-row" style="margin-bottom:10px"><button class="btn btn-danger" id="dReturn">差し戻す</button><button class="btn btn-moss" id="dApprove">${pv&&pv.provisional?'本登録して承認する':'承認する'}</button></div>`;
   }
-  if (isViewer() && e.status==='submitted' && e.selfApprovalRequired===true && e.createdBy!==me.uid) {
+  if (isViewer() && e.status==='submitted' && e.selfApprovalRequired===true && e.createdBy!==me.uid && e.lastRevisedBy!==me.uid) {
     html += `<div class="audit-box" style="border-color:var(--amber);margin-bottom:10px"><div style="font-weight:700;font-size:13.5px;margin-bottom:4px">会計担当本人の支出です</div><p class="hint" style="margin:0 0 8px">自己承認を防ぐため、役員が内容と領収書類を確認して承認します。</p><div class="btn-row"><button class="btn btn-danger" id="dReturn">差し戻す</button><button class="btn btn-moss" id="dApprove">承認する</button></div></div>`;
   }
   // 管理者による承認後差戻し（精算済み・年度確定済みは不可）
